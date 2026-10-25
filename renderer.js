@@ -229,8 +229,8 @@ function switchAuthTab(mode) {
   $('registerForm').style.display = login ? 'none' : 'grid';
   $('authTitle').textContent = login ? 'Witaj ponownie' : 'Zacznij w Chill';
   $('authSubtitle').textContent = login
-    ? 'Zaloguj się, aby wrócić do swoich rozmów.'
-    : 'Utwórz konto i dołącz do rozmowy w kilka sekund.';
+    ? 'Zaloguj się nazwą użytkownika lub e-mailem.'
+    : 'Utwórz konto — nazwa użytkownika i hasło wystarczą.';
   $('loginError').textContent = '';
   $('registerError').textContent = '';
   setTimeout(() => (login ? $('loginIdentifier') : $('regEmail')).focus(), 40);
@@ -291,12 +291,12 @@ async function handleRegister(e) {
     color: regColor,
   };
 
-  if (!payload.email || !payload.username || !payload.password) {
-    errorEl.textContent = 'Uzupełnij e-mail, nazwę użytkownika i hasło.';
+  if (!payload.username || !payload.password) {
+    errorEl.textContent = 'Uzupełnij nazwę użytkownika i hasło.';
     return;
   }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(payload.email)) {
-    errorEl.textContent = 'Podaj poprawny adres e-mail.';
+  if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(payload.email)) {
+    errorEl.textContent = 'Podaj poprawny adres e-mail albo zostaw pole puste.';
     return;
   }
   if (!/^[a-zA-Z0-9_.]{3,20}$/.test(payload.username)) {

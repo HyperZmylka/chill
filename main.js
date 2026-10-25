@@ -65,7 +65,7 @@ function publicUser(u) {
   if (!u) return null;
   return {
     id: u.id,
-    email: u.email,
+    email: u.email || '',
     username: u.username,
     displayName: u.displayName || u.username,
     color: u.color || '#3ee0a3',
@@ -80,7 +80,7 @@ function findUserById(id) {
 
 function findUserByIdentifier(identifier) {
   const value = String(identifier || '').trim().toLowerCase();
-  return loadAccounts().users.find((u) => u.email.toLowerCase() === value || u.username.toLowerCase() === value) || null;
+  return loadAccounts().users.find((u) => (u.email && u.email.toLowerCase() === value) || (u.username && u.username.toLowerCase() === value)) || null;
 }
 
 function allPublicUsers() {
@@ -754,20 +754,21 @@ ipcMain.handle('chill:auth-register', (e, payload = {}) => {
   const password = String(payload.password || '');
   const color = /^#[0-9a-f]{6}$/i.test(String(payload.color || '')) ? payload.color : '#3ee0a3';
 
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return authError('Podaj poprawny adres e-mail.');
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return authError('Podaj poprawny adres e-mail lub zostaw pole puste.');
+  if (email.length > 254) return authError('Adres e-mail jest zbyt długi.');
   if (!/^[a-zA-Z0-9_.]{3,20}$/.test(username)) return authError('Nazwa użytkownika: 3–20 znaków (litery, cyfry, _ i .).');
   if (displayName.length < 2 || displayName.length > 32) return authError('Nazwa wyświetlana musi mieć 2–32 znaki.');
   if (password.length < 8) return authError('Hasło musi mieć co najmniej 8 znaków.');
   if (password.length > 128) return authError('Hasło jest zbyt długie.');
 
   const store = loadAccounts();
-  if (store.users.some((u) => u.email.toLowerCase() === email)) return authError('Konto z tym adresem e-mail już istnieje.');
+  if (email && store.users.some((u) => u.email && u.email.toLowerCase() === email)) return authError('Konto z tym adresem e-mail już istnieje.');
   if (store.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) return authError('Ta nazwa użytkownika jest już zajęta.');
 
   const { salt, hash } = hashPassword(password);
   const user = {
     id: crypto.randomUUID(),
-    email,
+    email: email || '',
     username,
     displayName: displayName.slice(0, 32),
     color,

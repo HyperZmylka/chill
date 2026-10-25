@@ -53,13 +53,13 @@
 
       <div class="auth-heading">
         <h2 id="authTitle">Witaj ponownie</h2>
-        <p id="authSubtitle">Zaloguj się, aby wrócić do swoich rozmów.</p>
+        <p id="authSubtitle">Zaloguj się nazwą użytkownika lub e-mailem.</p>
       </div>
 
       <form class="auth-form" id="loginForm" novalidate>
         <label class="field">
-          <span>E-mail lub nazwa użytkownika</span>
-          <input type="text" id="loginIdentifier" autocomplete="username" placeholder="np. ty@chill.app" spellcheck="false">
+          <span>Nazwa użytkownika lub e-mail</span>
+          <input type="text" id="loginIdentifier" autocomplete="username" placeholder="np. kasia lub ty@chill.app" spellcheck="false">
         </label>
 
         <label class="field">
@@ -92,12 +92,12 @@
       <form class="auth-form" id="registerForm" novalidate style="display:none">
         <div class="field-grid">
           <label class="field">
-            <span>E-mail</span>
-            <input type="email" id="regEmail" autocomplete="email" placeholder="ty@chill.app" spellcheck="false">
-          </label>
-          <label class="field">
             <span>Nazwa użytkownika</span>
             <input type="text" id="regUsername" autocomplete="username" placeholder="np. kasia" maxlength="20" spellcheck="false">
+          </label>
+          <label class="field">
+            <span>E-mail <small>opcjonalnie</small></span>
+            <input type="email" id="regEmail" autocomplete="email" placeholder="np. ty@chill.app" spellcheck="false">
           </label>
         </div>
 

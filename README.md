@@ -4,7 +4,7 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 
 ## Funkcje
 
-- **Konta e-mail + hasło** — rejestracja, logowanie, „Zapamiętaj mnie”, profil, zmiana hasła.
+- **Konta bez e-maila** — rejestracja i logowanie samą nazwą użytkownika + hasłem; e-mail jest opcjonalny.
 - **Pokoje i wiadomości prywatne** — Lounge, Gaming, Muzyka, Memy oraz rozmowy 1:1.
 - **Trwała historia** — pokoje i DM-y zapisują się lokalnie i wracają po restarcie.
 - **Emoji** — picker z wyszukiwarką i listą ostatnio używanych.
