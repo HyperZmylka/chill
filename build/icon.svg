@@ -1,15 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
   <defs>
-    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#ff6b4a"/>
-      <stop offset="100%" stop-color="#ff8c66"/>
+    <linearGradient id="chillGradient" x1="72" y1="56" x2="452" y2="468" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5af2c0"/>
+      <stop offset="0.48" stop-color="#3ee0a3"/>
+      <stop offset="1" stop-color="#7cc8ff"/>
     </linearGradient>
-    <filter id="s" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#000" flood-opacity="0.35"/>
-    </filter>
+    <radialGradient id="chillGlow" cx="0" cy="0" r="1" gradientTransform="translate(168 128) rotate(48) scale(360)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffffff" stop-opacity="0.34"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="chillShade" x1="256" y1="330" x2="256" y2="492" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#04231a" stop-opacity="0"/>
+      <stop offset="1" stop-color="#04231a" stop-opacity="0.22"/>
+    </linearGradient>
+    <clipPath id="chillClip">
+      <rect x="30" y="30" width="452" height="452" rx="118"/>
+    </clipPath>
   </defs>
-  <rect width="1024" height="1024" rx="260" fill="#0f1115"/>
-  <path d="M260 260 L764 260 L764 764 L260 764 Z" fill="url(#g)" filter="url(#s)" opacity="0.92"/>
-  <path d="M340 340 L684 340 L684 684 L340 684 Z" fill="none" stroke="#fff" stroke-width="14" stroke-linejoin="round" opacity="0.16"/>
-  <text x="512" y="560" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="170" font-weight="900" fill="#fff" text-anchor="middle" letter-spacing="-8">YC</text>
+
+  <g clip-path="url(#chillClip)">
+    <rect x="30" y="30" width="452" height="452" rx="118" fill="url(#chillGradient)"/>
+    <rect x="30" y="30" width="452" height="452" fill="url(#chillGlow)"/>
+    <rect x="30" y="300" width="452" height="182" fill="url(#chillShade)"/>
+    <path d="M30 146C126 84 228 60 330 84C392 99 436 130 482 170V30H30Z" fill="#ffffff" opacity="0.10"/>
+  </g>
+
+  <path
+    d="M348 151 A140 140 0 1 0 348 361"
+    fill="none"
+    stroke="#06261b"
+    stroke-width="74"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <circle cx="375" cy="124" r="11" fill="#ffffff" opacity="0.65"/>
+  <rect x="31.5" y="31.5" width="449" height="449" rx="116.5" fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="3"/>
 </svg>

@@ -1,18 +1,20 @@
-// Yapper Chat - nowoczesny komunikator desktopowy
-// Automatyczne aktualizacje z GitHub Releases
+// Chill - komunikator desktopowy
+// Konta lokalne, czat WebSocket, automatyczne aktualizacje z GitHub Releases
 const { app, BrowserWindow, Menu, Tray, nativeImage, shell, session, desktopCapturer, ipcMain, Notification } = require('electron');
 const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
+const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { WebSocketServer } = require('ws');
+
+app.setName('Chill');
 
 const ICON = path.join(__dirname, 'build', 'icon.png');
 
 // ================= KONFIGURACJA GITHUB =================
-// ZMIEŹ TO NA SWÓJ REPOSITORIUM, np. 'TwojaNazwa/yapper-chat'
-const GITHUB_REPO = 'HyperZmylka/yapper-chat';
+const GITHUB_REPO = 'HyperZmylka/chill';
 // =======================================================
 
 const ALLOWED_HOSTS = new Set(['localhost', '127.0.0.1']);
@@ -26,30 +28,216 @@ let updateCheckInterval = null;
 let wss = null;
 let httpServer = null;
 
-// ---------- Użytkownicy i pokoje ----------
-const users = new Map();
-const rooms = new Map();
-const userSockets = new Map();
+// ---------- Ścieżki danych ----------
+function dataDir() {
+  const dir = app.getPath('userData');
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+const accountsPath = () => path.join(dataDir(), 'accounts.json');
+const chatDataPath = () => path.join(dataDir(), 'chat-data.json');
 
-const ME = {
-  id: 'me',
-  name: 'Ty',
-  color: '#ff6b4a',
-  avatar: 'https://api.dicebear.com/7.x/avataaars/svg?seed=You',
-  status: 'online',
-  playing: null,
-};
+// ---------- Konta ----------
+let accountStore = null;
+let volatileSession = null;
 
-// ---------- Pomocnicze ----------
-function esc(t) {
-  return String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+function loadAccounts() {
+  if (accountStore) return accountStore;
+  try {
+    accountStore = JSON.parse(fs.readFileSync(accountsPath(), 'utf8'));
+  } catch {
+    accountStore = {};
+  }
+  if (!Array.isArray(accountStore.users)) accountStore.users = [];
+  if (!accountStore.session || typeof accountStore.session !== 'object') accountStore.session = null;
+  return accountStore;
 }
 
-function ownUrl(url) {
+function saveAccounts() {
   try {
-    const u = new URL(url);
-    return ALLOWED_HOSTS.has(u.hostname) || u.protocol === 'yapper-chat:';
-  } catch { return false; }
+    fs.writeFileSync(accountsPath(), JSON.stringify(accountStore, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[auth] Nie udało się zapisać kont:', err.message);
+  }
+}
+
+function publicUser(u) {
+  if (!u) return null;
+  return {
+    id: u.id,
+    email: u.email,
+    username: u.username,
+    displayName: u.displayName || u.username,
+    color: u.color || '#3ee0a3',
+    about: u.about || '',
+    createdAt: u.createdAt,
+  };
+}
+
+function findUserById(id) {
+  return loadAccounts().users.find((u) => u.id === id) || null;
+}
+
+function findUserByIdentifier(identifier) {
+  const value = String(identifier || '').trim().toLowerCase();
+  return loadAccounts().users.find((u) => u.email.toLowerCase() === value || u.username.toLowerCase() === value) || null;
+}
+
+function allPublicUsers() {
+  return loadAccounts().users.map(publicUser);
+}
+
+function hashPassword(password, salt = crypto.randomBytes(16).toString('hex')) {
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return { salt, hash };
+}
+
+function verifyPassword(password, salt, hash) {
+  try {
+    const candidate = crypto.scryptSync(password, salt, 64);
+    const expected = Buffer.from(hash, 'hex');
+    return expected.length === candidate.length && crypto.timingSafeEqual(candidate, expected);
+  } catch {
+    return false;
+  }
+}
+
+function issueSession(user, remember) {
+  const record = { token: crypto.randomBytes(32).toString('hex'), userId: user.id, createdAt: Date.now() };
+  if (remember) {
+    loadAccounts().session = record;
+    saveAccounts();
+    volatileSession = null;
+  } else {
+    volatileSession = record;
+  }
+  return publicUser(user);
+}
+
+function activeSession() {
+  const record = loadAccounts().session || volatileSession;
+  if (!record) return null;
+  const user = findUserById(record.userId);
+  if (!user) {
+    loadAccounts().session = null;
+    saveAccounts();
+    volatileSession = null;
+    return null;
+  }
+  return publicUser(user);
+}
+
+// Ograniczenie prób logowania
+const loginAttempts = new Map();
+function loginLockRemaining(key) {
+  const entry = loginAttempts.get(key);
+  if (!entry) return 0;
+  if (entry.until && entry.until > Date.now()) return entry.until - Date.now();
+  if (entry.until && entry.until <= Date.now()) loginAttempts.delete(key);
+  return 0;
+}
+function noteFailedLogin(key) {
+  const entry = loginAttempts.get(key) || { count: 0, until: 0 };
+  entry.count += 1;
+  if (entry.count >= 5) {
+    entry.until = Date.now() + 60_000;
+    entry.count = 0;
+  }
+  loginAttempts.set(key, entry);
+}
+function clearLoginAttempts(key) {
+  loginAttempts.delete(key);
+}
+
+// ---------- Historia czatu ----------
+let chatStore = null;
+let chatSaveTimer = null;
+
+function loadChatStore() {
+  if (chatStore) return chatStore;
+  try {
+    chatStore = JSON.parse(fs.readFileSync(chatDataPath(), 'utf8'));
+  } catch {
+    chatStore = {};
+  }
+  if (!chatStore.rooms || typeof chatStore.rooms !== 'object') chatStore.rooms = {};
+  if (!chatStore.dms || typeof chatStore.dms !== 'object') chatStore.dms = {};
+  return chatStore;
+}
+
+function scheduleChatSave() {
+  clearTimeout(chatSaveTimer);
+  chatSaveTimer = setTimeout(() => {
+    try {
+      fs.writeFileSync(chatDataPath(), JSON.stringify(chatStore), 'utf8');
+    } catch (err) {
+      console.error('[chat] Nie udało się zapisać historii:', err.message);
+    }
+  }, 400);
+}
+
+function dmKey(a, b) {
+  return [String(a), String(b)].sort().join('|');
+}
+
+// ---------- Użytkownicy online i pokoje ----------
+const users = new Map();
+const userSockets = new Map();
+const rooms = new Map();
+
+const ROOM_DEFS = [
+  { id: 'lounge', name: 'Lounge', emoji: '☕', topic: 'Przywitaj się i pogadaj o wszystkim' },
+  { id: 'gaming', name: 'Gaming', emoji: '🎮', topic: 'Gry, co-op i turnieje' },
+  { id: 'muzyka', name: 'Muzyka', emoji: '🎧', topic: 'Czego teraz słuchasz?' },
+  { id: 'memy', name: 'Memy', emoji: '😂', topic: 'Najlepsze znaleziska z internetu' },
+];
+
+function ensureRooms() {
+  loadChatStore();
+  for (const def of ROOM_DEFS) {
+    if (!rooms.has(def.id)) {
+      rooms.set(def.id, {
+        id: def.id,
+        name: def.name,
+        emoji: def.emoji,
+        topic: def.topic,
+        members: new Set(),
+        messages: Array.isArray(chatStore.rooms[def.id]) ? chatStore.rooms[def.id] : [],
+      });
+    }
+  }
+}
+
+function userColorFor(name) {
+  let hash = 0;
+  for (let i = 0; i < String(name).length; i++) hash = (hash * 31 + String(name).charCodeAt(i)) | 0;
+  return `hsl(${Math.abs(hash) % 360}, 68%, 62%)`;
+}
+
+function usersPayload() {
+  const live = users;
+  return allPublicUsers().map((u) => {
+    const record = live.get(u.id);
+    const online = Boolean(record) && record.status !== 'invisible';
+    return {
+      id: u.id,
+      name: u.displayName || u.username,
+      username: u.username,
+      color: u.color,
+      about: u.about,
+      status: online ? record.status : 'offline',
+      playing: online ? record.playing : null,
+      online,
+      lastSeen: record ? record.lastSeen : null,
+    };
+  });
+}
+
+function broadcastGlobal(type, payload) {
+  const msg = JSON.stringify({ type, ...payload, at: Date.now() });
+  for (const ws of userSockets.values()) {
+    if (ws && ws.readyState === 1) ws.send(msg);
+  }
 }
 
 function broadcastToRoom(roomId, type, payload) {
@@ -62,32 +250,10 @@ function broadcastToRoom(roomId, type, payload) {
   }
 }
 
-function broadcastGlobal(type, payload) {
-  const msg = JSON.stringify({ type, ...payload, at: Date.now() });
-  for (const ws of userSockets.values()) {
-    if (ws && ws.readyState === 1) ws.send(msg);
-  }
-}
-
-function userColorFor(name) {
-  let hash = 0;
-  for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
-  const hue = Math.abs(hash) % 360;
-  return `hsl(${hue}, 70%, 60%)`;
-}
-
-function ensureDefaultRooms() {
-  if (rooms.size === 0) {
-    rooms.set('general', { id: 'general', name: 'Ogólny', type: 'public', members: new Set(['me']), messages: [] });
-    rooms.set('random', { id: 'random', name: 'Random', type: 'public', members: new Set(['me']), messages: [] });
-    rooms.set('gaming', { id: 'gaming', name: 'Gaming', type: 'public', members: new Set(['me']), messages: [] });
-  }
-}
-
-// ---------- Porównanie wersji (semver proste) ----------
+// ---------- Porównanie wersji ----------
 function compareVersions(v1, v2) {
-  const p1 = v1.replace(/^v/, '').split('.').map(Number);
-  const p2 = v2.replace(/^v/, '').split('.').map(Number);
+  const p1 = String(v1).replace(/^v/, '').split('.').map(Number);
+  const p2 = String(v2).replace(/^v/, '').split('.').map(Number);
   for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
     const a = p1[i] || 0;
     const b = p2[i] || 0;
@@ -97,44 +263,37 @@ function compareVersions(v1, v2) {
   return 0;
 }
 
-// ---------- Automatyczne aktualizacje z GitHub ----------
+// ---------- Automatyczne aktualizacje ----------
 async function checkForUpdates() {
-  if (GITHUB_REPO === 'TWOJA-NAZWA-UZYTKOWNIKA/yapper-chat') {
-    console.log('[updater] Ustaw własne repozytorium w GITHUB_REPO w main.js');
-    return null;
-  }
   try {
     const currentVersion = app.getVersion();
-    const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`);
+    const response = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: { 'user-agent': `Chill/${currentVersion}`, accept: 'application/vnd.github+json' },
+    });
     if (!response.ok) {
       console.error('[updater] GitHub API error:', response.status);
       return null;
     }
     const data = await response.json();
-    const latestTag = data.tag_name || data.name || '0.0.0';
-    const cleanTag = latestTag.replace(/^v/, '');
+    const cleanTag = String(data.tag_name || data.name || '0.0.0').replace(/^v/, '');
 
     if (compareVersions(cleanTag, currentVersion) > 0) {
-      // Szukaj pliku .exe do pobrania
       let downloadUrl = data.html_url;
-      if (data.assets && Array.isArray(data.assets)) {
-        const exeAsset = data.assets.find((a) => a.name && a.name.endsWith('.exe'));
-        if (exeAsset) downloadUrl = exeAsset.browser_download_url;
+      if (Array.isArray(data.assets)) {
+        const assets = data.assets.filter((a) => a.name && a.name.toLowerCase().endsWith('.exe'));
+        const setup = assets.find((a) => /setup|install|chill/i.test(a.name)) || assets[0];
+        if (setup) downloadUrl = setup.browser_download_url;
       }
 
       updateReady = cleanTag;
       updateInfo = { version: cleanTag, url: downloadUrl, notes: data.body || '' };
 
       if (win && !win.isDestroyed()) {
-        win.webContents.send('yapper:update-ready', {
-          version: cleanTag,
-          url: downloadUrl,
-          notes: data.body || '',
-        });
+        win.webContents.send('chill:update-ready', updateInfo);
       }
-      console.log(`[updater] Nowa wersja: ${cleanTag}, obecna: ${currentVersion}`);
+      console.log(`[updater] Nowa wersja: ${cleanTag} (obecna: ${currentVersion})`);
     } else {
-      console.log(`[updater] Brak aktualizacji (obecna: ${currentVersion}, najnowsza: ${cleanTag})`);
+      console.log(`[updater] Aktualna wersja: ${currentVersion} (najnowsza: ${cleanTag})`);
     }
     return updateInfo;
   } catch (err) {
@@ -145,15 +304,13 @@ async function checkForUpdates() {
 
 function scheduleUpdateCheck() {
   if (updateCheckInterval) clearInterval(updateCheckInterval);
-  // Sprawdź po 5 sekundach od startu
   setTimeout(checkForUpdates, 5000);
-  // Co 4 godziny
   updateCheckInterval = setInterval(checkForUpdates, 4 * 60 * 60 * 1000);
 }
 
 // ---------- Serwer HTTP + WebSocket ----------
 function startChatServer(port = 47830) {
-  ensureDefaultRooms();
+  ensureRooms();
   httpServer = http.createServer((req, res) => {
     const { pathname } = new URL(req.url, `http://localhost:${port}`);
     res.setHeader('access-control-allow-origin', '*');
@@ -165,14 +322,13 @@ function startChatServer(port = 47830) {
         hasUpdate: Boolean(updateInfo && compareVersions(updateInfo.version, app.getVersion()) > 0),
         currentVersion: app.getVersion(),
         latestVersion: updateInfo ? updateInfo.version : app.getVersion(),
-        version: updateInfo ? updateInfo.version : app.getVersion(),
         url: updateInfo ? updateInfo.url : '',
         notes: updateInfo ? updateInfo.notes : '',
       }));
     }
 
     res.writeHead(200);
-    res.end(JSON.stringify({ ok: true, app: 'yapper-chat', version: app.getVersion() }));
+    res.end(JSON.stringify({ ok: true, app: 'chill', version: app.getVersion() }));
   });
 
   wss = new WebSocketServer({ server: httpServer, path: '/chat' });
@@ -180,17 +336,34 @@ function startChatServer(port = 47830) {
   wss.on('connection', (ws) => {
     let currentUserId = null;
 
+    const send = (payload) => {
+      if (ws.readyState === 1) ws.send(JSON.stringify(payload));
+    };
+
     ws.on('message', (raw) => {
       try {
         const msg = JSON.parse(raw.toString('utf8'));
+
         switch (msg.type) {
           case 'join': {
-            currentUserId = msg.userId || 'me';
+            const account = findUserById(msg.userId);
+            if (!account) {
+              send({ type: 'auth-error', message: 'Sesja wygasła. Zaloguj się ponownie.' });
+              return;
+            }
+            if (currentUserId && currentUserId !== account.id) {
+              const previous = users.get(currentUserId);
+              if (previous) previous.status = 'offline';
+              userSockets.delete(currentUserId);
+            }
+
+            currentUserId = account.id;
             const user = {
-              id: currentUserId,
-              name: msg.name || 'Użytkownik',
-              color: msg.color || userColorFor(msg.name || 'Użytkownik'),
-              avatar: msg.avatar || ME.avatar,
+              id: account.id,
+              name: account.displayName || account.username,
+              color: account.color || userColorFor(account.username),
+              avatar: '',
+              about: account.about || '',
               status: 'online',
               playing: msg.playing || null,
               since: Date.now(),
@@ -199,36 +372,52 @@ function startChatServer(port = 47830) {
             users.set(currentUserId, user);
             userSockets.set(currentUserId, ws);
 
-            for (const [roomId, room] of rooms) {
-              room.members.add(currentUserId);
+            for (const room of rooms.values()) room.members.add(currentUserId);
+
+            const dmHistory = {};
+            for (const [key, list] of Object.entries(loadChatStore().dms)) {
+              const [a, b] = key.split('|');
+              if (a === currentUserId || b === currentUserId) dmHistory[key] = list.slice(-300);
             }
 
-            ws.send(JSON.stringify({ type: 'joined', userId: currentUserId, me: ME, users: [...users.values()], rooms: [...rooms.entries()].map(([id, r]) => ({ id: r.id, name: r.name, type: r.type, memberCount: r.members.size, messages: r.messages.slice(-200), lastMessage: r.messages[r.messages.length - 1] || null })) }));
-            broadcastGlobal('user:joined', { user });
+            send({
+              type: 'joined',
+              userId: currentUserId,
+              users: usersPayload(),
+              rooms: [...rooms.values()].map((r) => ({
+                id: r.id,
+                name: r.name,
+                emoji: r.emoji,
+                topic: r.topic,
+                messages: r.messages.slice(-300),
+                lastMessage: r.messages[r.messages.length - 1] || null,
+              })),
+              dmHistory,
+            });
+            broadcastGlobal('user:update', { users: usersPayload() });
             break;
           }
 
           case 'message': {
-            const { roomId, text, replyTo } = msg;
+            const { roomId, text } = msg;
             if (!currentUserId || !roomId || !text) return;
             const user = users.get(currentUserId);
-            if (!user) return;
             const room = rooms.get(roomId);
-            if (!room || !room.members.has(currentUserId)) return;
+            if (!user || !room || !room.members.has(currentUserId)) return;
 
             const message = {
-              id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              id: `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
               roomId,
               authorId: currentUserId,
               authorName: user.name,
               authorColor: user.color,
-              authorAvatar: user.avatar,
-              text: String(text).slice(0, 2000),
-              replyTo: replyTo || null,
+              text: String(text).slice(0, 4000),
               at: Date.now(),
             };
             room.messages.push(message);
             if (room.messages.length > 500) room.messages.shift();
+            loadChatStore().rooms[roomId] = room.messages;
+            scheduleChatSave();
             broadcastToRoom(roomId, 'message', { message });
             break;
           }
@@ -237,24 +426,31 @@ function startChatServer(port = 47830) {
             const { to, text } = msg;
             if (!currentUserId || !to || !text) return;
             const user = users.get(currentUserId);
-            const targetUser = users.get(to);
-            if (!user || !targetUser) return;
+            if (!user) return;
+            const target = findUserById(to);
+            if (!target) return;
 
             const message = {
-              id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              id: `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
               authorId: currentUserId,
               authorName: user.name,
               authorColor: user.color,
-              authorAvatar: user.avatar,
               to,
-              text: String(text).slice(0, 2000),
+              text: String(text).slice(0, 4000),
               at: Date.now(),
             };
 
-            const dmMsg = JSON.stringify({ type: 'dm', message });
-            if (ws && ws.readyState === 1) ws.send(dmMsg);
+            const key = dmKey(currentUserId, to);
+            const store = loadChatStore().dms;
+            if (!Array.isArray(store[key])) store[key] = [];
+            store[key].push(message);
+            if (store[key].length > 500) store[key].shift();
+            scheduleChatSave();
+
+            const payload = { type: 'dm', message };
+            send(payload);
             const targetWs = userSockets.get(to);
-            if (targetWs && targetWs.readyState === 1) targetWs.send(dmMsg);
+            if (targetWs && targetWs.readyState === 1) targetWs.send(JSON.stringify(payload));
             break;
           }
 
@@ -275,54 +471,74 @@ function startChatServer(port = 47830) {
             if (!currentUserId || !roomId) return;
             const user = users.get(currentUserId);
             if (!user) return;
-            broadcastToRoom(roomId, 'user:typing', { userId: currentUserId, name: user.name, typing: Boolean(typing) });
+            broadcastToRoom(roomId, 'user:typing', { roomId, userId: currentUserId, name: user.name, typing: Boolean(typing) });
             break;
           }
 
           case 'activity': {
-            const { playing } = msg;
             if (!currentUserId) return;
             const user = users.get(currentUserId);
-            if (user) {
-              user.playing = playing || null;
-              user.lastSeen = Date.now();
-              broadcastGlobal('user:activity', { userId: currentUserId, playing: user.playing });
-            }
+            if (!user) return;
+            user.playing = msg.playing || null;
+            user.lastSeen = Date.now();
+            broadcastGlobal('user:update', { users: usersPayload() });
             break;
           }
 
           case 'status': {
-            const { status } = msg;
             if (!currentUserId) return;
             const user = users.get(currentUserId);
-            if (user) {
-              user.status = status;
-              user.lastSeen = Date.now();
-              broadcastGlobal('user:status', { userId: currentUserId, status });
+            if (!user) return;
+            const allowed = ['online', 'away', 'dnd', 'invisible'];
+            user.status = allowed.includes(msg.status) ? msg.status : 'online';
+            user.lastSeen = Date.now();
+            broadcastGlobal('user:update', { users: usersPayload() });
+            break;
+          }
+
+          case 'profile': {
+            if (!currentUserId) return;
+            const account = findUserById(currentUserId);
+            const user = users.get(currentUserId);
+            if (!account || !user) return;
+            if (typeof msg.displayName === 'string' && msg.displayName.trim()) {
+              account.displayName = msg.displayName.trim().slice(0, 32);
+              user.name = account.displayName;
             }
+            if (typeof msg.color === 'string' && /^#[0-9a-f]{6}$/i.test(msg.color)) {
+              account.color = msg.color;
+              user.color = msg.color;
+            }
+            if (typeof msg.about === 'string') {
+              account.about = msg.about.slice(0, 160);
+              user.about = account.about;
+            }
+            saveAccounts();
+            broadcastGlobal('user:update', { users: usersPayload() });
+            send({ type: 'profile:updated', user: publicUser(account) });
             break;
           }
 
           case 'users': {
-            ws.send(JSON.stringify({ type: 'users:list', users: [...users.values()] }));
+            send({ type: 'users:list', users: usersPayload() });
             break;
           }
         }
-      } catch (err) {
-        // ignore malformed messages
+      } catch {
+        // niepoprawna ramka - ignorujemy
       }
     });
 
     ws.on('close', () => {
       if (currentUserId) {
         const user = users.get(currentUserId);
-        if (user) {
-          user.status = 'offline';
-          user.lastSeen = Date.now();
-          broadcastGlobal('user:left', { userId: currentUserId, user });
-        }
+        if (user) user.status = 'offline';
         userSockets.delete(currentUserId);
         for (const room of rooms.values()) room.members.delete(currentUserId);
+        if (user) {
+          users.delete(currentUserId);
+          broadcastGlobal('user:update', { users: usersPayload() });
+        }
       }
       currentUserId = null;
     });
@@ -330,24 +546,27 @@ function startChatServer(port = 47830) {
     ws.on('error', () => {});
   });
 
+  httpServer.on('error', (err) => {
+    console.error('[chat] Serwer:', err.message);
+  });
+
   httpServer.listen(port, () => {
-    console.log(`[yapper-chat] Serwer czatu na http://127.0.0.1:${port}`);
+    console.log(`[chill] Serwer czatu: http://127.0.0.1:${port}`);
   });
 }
 
 // ---------- Okno ----------
 function createWindow() {
   win = new BrowserWindow({
-    width: 1280,
-    height: 820,
-    minWidth: 700,
-    minHeight: 500,
-    backgroundColor: '#0f1115',
+    width: 1320,
+    height: 860,
+    minWidth: 940,
+    minHeight: 600,
+    backgroundColor: '#0a0f0d',
     icon: ICON,
     autoHideMenuBar: true,
     show: false,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 16 },
+    title: 'Chill',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -358,14 +577,13 @@ function createWindow() {
     },
   });
 
-  win.once('ready-to-show', () => { win.show(); });
-  win.on('show', () => { });
+  win.once('ready-to-show', () => { if (!process.argv.includes('--hidden')) win.show(); });
 
   const wc = win.webContents;
 
   wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
     if (!isMainFrame || code === -3 || String(url).startsWith('data:')) return;
-    showLoadError('Nie można połączyć z czatem', `${desc || 'Błąd ładowania'} (${code})`);
+    showLoadError('Nie można wczytać Chill', `${desc || 'Błąd ładowania'} (${code})`);
   });
 
   wc.setWindowOpenHandler(({ url }) => {
@@ -373,18 +591,20 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  win.webContents.on('before-input-event', (e, input) => {
+  wc.on('before-input-event', (e, input) => {
     if (input.type !== 'keyDown') return;
     if (input.key === 'F11') {
       e.preventDefault();
       win.setFullScreen(!win.isFullScreen());
+    } else if (input.key === 'F12') {
+      e.preventDefault();
+      wc.toggleDevTools();
     } else if (input.key === 'Escape' && win.isFullScreen()) {
       win.setFullScreen(false);
     }
   });
 
-  const indexPath = path.join(__dirname, 'index.html');
-  win.loadFile(indexPath).catch(() => undefined);
+  win.loadFile(path.join(__dirname, 'index.html')).catch(() => undefined);
 
   win.on('close', (e) => {
     if (quitting) return;
@@ -409,11 +629,11 @@ function show() {
 
 function showLoadError(title, detail) {
   if (!win || win.isDestroyed()) return;
-  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Yapper Chat</title><style>
-html,body{margin:0;height:100%;background:#0f1115;color:#e8eaed;font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}
-.card{max-width:400px}h1{font-size:22px;margin:0 0 8px;color:#fff}p{margin:0 0 20px;color:#94a3b8}
-a.btn{display:inline-block;padding:10px 22px;border-radius:10px;background:#ff6b4a;color:#fff;font-weight:600;text-decoration:none}
-a.btn:hover{background:#ff8264}
+  const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>Chill</title><style>
+html,body{margin:0;height:100%;background:#0a0f0d;color:#eaf5ef;font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}
+.card{max-width:420px}h1{font-size:22px;margin:0 0 8px;color:#fff}p{margin:0 0 20px;color:#93a89e}
+a.btn{display:inline-block;padding:10px 22px;border-radius:12px;background:#3ee0a3;color:#04231a;font-weight:700;text-decoration:none}
 </style></head><body><div class="card"><h1>${esc(title)}</h1><p>${esc(detail)}</p><a class="btn" href="javascript:location.reload()">Spróbuj ponownie</a></div></body></html>`;
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).catch(() => undefined);
   if (win.isVisible()) show();
@@ -423,20 +643,26 @@ a.btn:hover{background:#ff8264}
 function createTray() {
   const img = nativeImage.createFromPath(ICON).resize({ width: 18, height: 18 });
   tray = new Tray(img);
-  tray.setToolTip('Yapper Chat');
+  tray.setToolTip('Chill');
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Otwórz Yapper Chat', click: show },
+    { label: 'Otwórz Chill', click: show },
     { type: 'separator' },
     { label: 'Sprawdź aktualizacje', click: () => { checkForUpdates().catch(() => {}); } },
-    { label: 'Uruchamiaj z Windows', type: 'checkbox', checked: app.getLoginItemSettings().openAtLogin, visible: process.platform === 'win32', click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked, args: ['--hidden'] }) },
+    {
+      label: 'Uruchamiaj z Windows',
+      type: 'checkbox',
+      checked: app.getLoginItemSettings().openAtLogin,
+      visible: process.platform === 'win32',
+      click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked, args: ['--hidden'] }),
+    },
     { type: 'separator' },
-    { label: 'Wyjdź z Yapper Chat', click: () => { quitting = true; app.quit(); } },
+    { label: 'Wyjdź z Chill', click: () => { quitting = true; app.quit(); } },
   ]));
   tray.on('click', show);
   tray.on('double-click', show);
 }
 
-// ---------- Wykrywanie granej gry ----------
+// ---------- Wykrywanie gry ----------
 let lastGame = null;
 let misses = 0;
 
@@ -501,28 +727,183 @@ async function pollGames() {
       found = hit ? hit[1] : null;
     }
     if (found === lastGame) misses = 0;
-    else if (found === null && ++misses < 2) { /* keep */ }
-    else { misses = 0; lastGame = found; if (win) win.webContents.send('yapper:activity', found); }
-  } finally { polling = false; }
+    else if (found === null && ++misses < 2) { /* zachowaj poprzedni */ }
+    else {
+      misses = 0;
+      lastGame = found;
+      if (win) win.webContents.send('chill:activity', found);
+    }
+  } finally {
+    polling = false;
+  }
 }
 
-// ---------- Most IPC ----------
-ipcMain.on('yapper:badge', (e, count) => {
-  if (process.platform === 'darwin') app.dock?.setBadge(count > 0 ? String(count) : '');
+// ---------- Autoryzacja (IPC) ----------
+function authError(message) {
+  return { ok: false, error: message };
+}
+
+ipcMain.handle('chill:auth-session', () => {
+  return { ok: true, user: activeSession() };
+});
+
+ipcMain.handle('chill:auth-register', (e, payload = {}) => {
+  const email = String(payload.email || '').trim().toLowerCase();
+  const username = String(payload.username || '').trim();
+  const displayName = String(payload.displayName || '').trim() || username;
+  const password = String(payload.password || '');
+  const color = /^#[0-9a-f]{6}$/i.test(String(payload.color || '')) ? payload.color : '#3ee0a3';
+
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return authError('Podaj poprawny adres e-mail.');
+  if (!/^[a-zA-Z0-9_.]{3,20}$/.test(username)) return authError('Nazwa użytkownika: 3–20 znaków (litery, cyfry, _ i .).');
+  if (displayName.length < 2 || displayName.length > 32) return authError('Nazwa wyświetlana musi mieć 2–32 znaki.');
+  if (password.length < 8) return authError('Hasło musi mieć co najmniej 8 znaków.');
+  if (password.length > 128) return authError('Hasło jest zbyt długie.');
+
+  const store = loadAccounts();
+  if (store.users.some((u) => u.email.toLowerCase() === email)) return authError('Konto z tym adresem e-mail już istnieje.');
+  if (store.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) return authError('Ta nazwa użytkownika jest już zajęta.');
+
+  const { salt, hash } = hashPassword(password);
+  const user = {
+    id: crypto.randomUUID(),
+    email,
+    username,
+    displayName: displayName.slice(0, 32),
+    color,
+    about: '',
+    salt,
+    hash,
+    createdAt: Date.now(),
+  };
+  store.users.push(user);
+  saveAccounts();
+  const sessionUser = issueSession(user, true);
+  return { ok: true, user: sessionUser };
+});
+
+ipcMain.handle('chill:auth-login', (e, payload = {}) => {
+  const identifier = String(payload.identifier || '').trim().toLowerCase();
+  const password = String(payload.password || '');
+  const remember = Boolean(payload.remember);
+
+  if (!identifier || !password) return authError('Podaj login i hasło.');
+
+  const lock = loginLockRemaining(identifier);
+  if (lock > 0) {
+    const seconds = Math.ceil(lock / 1000);
+    return authError(`Zbyt wiele prób. Spróbuj ponownie za ${seconds} s.`);
+  }
+
+  const user = findUserByIdentifier(identifier);
+  if (!user || !verifyPassword(password, user.salt, user.hash)) {
+    noteFailedLogin(identifier);
+    return authError('Nieprawidłowy login lub hasło.');
+  }
+
+  clearLoginAttempts(identifier);
+  if (!remember) {
+    loadAccounts().session = null;
+    saveAccounts();
+  }
+  const sessionUser = issueSession(user, remember);
+  return { ok: true, user: sessionUser };
+});
+
+ipcMain.handle('chill:auth-logout', () => {
+  loadAccounts().session = null;
+  saveAccounts();
+  volatileSession = null;
+  return { ok: true };
+});
+
+ipcMain.handle('chill:auth-update-profile', (e, payload = {}) => {
+  const current = activeSession();
+  if (!current) return authError('Sesja wygasła. Zaloguj się ponownie.');
+  const account = findUserById(current.id);
+  if (!account) return authError('Konto nie istnieje.');
+
+  const displayName = String(payload.displayName || '').trim();
+  const about = String(payload.about || '').trim();
+  const color = String(payload.color || '');
+
+  if (displayName.length < 2 || displayName.length > 32) return authError('Nazwa musi mieć 2–32 znaki.');
+  if (about.length > 160) return authError('Opis może mieć maksymalnie 160 znaków.');
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return authError('Wybierz poprawny kolor.');
+
+  account.displayName = displayName;
+  account.about = about;
+  account.color = color;
+  saveAccounts();
+
+  const live = users.get(account.id);
+  if (live) {
+    live.name = displayName;
+    live.color = color;
+    live.about = about;
+  }
+  return { ok: true, user: publicUser(account) };
+});
+
+ipcMain.handle('chill:auth-change-password', (e, payload = {}) => {
+  const current = activeSession();
+  if (!current) return authError('Sesja wygasła. Zaloguj się ponownie.');
+  const account = findUserById(current.id);
+  if (!account) return authError('Konto nie istnieje.');
+
+  const currentPassword = String(payload.currentPassword || '');
+  const newPassword = String(payload.newPassword || '');
+
+  if (!verifyPassword(currentPassword, account.salt, account.hash)) return authError('Obecne hasło jest nieprawidłowe.');
+  if (newPassword.length < 8) return authError('Nowe hasło musi mieć co najmniej 8 znaków.');
+  if (newPassword.length > 128) return authError('Nowe hasło jest zbyt długie.');
+
+  const { salt, hash } = hashPassword(newPassword);
+  account.salt = salt;
+  account.hash = hash;
+  saveAccounts();
+  return { ok: true };
+});
+
+// ---------- IPC aplikacji ----------
+ipcMain.handle('chill:app-version', () => app.getVersion());
+
+ipcMain.handle('chill:autostart-get', () => app.getLoginItemSettings().openAtLogin);
+ipcMain.handle('chill:autostart-set', (e, enabled) => {
+  app.setLoginItemSettings({ openAtLogin: Boolean(enabled), args: ['--hidden'] });
+  return app.getLoginItemSettings().openAtLogin;
+});
+
+ipcMain.on('chill:badge', (e, count) => {
+  const value = Math.max(0, Number(count) || 0);
+  if (process.platform === 'darwin') app.dock?.setBadge(value > 0 ? String(value) : '');
   else if (win) {
-    if (count > 0 && !win.isFocused()) win.flashFrame(true);
+    if (value > 0 && !win.isFocused()) win.flashFrame(true);
     win.setOverlayIcon(null, '');
   }
 });
 
-ipcMain.on('yapper:notify', (e, n) => {
+ipcMain.on('chill:notify', (e, n) => {
   if (!Notification.isSupported() || (win && win.isFocused())) return;
-  const note = new Notification({ title: String(n?.title ?? 'Yapper Chat').slice(0, 80), body: String(n?.body ?? '').slice(0, 200), icon: ICON, silent: true });
-  note.on('click', () => { show(); });
+  const note = new Notification({
+    title: String(n?.title ?? 'Chill').slice(0, 80),
+    body: String(n?.body ?? '').slice(0, 220),
+    icon: ICON,
+    silent: true,
+  });
+  note.on('click', () => show());
   note.show();
 });
 
-ipcMain.handle('yapper:screen-sources', async (e) => {
+ipcMain.on('chill:shell-open-external', (e, url) => {
+  if (typeof url === 'string' && /^https:\/\//i.test(url)) void shell.openExternal(url);
+});
+
+ipcMain.on('chill:activity:ask', () => {
+  if (win) win.webContents.send('chill:activity', lastGame);
+});
+
+ipcMain.handle('chill:screen-sources', async () => {
   const own = win && typeof win.getMediaSourceId === 'function' ? String(win.getMediaSourceId()).split(':').slice(0, 2).join(':') : '';
   const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcon: true });
   return sources
@@ -536,31 +917,15 @@ ipcMain.handle('yapper:screen-sources', async (e) => {
     }));
 });
 
-ipcMain.handle('yapper:screen-pick', (e, id) => {
-  if (typeof id !== 'string') return false;
-  return true;
-});
-
-ipcMain.on('yapper:activity:ask', (e) => {
-  if (win) win.webContents.send('yapper:activity', lastGame);
-});
-
-ipcMain.on('yapper:shell-open-external', (e, url) => {
-  if (typeof url === 'string' && url.startsWith('http')) {
-    void shell.openExternal(url);
-  }
-});
+ipcMain.handle('chill:screen-pick', (e, id) => typeof id === 'string');
 
 // ---------- Aktualizacje (IPC) ----------
-ipcMain.handle('yapper:update-check', async () => {
-  return await checkForUpdates();
-});
+ipcMain.handle('chill:update-check', async () => checkForUpdates());
 
-ipcMain.handle('yapper:update-install', async (e) => {
+ipcMain.handle('chill:update-install', async () => {
   const url = updateInfo?.url || '';
   if (!url) return false;
 
-  // Brak pliku .exe (np. tylko źródła) – otwórz stronę wydania
   if (!url.toLowerCase().includes('.exe')) {
     void shell.openExternal(url);
     return false;
@@ -569,24 +934,21 @@ ipcMain.handle('yapper:update-install', async (e) => {
   try {
     if (!isTrustedUpdateUrl(url)) throw new Error('Niezaufany adres aktualizacji');
     const safeVersion = String(updateInfo.version || 'new').replace(/[^0-9A-Za-z.-]/g, '');
-    const file = path.join(app.getPath('temp'), `YapperChat-${safeVersion}-Setup.exe`);
-    if (!fs.existsSync(file)) {
-      await downloadUpdate(url, file);
-    }
+    const file = path.join(app.getPath('temp'), `Chill-${safeVersion}-Setup.exe`);
+    if (!fs.existsSync(file)) await downloadUpdate(url, file);
     const openError = await shell.openPath(file);
     if (openError) throw new Error(openError);
     return true;
   } catch (err) {
     console.error('[updater] Błąd pobierania:', err.message);
-    // Awaryjnie: pobierz przez przeglądarkę
     void shell.openExternal(url);
     return false;
   }
 });
 
-ipcMain.on('yapper:update-ask', () => {
+ipcMain.on('chill:update-ask', () => {
   if (updateInfo && win && !win.isDestroyed()) {
-    win.webContents.send('yapper:update-ready', updateInfo);
+    win.webContents.send('chill:update-ready', updateInfo);
   }
 });
 
@@ -608,7 +970,7 @@ function isTrustedUpdateUrl(raw) {
 function downloadUpdate(url, dest, redirects = 0) {
   return new Promise((resolve, reject) => {
     if (redirects > 5) return reject(new Error('Za dużo przekierowań'));
-    https.get(url, { headers: { 'user-agent': `YapperChat/${app.getVersion()}` } }, (res) => {
+    https.get(url, { headers: { 'user-agent': `Chill/${app.getVersion()}` } }, (res) => {
       const status = res.statusCode || 0;
       if ([301, 302, 303, 307, 308].includes(status) && res.headers.location) {
         res.resume();
@@ -631,7 +993,7 @@ function downloadUpdate(url, dest, redirects = 0) {
           const pct = Math.min(100, Math.round((received / total) * 100));
           if (pct !== lastSent && win && !win.isDestroyed()) {
             lastSent = pct;
-            win.webContents.send('yapper:update-progress', pct);
+            win.webContents.send('chill:update-progress', pct);
           }
         }
       });
@@ -653,34 +1015,37 @@ function downloadUpdate(url, dest, redirects = 0) {
 }
 
 // ---------- Start ----------
-app.setAsDefaultProtocolClient('yapper-chat');
-app.on('second-instance', (_e, argv) => { show(); });
-app.on('open-url', (e, url) => { e.preventDefault(); show(); });
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => show());
+  app.on('open-url', (e) => { e.preventDefault(); show(); });
 
-app.whenReady().then(() => {
-  app.userAgentFallback = `${app.userAgentFallback} YapperChatDesktop/${app.getVersion()}`;
-  if (process.platform === 'win32') app.setAppUserModelId('chat.yapper.desktop');
+  app.whenReady().then(() => {
+    app.userAgentFallback = `${app.userAgentFallback} ChillDesktop/${app.getVersion()}`;
+    app.setAsDefaultProtocolClient('chill');
+    if (process.platform === 'win32') app.setAppUserModelId('app.chill.desktop');
 
-  const ses = session.defaultSession;
-  ses.setPermissionRequestHandler((wc, permission, cb) => cb(['media', 'notifications', 'display-capture', 'clipboard-read'].includes(permission)));
-  ses.setPermissionCheckHandler(() => true);
+    const ses = session.defaultSession;
+    ses.setPermissionRequestHandler((wc, permission, cb) => cb(['media', 'notifications', 'display-capture', 'clipboard-read'].includes(permission)));
+    ses.setPermissionCheckHandler(() => true);
 
-  ensureDefaultRooms();
-  startChatServer(47830);
-  createWindow();
-  createTray();
-  Menu.setApplicationMenu(null);
+    loadAccounts();
+    loadChatStore();
+    ensureRooms();
+    startChatServer(47830);
+    createWindow();
+    createTray();
+    Menu.setApplicationMenu(null);
 
-  scheduleUpdateCheck();
+    scheduleUpdateCheck();
 
-  setInterval(() => { pollGames().catch(() => {}); }, 20_000);
-  setTimeout(() => { pollGames().catch(() => {}); }, 3000);
-
-  const hidden = process.argv.includes('--hidden');
-  if (!hidden) show();
-});
+    setInterval(() => { pollGames().catch(() => {}); }, 20_000);
+    setTimeout(() => { pollGames().catch(() => {}); }, 3000);
+  });
+}
 
 app.on('before-quit', () => { quitting = true; });
 app.on('will-quit', () => { setTimeout(() => app.exit(0), 8_000).unref?.(); });
-app.on('window-all-closed', () => { /* stays in tray */ });
+app.on('window-all-closed', () => { /* aplikacja zostaje w tray */ });
 app.on('activate', () => { if (win) show(); else createWindow(); });

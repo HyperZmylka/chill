@@ -1,12 +1,12 @@
 {
-  "name": "yapper-chat",
-  "productName": "Yapper Chat",
-  "version": "2.0.0",
-  "description": "Nowoczesny komunikator - lepszy, ładniejszy, szybszy",
+  "name": "chill",
+  "productName": "Chill",
+  "version": "3.0.0",
+  "description": "Chill — spokojny komunikator desktopowy: pokoje, wiadomości prywatne, emoji i aktualizacje.",
   "main": "main.js",
   "private": true,
-  "author": "You",
-  "homepage": "https://yapper-chat.local",
+  "author": "HyperZmylka",
+  "homepage": "https://github.com/HyperZmylka/chill",
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
@@ -14,7 +14,6 @@
     "dist": "electron-builder"
   },
   "dependencies": {
-    "electron-updater": "^6.6.2",
     "ws": "^8.18.0"
   },
   "devDependencies": {
@@ -22,9 +21,10 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "chat.yapper.desktop",
-    "productName": "Yapper Chat",
-    "copyright": "Copyright © 2026",
+    "appId": "app.chill.desktop",
+    "productName": "Chill",
+    "copyright": "Copyright © 2026 HyperZmylka",
+    "artifactName": "Chill-Setup-${version}.exe",
     "win": {
       "target": [
         {
@@ -35,7 +35,6 @@
         }
       ],
       "icon": "build/icon.png",
-      "publisherName": "Yapper Chat",
       "sign": null
     },
     "nsis": {
@@ -43,7 +42,7 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Yapper Chat",
+      "shortcutName": "Chill",
       "menuCategory": true
     },
     "files": [

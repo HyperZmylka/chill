@@ -1,27 +1,43 @@
-// Most między stroną czatu a Electronem (tylko bezpieczne rzeczy docierają do strony)
+// Most między interfejsem Chill a procesem głównym (tylko bezpieczne API)
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('yapperDesktop', {
-  version: process.env.npm_package_version || '',
+contextBridge.exposeInMainWorld('chill', {
   platform: process.platform,
-  /** Odznaka na pasku zadań/doku. */
-  setBadge: (count) => ipcRenderer.send('yapper:badge', Number(count) || 0),
-  /** Powiadomienie natywne. */
-  notify: (n) => ipcRenderer.send('yapper:notify', { title: n?.title, body: n?.body, url: n?.url }),
-  /** Gra/aktywność użytkownika. */
-  onActivity: (cb) => { ipcRenderer.on('yapper:activity', (_e, name) => cb(name ?? null)); ipcRenderer.send('yapper:activity:ask'); },
-  /** Czy aplikacja ma własny wybór ekranu. */
-  screenPicker: !(process.platform === 'linux' && process.env.XDG_SESSION_TYPE === 'wayland'),
-  /** Źródła ekranu/okien do udostępniania. */
-  screenSources: () => ipcRenderer.invoke('yapper:screen-sources'),
-  /** Zapamiętaj wybór do getDisplayMedia. */
-  pickScreenSource: (id) => ipcRenderer.invoke('yapper:screen-pick', String(id ?? '')),
-  /** Nowa aktualizacja do zainstalowania. */
-  onUpdateReady: (cb) => { ipcRenderer.on('yapper:update-ready', (_e, data) => cb(data ?? null)); ipcRenderer.send('yapper:update-ask'); },
-  /** Postęp pobierania aktualizacji w procentach. */
-  onUpdateProgress: (cb) => { ipcRenderer.on('yapper:update-progress', (_e, pct) => cb(Number(pct) || 0)); },
-  /** Zainstaluj aktualizację (pobiera instalator i uruchamia go). */
-  installUpdate: () => ipcRenderer.invoke('yapper:update-install'),
-  /** Otwórz link w zewnętrznej przeglądarce. */
-  shellOpenExternal: (url) => ipcRenderer.send('yapper:shell-open-external', String(url)),
+
+  auth: {
+    session: () => ipcRenderer.invoke('chill:auth-session'),
+    login: (payload) => ipcRenderer.invoke('chill:auth-login', payload),
+    register: (payload) => ipcRenderer.invoke('chill:auth-register', payload),
+    logout: () => ipcRenderer.invoke('chill:auth-logout'),
+    updateProfile: (payload) => ipcRenderer.invoke('chill:auth-update-profile', payload),
+    changePassword: (payload) => ipcRenderer.invoke('chill:auth-change-password', payload),
+  },
+
+  app: {
+    version: () => ipcRenderer.invoke('chill:app-version'),
+    autostartGet: () => ipcRenderer.invoke('chill:autostart-get'),
+    autostartSet: (enabled) => ipcRenderer.invoke('chill:autostart-set', Boolean(enabled)),
+    checkUpdates: () => ipcRenderer.invoke('chill:update-check'),
+    installUpdate: () => ipcRenderer.invoke('chill:update-install'),
+    openExternal: (url) => ipcRenderer.send('chill:shell-open-external', String(url)),
+    screenSources: () => ipcRenderer.invoke('chill:screen-sources'),
+    pickScreenSource: (id) => ipcRenderer.invoke('chill:screen-pick', String(id ?? '')),
+  },
+
+  chat: {
+    setBadge: (count) => ipcRenderer.send('chill:badge', Number(count) || 0),
+    notify: (n) => ipcRenderer.send('chill:notify', { title: n?.title, body: n?.body }),
+    onActivity: (cb) => {
+      ipcRenderer.on('chill:activity', (_e, name) => cb(name ?? null));
+      ipcRenderer.send('chill:activity:ask');
+    },
+    askActivity: () => ipcRenderer.send('chill:activity:ask'),
+    onUpdateReady: (cb) => {
+      ipcRenderer.on('chill:update-ready', (_e, data) => cb(data ?? null));
+      ipcRenderer.send('chill:update-ask');
+    },
+    onUpdateProgress: (cb) => {
+      ipcRenderer.on('chill:update-progress', (_e, pct) => cb(Number(pct) || 0));
+    },
+  },
 });

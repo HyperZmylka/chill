@@ -3,223 +3,436 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Yapper Chat</title>
-<link rel="preload" as="style" href="style.css">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws://127.0.0.1:47830 http://127.0.0.1:47830;">
+<title>Chill</title>
 <link rel="stylesheet" href="style.css">
-<style>
-html { background: #0f1115; color: #e8eaed; }
-body { margin: 0; background: #0f1115; color: #e8eaed; font: 14px/1.5 "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-</style>
 </head>
-<body>
-<div id="app">
+<body data-theme="dark">
 
-  <!-- ========== EKRAN LOGOWANIA ========== -->
-  <div class="login-screen" id="loginScreen">
-    <div class="login-card">
-      <div class="login-brand">
-        <div class="brand-mark">YC</div>
-        <div class="brand-text">Yapper<span class="brand-dot">.</span>Chat</div>
-      </div>
-      <h2>Dołącz do czatu</h2>
-      <p class="login-sub">Wybierz swoje imię i avatar, aby rozpocząć rozmowę.</p>
+<!-- Ekran startowy -->
+<div class="boot" id="bootSplash">
+  <div class="boot-logo">C</div>
+  <div class="boot-name">Chill</div>
+  <div class="boot-spinner" aria-hidden="true"></div>
+</div>
 
-      <div class="login-form">
-        <div class="field">
-          <label>Twoje imię</label>
-          <input type="text" id="loginName" placeholder="np. Jan Kowalski" maxlength="30" value="Ty">
-        </div>
-        <div class="field">
-          <label>Avatar</label>
-          <div class="avatar-picker" id="avatarPicker">
-            <div class="avatar-option selected" data-seed="You">👤</div>
-            <div class="avatar-option" data-seed="Alice">👩</div>
-            <div class="avatar-option" data-seed="Bob">👨</div>
-            <div class="avatar-option" data-seed="Sam">🧑</div>
-            <div class="avatar-option" data-seed="Nova">🤖</div>
-            <div class="avatar-option" data-seed="Zara">👧</div>
-            <div class="avatar-option" data-seed="Kai">👦</div>
-            <div class="avatar-option" data-seed="Mia">👱</div>
-          </div>
-          <input type="hidden" id="loginAvatarSeed" value="You">
-        </div>
-        <div class="field color-picker">
-          <label>Kolor akcentu</label>
-          <div class="color-options" id="colorOptions">
-            <div class="color-option selected" data-color="#ff6b4a" style="background:#ff6b4a"></div>
-            <div class="color-option" data-color="#8fd45c" style="background:#8fd45c"></div>
-            <div class="color-option" data-color="#5fe3c0" style="background:#5fe3c0"></div>
-            <div class="color-option" data-color="#ff4d94" style="background:#ff4d94"></div>
-            <div class="color-option" data-color="#6366f1" style="background:#6366f1"></div>
-          </div>
-          <input type="hidden" id="loginColor" value="#ff6b4a">
-        </div>
-      </div>
+<!-- ========== LOGOWANIE ========== -->
+<div class="auth" id="loginScreen" style="display:none">
+  <section class="auth-showcase">
+    <div class="aurora aurora-a"></div>
+    <div class="aurora aurora-b"></div>
+    <div class="aurora aurora-c"></div>
+    <div class="showcase-grid"></div>
 
-      <button class="btn-login" id="loginBtn">Wejdź do czatu</button>
-      <p class="login-hint">Rozmowy są lokalne na Twoim komputerze (WebSocket).</p>
+    <header class="showcase-brand">
+      <div class="logo-mark">C</div>
+      <span>Chill</span>
+    </header>
+
+    <div class="showcase-copy">
+      <p class="eyebrow">Twoja przestrzeń na spokojne rozmowy</p>
+      <h1>Pogadajmy.<br><span>Bez pośpiechu.</span></h1>
+      <p class="showcase-lead">Pokoje tematyczne, prywatne wiadomości i wszystko, co potrzebne, żeby po prostu pogadać — w jednym miejscu.</p>
+
+      <ul class="showcase-points">
+        <li><span class="point-ico">◇</span> Pokoje tematyczne i rozmowy 1:1</li>
+        <li><span class="point-ico">◇</span> Emoji, statusy i ulubione gry</li>
+        <li><span class="point-ico">◇</span> Historia, która zostaje po restarcie</li>
+      </ul>
     </div>
-  </div>
 
-  <!-- ========== GŁÓWNY INTERFEJS CZATU ========== -->
-  <div id="chatApp" style="display:none">
-    <aside class="sidebar" id="sidebar">
-      <div class="sidebar-header">
-        <div class="app-brand">
-          <div class="brand-mark" aria-label="Yapper Chat">YC</div>
-          <div class="brand-text">Yapper<span class="brand-dot">.</span>Chat</div>
-        </div>
-        <div class="user-profile" id="userProfile" title="Twój profil">
-          <div class="avatar" id="myAvatar" style="width:34px;height:34px;font-size:15px">?</div>
-          <div class="user-info">
-            <div id="myName" style="font-weight:600;font-size:14px">Ty</div>
-            <div id="myStatus" style="font-size:11px;color:var(--text-dim)">Online</div>
+    <footer class="showcase-foot">Konta przechowywane lokalnie • bez chmury</footer>
+  </section>
+
+  <section class="auth-panel">
+    <div class="auth-card">
+      <div class="auth-tabs" role="tablist">
+        <button type="button" class="auth-tab active" id="tabLogin" role="tab" aria-selected="true">Zaloguj się</button>
+        <button type="button" class="auth-tab" id="tabRegister" role="tab" aria-selected="false">Utwórz konto</button>
+      </div>
+
+      <div class="auth-heading">
+        <h2 id="authTitle">Witaj ponownie</h2>
+        <p id="authSubtitle">Zaloguj się, aby wrócić do swoich rozmów.</p>
+      </div>
+
+      <form class="auth-form" id="loginForm" novalidate>
+        <label class="field">
+          <span>E-mail lub nazwa użytkownika</span>
+          <input type="text" id="loginIdentifier" autocomplete="username" placeholder="np. ty@chill.app" spellcheck="false">
+        </label>
+
+        <label class="field">
+          <span>Hasło</span>
+          <div class="password-wrap">
+            <input type="password" id="loginPassword" autocomplete="current-password" placeholder="••••••••">
+            <button type="button" class="ghost-eye" id="toggleLoginPassword" aria-label="Pokaż hasło">Pokaż</button>
           </div>
-          <button class="status-btn" id="statusBtn" title="Zmień status">▾</button>
-        </div>
-        <div class="playing-chip" id="playingChip" style="display:none">
-          <span class="playing-icon">🎮</span>
-          <span id="playingText">Wykrywanie gry…</span>
-        </div>
-      </div>
+        </label>
 
-      <div class="sidebar-section">
-        <div class="section-label">Pokoje</div>
-        <nav class="room-list" id="roomList"></nav>
-      </div>
-
-      <div class="sidebar-section">
-        <div class="section-label">Wiadomości prywatne <span id="dmBadge" class="badge">0</span></div>
-        <nav class="dm-list" id="dmList"></nav>
-      </div>
-
-      <div class="sidebar-spacer"></div>
-
-      <div class="sidebar-section compact">
-        <div class="section-label">Użytkownicy <span id="onlineBadge" class="badge">0</span></div>
-        <div class="user-list" id="userList"></div>
-      </div>
-
-      <button class="sidebar-btn settings-btn" id="settingsBtn" title="Ustawienia">⚙</button>
-      <button class="sidebar-btn logout-btn" id="logoutBtn" title="Wyloguj">🚪</button>
-    </aside>
-
-    <main class="main" id="main">
-      <header class="chat-header" id="chatHeader">
-        <button class="header-btn back-btn" id="backBtn" style="display:none">‹</button>
-        <div class="chat-title-wrap">
-          <div class="chat-avatar" id="chatAvatar">?</div>
-          <div class="chat-title">
-            <div id="chatName">Wybierz pokój</div>
-            <div id="chatSub" class="sub">Wybierz pokój z listy po lewej</div>
-          </div>
-        </div>
-        <div class="header-actions">
-          <button class="header-btn" id="searchBtn" title="Szukaj">🔍</button>
-          <button class="header-btn" id="callBtn" title="Połącz">📞</button>
-          <button class="header-btn" id="infoBtn" title="Informacje">ℹ</button>
-        </div>
-      </header>
-
-      <div class="chat-body" id="chatBody">
-        <div class="empty-state" id="emptyState">
-          <div class="empty-icon">💬</div>
-          <h2 id="emptyTitle">Wybierz pokój</h2>
-          <p id="emptyDesc">Kliknij pokój lub użytkownika po lewej, aby rozpocząć rozmowę.</p>
+        <div class="auth-row">
+          <label class="check">
+            <input type="checkbox" id="rememberMe" checked>
+            <span class="check-box"></span>
+            Zapamiętaj mnie
+          </label>
+          <span class="caps-hint" id="capsHint" hidden>Caps Lock włączony</span>
         </div>
 
-        <div class="messages" id="messages"></div>
+        <p class="form-error" id="loginError" role="alert"></p>
 
-        <div class="typing-bar" id="typingBar" style="display:none"></div>
-      </div>
+        <button type="submit" class="btn-primary btn-auth" id="loginSubmit">
+          <span class="btn-label">Zaloguj się</span>
+          <span class="btn-spinner" aria-hidden="true"></span>
+        </button>
 
-      <form class="composer" id="composer" autocomplete="off">
-        <div class="composer-inner">
-          <button class="composer-btn" id="attachBtn" title="Załącz plik">📎</button>
-          <button class="composer-btn emoji-btn" id="emojiBtn" title="Emoji">𘃤</button>
-          <textarea id="messageInput" placeholder="Wpisz wiadomość…" rows="1" spellcheck="true"></textarea>
-          <div class="composer-actions">
-            <button type="submit" class="composer-btn send-btn" id="sendBtn" disabled>➤</button>
-          </div>
-        </div>
+        <p class="auth-switch">Nie masz jeszcze konta? <button type="button" class="link" id="goRegister">Utwórz je w 10 sekund</button></p>
       </form>
 
-      <!-- Emoji picker overlay -->
-      <div class="panel-overlay" id="emojiOverlay" style="display:none">
-        <div class="emoji-picker">
-          <div class="emoji-header">
-            <h3>Emoji</h3>
-            <button class="close-btn" id="closeEmoji">✕</button>
-          </div>
-          <div class="emoji-grid" id="emojiGrid"></div>
+      <form class="auth-form" id="registerForm" novalidate style="display:none">
+        <div class="field-grid">
+          <label class="field">
+            <span>E-mail</span>
+            <input type="email" id="regEmail" autocomplete="email" placeholder="ty@chill.app" spellcheck="false">
+          </label>
+          <label class="field">
+            <span>Nazwa użytkownika</span>
+            <input type="text" id="regUsername" autocomplete="username" placeholder="np. kasia" maxlength="20" spellcheck="false">
+          </label>
         </div>
-      </div>
-    </main>
 
-    <!-- Ustawienia (nakładka) -->
-    <div class="panel-overlay" id="settingsOverlay" style="display:none">
-      <div class="settings-panel">
-        <div class="settings-header">
-          <h3>Ustawienia</h3>
-          <button class="close-btn" id="closeSettings">✕</button>
-        </div>
-        <div class="settings-body">
-          <div class="setting-row">
-            <label>Motyw</label>
-            <select id="themeSelect">
-              <option value="dark">Ciemny</option>
-              <option value="light">Jasny</option>
-              <option value="system">Systemowy</option>
-            </select>
+        <label class="field">
+          <span>Nazwa wyświetlana</span>
+          <input type="text" id="regDisplayName" autocomplete="nickname" placeholder="Jak mają Cię widzieć inni?" maxlength="32">
+        </label>
+
+        <label class="field">
+          <span>Hasło</span>
+          <div class="password-wrap">
+            <input type="password" id="regPassword" autocomplete="new-password" placeholder="Minimum 8 znaków">
+            <button type="button" class="ghost-eye" id="toggleRegPassword" aria-label="Pokaż hasło">Pokaż</button>
           </div>
-          <div class="setting-row">
-            <label>Akcent</label>
-            <select id="accentSelect">
-              <option value="#ff6b4a">Pomarańczowy</option>
-              <option value="#8fd45c">Szmaragd</option>
-              <option value="#5fe3c0">Menta</option>
-              <option value="#ff4d94">Różowy</option>
-              <option value="#6366f1">Indygo</option>
-            </select>
-          </div>
-          <div class="setting-row">
-            <label>Powiadomienia</label>
-            <select id="notifySelect">
-              <option value="all">Wszystkie</option>
-              <option value="mentions">Tylko wzmianki</option>
-              <option value="none">Wyłączone</option>
-            </select>
-          </div>
-          <div class="setting-row">
-            <label>Wykrywaj grę ("Playing X")</label>
-            <select id="activitySelect">
-              <option value="on">Włączone</option>
-              <option value="off">Wyłączone</option>
-            </select>
-          </div>
-          <div class="setting-row">
-            <label>Uruchamiaj z systemem</label>
-            <select id="autostartSelect">
-              <option value="off">Nie</option>
-              <option value="on">Tak</option>
-            </select>
+          <div class="strength"><span id="regStrength"></span></div>
+          <small class="hint" id="regStrengthLabel">Użyj co najmniej 8 znaków.</small>
+        </label>
+
+        <div class="field">
+          <span>Kolor profilu</span>
+          <div class="color-row" id="regColors">
+            <button type="button" class="color-dot selected" data-reg-color="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy"></button>
+            <button type="button" class="color-dot" data-reg-color="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny"></button>
+            <button type="button" class="color-dot" data-reg-color="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy"></button>
+            <button type="button" class="color-dot" data-reg-color="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy"></button>
+            <button type="button" class="color-dot" data-reg-color="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy"></button>
+            <button type="button" class="color-dot" data-reg-color="#ffd166" style="--dot:#ffd166" aria-label="Żółty"></button>
           </div>
         </div>
-        <div class="settings-footer">
-          <button class="btn-secondary" id="resetSettings">Resetuj ustawienia</button>
-          <button class="btn-primary" id="saveSettings">Zapisz</button>
-        </div>
-      </div>
+
+        <p class="form-error" id="registerError" role="alert"></p>
+
+        <button type="submit" class="btn-primary btn-auth" id="registerSubmit">
+          <span class="btn-label">Utwórz konto</span>
+          <span class="btn-spinner" aria-hidden="true"></span>
+        </button>
+
+        <p class="auth-switch">Masz już konto? <button type="button" class="link" id="goLogin">Zaloguj się</button></p>
+      </form>
+
+      <p class="auth-foot">Konto i historia rozmów są zapisane tylko na tym komputerze. Hasło jest szyfrowane lokalnie (scrypt).</p>
+    </div>
+  </section>
+</div>
+
+<!-- ========== APLIKACJA ========== -->
+<div class="app" id="chatApp" style="display:none">
+  <aside class="sidebar" id="sidebar">
+    <header class="brand-row">
+      <div class="logo-mark small">C</div>
+      <span class="brand-name">Chill</span>
+      <span class="brand-tag">beta</span>
+    </header>
+
+    <div class="conversation-search">
+      <span class="search-ico" aria-hidden="true">⌕</span>
+      <input type="text" id="conversationSearch" placeholder="Szukaj rozmowy" spellcheck="false">
     </div>
 
-    <div class="toast" id="toast" style="display:none"></div>
+    <div class="nav-group">
+      <div class="group-label">Pokoje</div>
+      <nav class="nav-list" id="roomList" aria-label="Pokoje"></nav>
+    </div>
 
-    <div class="update-banner" id="updateBanner" style="display:none">
-      <div class="update-banner-inner">
-        <span class="update-dot"></span>
-        <strong>Dostępna nowa wersja</strong>
-        <span id="updateVersion"></span>
-        <button class="update-btn" id="updateBtn">Zainstaluj</button>
+    <div class="nav-group dm-group">
+      <div class="group-label">Wiadomości prywatne <span class="pill" id="dmBadge">0</span></div>
+      <nav class="nav-list" id="dmList" aria-label="Wiadomości prywatne"></nav>
+    </div>
+
+    <div class="sidebar-spacer"></div>
+
+    <div class="me-panel">
+      <button type="button" class="me-card" id="myProfileBtn" title="Edytuj profil">
+        <span class="avatar" id="myAvatar">?</span>
+        <span class="me-text">
+          <strong id="myName">Ty</strong>
+          <small id="myStatus">Online</small>
+        </span>
+        <span class="me-edit" aria-hidden="true">✎</span>
+      </button>
+      <div class="me-actions">
+        <button type="button" class="ghost-btn" id="settingsBtn">Ustawienia</button>
+        <button type="button" class="ghost-btn danger" id="logoutBtn">Wyloguj</button>
+      </div>
+    </div>
+  </aside>
+
+  <main class="chat" id="main">
+    <header class="chat-header">
+      <button type="button" class="icon-btn back-btn" id="backBtn" title="Wstecz" style="display:none">←</button>
+      <div class="chat-ident">
+        <span class="chat-emoji" id="chatEmoji">☕</span>
+        <div class="chat-title">
+          <h1 id="chatName">Lounge</h1>
+          <p id="chatSub">Przywitaj się i pogadaj o wszystkim</p>
+        </div>
+      </div>
+      <div class="header-tools">
+        <div class="message-search" id="searchBar" hidden>
+          <input type="search" id="messageSearch" placeholder="Szukaj w wiadomościach" spellcheck="false">
+          <button type="button" class="icon-btn tiny" id="closeSearch" title="Zamknij">✕</button>
+        </div>
+        <button type="button" class="icon-btn" id="searchBtn" title="Szukaj w wiadomościach">⌕</button>
+        <button type="button" class="icon-btn members-toggle active" id="membersBtn" title="Pokaż członków">◫</button>
+      </div>
+    </header>
+
+    <div class="chat-body">
+      <div class="messages" id="messages"></div>
+      <div class="typing-bar" id="typingBar" hidden></div>
+    </div>
+
+    <form class="composer" id="composer" autocomplete="off">
+      <div class="composer-field">
+        <textarea id="messageInput" rows="1" placeholder="Napisz wiadomość…" maxlength="4000" spellcheck="true"></textarea>
+        <button type="button" class="composer-btn" id="emojiBtn" title="Emoji" aria-label="Emoji">☺</button>
+      </div>
+      <button type="submit" class="send-btn" id="sendBtn" title="Wyślij" disabled>↑</button>
+    </form>
+
+    <!-- Emoji -->
+    <div class="emoji-pop" id="emojiOverlay" hidden>
+      <header class="emoji-head">
+        <strong>Emoji</strong>
+        <button type="button" class="icon-btn tiny" id="closeEmoji" aria-label="Zamknij">✕</button>
+      </header>
+      <input type="search" class="emoji-search" id="emojiSearch" placeholder="Szukaj emoji…" spellcheck="false">
+      <div class="emoji-recent" id="emojiRecent"></div>
+      <div class="emoji-grid" id="emojiGrid"></div>
+    </div>
+  </main>
+
+  <aside class="members" id="membersPanel">
+    <div class="members-head">
+      <strong>Członkowie</strong>
+      <span class="pill" id="onlineBadge">0</span>
+    </div>
+    <div class="member-list" id="userList"></div>
+  </aside>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <div class="update-card" id="updateBanner" hidden>
+    <div class="update-badge">↓</div>
+    <div class="update-copy">
+      <strong>Nowa wersja <span id="updateVersion"></span></strong>
+      <p id="updateText">Pobierz i uruchom instalator, aby zaktualizować Chill.</p>
+    </div>
+    <button type="button" class="btn-primary small" id="updateBtn">Aktualizuj</button>
+  </div>
+
+  <!-- Ustawienia -->
+  <div class="modal" id="settingsOverlay" hidden>
+    <div class="modal-card">
+      <aside class="settings-nav">
+        <div class="settings-nav-title">Ustawienia</div>
+        <button type="button" class="settings-tab active" data-settings-tab="profile">Profil</button>
+        <button type="button" class="settings-tab" data-settings-tab="appearance">Wygląd</button>
+        <button type="button" class="settings-tab" data-settings-tab="notifications">Powiadomienia</button>
+        <button type="button" class="settings-tab" data-settings-tab="app">Aplikacja</button>
+      </aside>
+
+      <div class="settings-body">
+        <button type="button" class="icon-btn modal-close" id="closeSettings" aria-label="Zamknij">✕</button>
+
+        <section class="settings-panel" data-settings-panel="profile">
+          <h2>Twój profil</h2>
+          <p class="settings-lead">Tak widzą Cię inni w pokojach i wiadomościach prywatnych.</p>
+
+          <div class="profile-preview">
+            <span class="avatar large" id="settingsAvatar">?</span>
+            <div>
+              <strong id="settingsName">—</strong>
+              <small id="settingsUsername">@—</small>
+            </div>
+          </div>
+
+          <div class="setting-block">
+            <span class="setting-label">Status</span>
+            <div class="segmented" id="statusChoices">
+              <button type="button" data-status="online">Online</button>
+              <button type="button" data-status="away">Zaraz wracam</button>
+              <button type="button" data-status="dnd">Nie przeszkadzać</button>
+              <button type="button" data-status="invisible">Niewidoczny</button>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>Nazwa wyświetlana</span>
+            <input type="text" id="profileDisplayName" maxlength="32">
+          </label>
+
+          <label class="field">
+            <span>O mnie <small id="aboutCount">0/160</small></span>
+            <textarea id="profileAbout" maxlength="160" rows="3" placeholder="Krótko o sobie…"></textarea>
+          </label>
+
+          <div class="field">
+            <span>Kolor profilu</span>
+            <div class="color-row" id="profileColors">
+              <button type="button" class="color-dot" data-color="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy"></button>
+              <button type="button" class="color-dot" data-color="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny"></button>
+              <button type="button" class="color-dot" data-color="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy"></button>
+              <button type="button" class="color-dot" data-color="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy"></button>
+              <button type="button" class="color-dot" data-color="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy"></button>
+              <button type="button" class="color-dot" data-color="#ffd166" style="--dot:#ffd166" aria-label="Żółty"></button>
+            </div>
+          </div>
+
+          <p class="form-error" id="profileError"></p>
+          <div class="settings-actions">
+            <span class="saved-note" id="profileSaved"></span>
+            <button type="button" class="btn-primary" id="saveProfile">Zapisz profil</button>
+          </div>
+
+          <div class="divider"></div>
+
+          <h3>Bezpieczeństwo</h3>
+          <div class="field-grid">
+            <label class="field">
+              <span>Obecne hasło</span>
+              <input type="password" id="currentPassword" autocomplete="current-password">
+            </label>
+            <label class="field">
+              <span>Nowe hasło</span>
+              <input type="password" id="newPassword" autocomplete="new-password">
+            </label>
+          </div>
+          <p class="form-error" id="passwordError"></p>
+          <div class="settings-actions">
+            <span class="saved-note" id="passwordSaved"></span>
+            <button type="button" class="btn-secondary" id="changePasswordBtn">Zmień hasło</button>
+          </div>
+        </section>
+
+        <section class="settings-panel" data-settings-panel="appearance" hidden>
+          <h2>Wygląd</h2>
+          <p class="settings-lead">Dopasuj Chill do siebie. Zmiany zapisują się od razu.</p>
+
+          <div class="setting-block">
+            <span class="setting-label">Motyw</span>
+            <div class="segmented" id="themeChoices">
+              <button type="button" data-theme-choice="dark">Ciemny</button>
+              <button type="button" data-theme-choice="light">Jasny</button>
+            </div>
+          </div>
+
+          <div class="setting-block">
+            <span class="setting-label">Kolor akcentu</span>
+            <div class="color-row" id="accentColors">
+              <button type="button" class="color-dot" data-accent="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy"></button>
+              <button type="button" class="color-dot" data-accent="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny"></button>
+              <button type="button" class="color-dot" data-accent="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy"></button>
+              <button type="button" class="color-dot" data-accent="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy"></button>
+              <button type="button" class="color-dot" data-accent="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy"></button>
+              <button type="button" class="color-dot" data-accent="#ffd166" style="--dot:#ffd166" aria-label="Żółty"></button>
+            </div>
+          </div>
+
+          <label class="switch-row">
+            <span>
+              <strong>Kompaktowe wiadomości</strong>
+              <small>Mniejszy odstęp między wiadomościami</small>
+            </span>
+            <input type="checkbox" id="compactToggle">
+            <span class="switch"></span>
+          </label>
+        </section>
+
+        <section class="settings-panel" data-settings-panel="notifications" hidden>
+          <h2>Powiadomienia</h2>
+          <p class="settings-lead">Wybierz, kiedy Chill ma Ci przerywać.</p>
+
+          <label class="switch-row">
+            <span>
+              <strong>Powiadomienia systemowe</strong>
+              <small>Dymki, gdy okno jest w tle</small>
+            </span>
+            <input type="checkbox" id="notifyToggle">
+            <span class="switch"></span>
+          </label>
+
+          <label class="switch-row">
+            <span>
+              <strong>Dźwięk nowej wiadomości</strong>
+              <small>Delikatny sygnał przy odbiorze</small>
+            </span>
+            <input type="checkbox" id="soundToggle">
+            <span class="switch"></span>
+          </label>
+
+          <label class="switch-row">
+            <span>
+              <strong>Tylko wzmianki</strong>
+              <small>Powiadamiaj wyłącznie o @nazwa</small>
+            </span>
+            <input type="checkbox" id="mentionsToggle">
+            <span class="switch"></span>
+          </label>
+        </section>
+
+        <section class="settings-panel" data-settings-panel="app" hidden>
+          <h2>Aplikacja</h2>
+          <p class="settings-lead">Ustawienia systemowe i aktualizacje.</p>
+
+          <label class="switch-row">
+            <span>
+              <strong>Uruchamiaj z Windows</strong>
+              <small>Chill startuje w tle po zalogowaniu</small>
+            </span>
+            <input type="checkbox" id="autostartToggle">
+            <span class="switch"></span>
+          </label>
+
+          <label class="switch-row">
+            <span>
+              <strong>Wykrywanie gier</strong>
+              <small>Pokazuj „Gra w …” na profilu</small>
+            </span>
+            <input type="checkbox" id="gameDetectToggle">
+            <span class="switch"></span>
+          </label>
+
+          <div class="setting-block version-block">
+            <div>
+              <span class="setting-label">Wersja Chill</span>
+              <strong id="appVersion">—</strong>
+            </div>
+            <button type="button" class="btn-secondary" id="checkUpdatesBtn">Sprawdź aktualizacje</button>
+          </div>
+          <p class="saved-note" id="updateStatus"></p>
+
+          <div class="divider"></div>
+          <p class="settings-note">Konta i historia są przechowywane lokalnie w folderze danych aplikacji. Odinstalowanie Chill usuwa także te dane.</p>
+        </section>
       </div>
     </div>
   </div>
