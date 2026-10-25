@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Yapper Chat</title>
+<link rel="preload" as="style" href="style.css">
+<link rel="stylesheet" href="style.css">
+<style>
+html { background: #0f1115; color: #e8eaed; }
+body { margin: 0; background: #0f1115; color: #e8eaed; font: 14px/1.5 "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ========== EKRAN LOGOWANIA ========== -->
+  <div class="login-screen" id="loginScreen">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="brand-mark">YC</div>
+        <div class="brand-text">Yapper<span class="brand-dot">.</span>Chat</div>
+      </div>
+      <h2>Dołącz do czatu</h2>
+      <p class="login-sub">Wybierz swoje imię i avatar, aby rozpocząć rozmowę.</p>
+
+      <div class="login-form">
+        <div class="field">
+          <label>Twoje imię</label>
+          <input type="text" id="loginName" placeholder="np. Jan Kowalski" maxlength="30" value="Ty">
+        </div>
+        <div class="field">
+          <label>Avatar</label>
+          <div class="avatar-picker" id="avatarPicker">
+            <div class="avatar-option selected" data-seed="You">👤</div>
+            <div class="avatar-option" data-seed="Alice">👩</div>
+            <div class="avatar-option" data-seed="Bob">👨</div>
+            <div class="avatar-option" data-seed="Sam">🧑</div>
+            <div class="avatar-option" data-seed="Nova">🤖</div>
+            <div class="avatar-option" data-seed="Zara">👧</div>
+            <div class="avatar-option" data-seed="Kai">👦</div>
+            <div class="avatar-option" data-seed="Mia">👱</div>
+          </div>
+          <input type="hidden" id="loginAvatarSeed" value="You">
+        </div>
+        <div class="field color-picker">
+          <label>Kolor akcentu</label>
+          <div class="color-options" id="colorOptions">
+            <div class="color-option selected" data-color="#ff6b4a" style="background:#ff6b4a"></div>
+            <div class="color-option" data-color="#8fd45c" style="background:#8fd45c"></div>
+            <div class="color-option" data-color="#5fe3c0" style="background:#5fe3c0"></div>
+            <div class="color-option" data-color="#ff4d94" style="background:#ff4d94"></div>
+            <div class="color-option" data-color="#6366f1" style="background:#6366f1"></div>
+          </div>
+          <input type="hidden" id="loginColor" value="#ff6b4a">
+        </div>
+      </div>
+
+      <button class="btn-login" id="loginBtn">Wejdź do czatu</button>
+      <p class="login-hint">Rozmowy są lokalne na Twoim komputerze (WebSocket).</p>
+    </div>
+  </div>
+
+  <!-- ========== GŁÓWNY INTERFEJS CZATU ========== -->
+  <div id="chatApp" style="display:none">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="app-brand">
+          <div class="brand-mark" aria-label="Yapper Chat">YC</div>
+          <div class="brand-text">Yapper<span class="brand-dot">.</span>Chat</div>
+        </div>
+        <div class="user-profile" id="userProfile" title="Twój profil">
+          <div class="avatar" id="myAvatar" style="width:34px;height:34px;font-size:15px">?</div>
+          <div class="user-info">
+            <div id="myName" style="font-weight:600;font-size:14px">Ty</div>
+            <div id="myStatus" style="font-size:11px;color:var(--text-dim)">Online</div>
+          </div>
+          <button class="status-btn" id="statusBtn" title="Zmień status">▾</button>
+        </div>
+        <div class="playing-chip" id="playingChip" style="display:none">
+          <span class="playing-icon">🎮</span>
+          <span id="playingText">Wykrywanie gry…</span>
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-label">Pokoje</div>
+        <nav class="room-list" id="roomList"></nav>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="section-label">Wiadomości prywatne <span id="dmBadge" class="badge">0</span></div>
+        <nav class="dm-list" id="dmList"></nav>
+      </div>
+
+      <div class="sidebar-spacer"></div>
+
+      <div class="sidebar-section compact">
+        <div class="section-label">Użytkownicy <span id="onlineBadge" class="badge">0</span></div>
+        <div class="user-list" id="userList"></div>
+      </div>
+
+      <button class="sidebar-btn settings-btn" id="settingsBtn" title="Ustawienia">⚙</button>
+      <button class="sidebar-btn logout-btn" id="logoutBtn" title="Wyloguj">🚪</button>
+    </aside>
+
+    <main class="main" id="main">
+      <header class="chat-header" id="chatHeader">
+        <button class="header-btn back-btn" id="backBtn" style="display:none">‹</button>
+        <div class="chat-title-wrap">
+          <div class="chat-avatar" id="chatAvatar">?</div>
+          <div class="chat-title">
+            <div id="chatName">Wybierz pokój</div>
+            <div id="chatSub" class="sub">Wybierz pokój z listy po lewej</div>
+          </div>
+        </div>
+        <div class="header-actions">
+          <button class="header-btn" id="searchBtn" title="Szukaj">🔍</button>
+          <button class="header-btn" id="callBtn" title="Połącz">📞</button>
+          <button class="header-btn" id="infoBtn" title="Informacje">ℹ</button>
+        </div>
+      </header>
+
+      <div class="chat-body" id="chatBody">
+        <div class="empty-state" id="emptyState">
+          <div class="empty-icon">💬</div>
+          <h2 id="emptyTitle">Wybierz pokój</h2>
+          <p id="emptyDesc">Kliknij pokój lub użytkownika po lewej, aby rozpocząć rozmowę.</p>
+        </div>
+
+        <div class="messages" id="messages"></div>
+
+        <div class="typing-bar" id="typingBar" style="display:none"></div>
+      </div>
+
+      <form class="composer" id="composer" autocomplete="off">
+        <div class="composer-inner">
+          <button class="composer-btn" id="attachBtn" title="Załącz plik">📎</button>
+          <button class="composer-btn emoji-btn" id="emojiBtn" title="Emoji">𘃤</button>
+          <textarea id="messageInput" placeholder="Wpisz wiadomość…" rows="1" spellcheck="true"></textarea>
+          <div class="composer-actions">
+            <button type="submit" class="composer-btn send-btn" id="sendBtn" disabled>➤</button>
+          </div>
+        </div>
+      </form>
+
+      <!-- Emoji picker overlay -->
+      <div class="panel-overlay" id="emojiOverlay" style="display:none">
+        <div class="emoji-picker">
+          <div class="emoji-header">
+            <h3>Emoji</h3>
+            <button class="close-btn" id="closeEmoji">✕</button>
+          </div>
+          <div class="emoji-grid" id="emojiGrid"></div>
+        </div>
+      </div>
+    </main>
+
+    <!-- Ustawienia (nakładka) -->
+    <div class="panel-overlay" id="settingsOverlay" style="display:none">
+      <div class="settings-panel">
+        <div class="settings-header">
+          <h3>Ustawienia</h3>
+          <button class="close-btn" id="closeSettings">✕</button>
+        </div>
+        <div class="settings-body">
+          <div class="setting-row">
+            <label>Motyw</label>
+            <select id="themeSelect">
+              <option value="dark">Ciemny</option>
+              <option value="light">Jasny</option>
+              <option value="system">Systemowy</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>Akcent</label>
+            <select id="accentSelect">
+              <option value="#ff6b4a">Pomarańczowy</option>
+              <option value="#8fd45c">Szmaragd</option>
+              <option value="#5fe3c0">Menta</option>
+              <option value="#ff4d94">Różowy</option>
+              <option value="#6366f1">Indygo</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>Powiadomienia</label>
+            <select id="notifySelect">
+              <option value="all">Wszystkie</option>
+              <option value="mentions">Tylko wzmianki</option>
+              <option value="none">Wyłączone</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>Wykrywaj grę ("Playing X")</label>
+            <select id="activitySelect">
+              <option value="on">Włączone</option>
+              <option value="off">Wyłączone</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label>Uruchamiaj z systemem</label>
+            <select id="autostartSelect">
+              <option value="off">Nie</option>
+              <option value="on">Tak</option>
+            </select>
+          </div>
+        </div>
+        <div class="settings-footer">
+          <button class="btn-secondary" id="resetSettings">Resetuj ustawienia</button>
+          <button class="btn-primary" id="saveSettings">Zapisz</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" style="display:none"></div>
+
+    <div class="update-banner" id="updateBanner" style="display:none">
+      <div class="update-banner-inner">
+        <span class="update-dot"></span>
+        <strong>Dostępna nowa wersja</strong>
+        <span id="updateVersion"></span>
+        <button class="update-btn" id="updateBtn">Zainstaluj</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="renderer.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff6b4a"/>
+      <stop offset="100%" stop-color="#ff8c66"/>
+    </linearGradient>
+    <filter id="s" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="16" stdDeviation="24" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="260" fill="#0f1115"/>
+  <path d="M260 260 L764 260 L764 764 L260 764 Z" fill="url(#g)" filter="url(#s)" opacity="0.92"/>
+  <path d="M340 340 L684 340 L684 684 L340 684 Z" fill="none" stroke="#fff" stroke-width="14" stroke-linejoin="round" opacity="0.16"/>
+  <text x="512" y="560" font-family="system-ui,-apple-system,Segoe UI,sans-serif" font-size="170" font-weight="900" fill="#fff" text-anchor="middle" letter-spacing="-8">YC</text>
+</svg>
