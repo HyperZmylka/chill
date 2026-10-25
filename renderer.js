@@ -2,7 +2,7 @@
 'use strict';
 
 const CHILL = window.chill || {};
-const WS_URL = 'ws://127.0.0.1:47830/chat';
+const WS_URL = `ws://127.0.0.1:${CHILL.chatPort || 47830}/chat`;
 const $ = (id) => document.getElementById(id);
 
 // ---------- Emoji ----------
@@ -49,13 +49,16 @@ let myColor = '#3ee0a3';
 let myAbout = '';
 let ws = null;
 let reconnectTimer = null;
-let rooms = [];
+let servers = [];
+let activeServerId = null;
+const serverStates = new Map();
 let allUsers = [];
 let playing = null;
 let searchQuery = '';
-let current = { kind: 'room', id: 'lounge' };
+let current = { kind: 'home' };
 let profileColor = '#3ee0a3';
 let regColor = '#3ee0a3';
+let serverColor = '#3ee0a3';
 let downloadingUpdate = false;
 let audioCtx = null;
 
@@ -78,6 +81,7 @@ let prefs = { ...DEFAULT_PREFS };
 // ---------- Pomocnicze ----------
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const initial = (name) => String(name || '?').trim().charAt(0).toUpperCase() || '?';
+const safeColor = (value, fallback = 'var(--accent)') => (/^#[0-9a-f]{6}$/i.test(String(value || '')) ? value : fallback);
 const statusLabel = (s) => ({ online: 'Online', away: 'Zaraz wracam', dnd: 'Nie przeszkadzać', invisible: 'Niewidoczny', offline: 'Offline' }[s] || 'Online');
 const formatTime = (at) => new Date(at || Date.now()).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
 const dayKey = (at) => new Date(at || Date.now()).toDateString();
@@ -154,6 +158,7 @@ document.addEventListener('DOMContentLoaded', () => {
   applyAccent(localStorage.getItem('chill.accent') || '#3ee0a3');
   bindAuth();
   bindChat();
+  bindServers();
   bindEmoji();
   bindSettings();
   bindShortcuts();
@@ -355,8 +360,10 @@ function enterApp(user) {
   myColor = user.color || '#3ee0a3';
   myAbout = user.about || '';
   playing = null;
-  current = { kind: 'room', id: 'lounge' };
-  rooms = [];
+  current = { kind: 'home' };
+  servers = [];
+  activeServerId = null;
+  serverStates.clear();
   allUsers = [];
   history.clear();
   unread.clear();
@@ -378,6 +385,12 @@ function enterApp(user) {
   renderIdentity();
   $('settingsUsername').textContent = `@${user.username}`;
   connect();
+  loadServers();
+  renderSidebar();
+  renderHeader();
+  renderMessages(false);
+  renderMembers();
+  updateBadges();
   loadAppInfo();
   if (CHILL.chat?.askActivity) CHILL.chat.askActivity();
   setTimeout(() => $('messageInput').focus(), 120);
@@ -390,11 +403,21 @@ function logout() {
     try { ws.close(); } catch { /* ignore */ }
     ws = null;
   }
+  for (const state of serverStates.values()) {
+    clearTimeout(state.reconnectTimer);
+    if (state.ws) {
+      state.ws.onclose = null;
+      try { state.ws.close(); } catch { /* ignore */ }
+    }
+  }
+  serverStates.clear();
   if (CHILL.auth?.logout) CHILL.auth.logout().catch(() => {});
 
   currentUser = null;
   myId = '';
-  rooms = [];
+  servers = [];
+  activeServerId = null;
+  current = { kind: 'home' };
   allUsers = [];
   history.clear();
   unread.clear();
@@ -402,7 +425,8 @@ function logout() {
   playing = null;
   searchQuery = '';
   $('messages').innerHTML = '';
-  $('roomList').innerHTML = '';
+  $('serverList').innerHTML = '';
+  $('channelList').innerHTML = '';
   $('dmList').innerHTML = '';
   $('userList').innerHTML = '';
   $('loginPassword').value = '';
@@ -446,8 +470,7 @@ function bindChat() {
 
   $('logoutBtn').addEventListener('click', logout);
   $('conversationSearch').addEventListener('input', () => {
-    renderRooms();
-    renderDmList();
+    renderSidebar();
   });
   $('searchBtn').addEventListener('click', toggleMessageSearch);
   $('closeSearch').addEventListener('click', () => setMessageSearch(false));
@@ -556,47 +579,22 @@ function connect() {
 function handleMessage(msg) {
   switch (msg.type) {
     case 'joined': {
-      rooms = Array.isArray(msg.rooms) ? msg.rooms : [];
       allUsers = Array.isArray(msg.users) ? msg.users : [];
       history.clear();
-      for (const room of rooms) {
-        history.set(`room:${room.id}`, Array.isArray(room.messages) ? room.messages.slice(-300) : []);
-      }
       for (const [key, list] of Object.entries(msg.dmHistory || {})) {
         const other = key.split('|').find((part) => part !== myId);
         if (other) history.set(`dm:${other}`, Array.isArray(list) ? list.slice(-300) : []);
       }
-      if (!isValidConversation()) {
-        const first = rooms[0];
-        current = first ? { kind: 'room', id: first.id } : { kind: 'room', id: 'lounge' };
-      }
-      renderRooms();
-      renderDmList();
-      renderMembers();
+      if (!isValidConversation()) current = { kind: 'home' };
+      renderSidebar();
       renderHeader();
       renderMessages(false);
+      renderMembers();
       updateBadges();
       if (wsReady()) {
         ws.send(JSON.stringify({ type: 'status', status: prefs.status }));
         if (prefs.gameDetect && playing) ws.send(JSON.stringify({ type: 'activity', playing }));
       }
-      break;
-    }
-
-    case 'message': {
-      const m = msg.message;
-      if (!m || m.authorId === myId) return;
-      pushHistory(`room:${m.roomId}`, m);
-      if (current.kind === 'room' && current.id === m.roomId) {
-        const nearBottom = isNearBottom();
-        if (!searchQuery) renderMessages(false);
-        if (nearBottom || !searchQuery) scrollBottom();
-      } else {
-        bumpUnread(`room:${m.roomId}`);
-        renderRooms();
-        updateBadges();
-      }
-      notifyIncoming(m, rooms.find((r) => r.id === m.roomId)?.name || 'Pokój', current.kind === 'room' && current.id === m.roomId);
       break;
     }
 
@@ -611,6 +609,7 @@ function handleMessage(msg) {
       } else {
         bumpUnread(`dm:${other}`);
         renderDmList();
+        renderServers();
         updateBadges();
       }
       renderMembers();
@@ -627,25 +626,6 @@ function handleMessage(msg) {
         renderMembers();
         if (current.kind === 'dm') renderHeader();
       }
-      break;
-    }
-
-    case 'user:typing': {
-      if (msg.userId === myId) return;
-      if (msg.roomId && msg.roomId !== current.id) return;
-      if (current.kind !== 'room') return;
-      if (msg.typing) {
-        typingUsers.set(msg.userId, { name: msg.name, until: Date.now() + 1800 });
-        clearTimeout(typingUsers.get(msg.userId)._timer);
-        const entry = typingUsers.get(msg.userId);
-        entry._timer = setTimeout(() => {
-          typingUsers.delete(msg.userId);
-          renderTyping();
-        }, 1800);
-      } else {
-        typingUsers.delete(msg.userId);
-      }
-      renderTyping();
       break;
     }
 
@@ -685,9 +665,592 @@ function handleMessage(msg) {
   }
 }
 
+function randomMemberId() {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+}
+
+function parseInvite(raw) {
+  let text = String(raw || '').trim();
+  if (!text) return null;
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) text = `chill://${text}`;
+  if (!/^chill:\/\//i.test(text)) return null;
+  let url;
+  try {
+    url = new URL(text.replace(/^chill:\/\//i, 'http://'));
+  } catch {
+    return null;
+  }
+  const host = url.hostname;
+  const port = url.port || '47830';
+  const invite = decodeURIComponent(url.pathname.replace(/^\/+/, '')).trim().toUpperCase();
+  if (!host || !/^[a-zA-Z0-9.-]+$/.test(host) || host.startsWith('.') || host.endsWith('.')) return null;
+  if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535) return null;
+  if (!/^[A-Z0-9]{4,16}$/.test(invite)) return null;
+  return { address: `${host}:${port}`, invite };
+}
+
+function connectServer(server) {
+  const state = ensureServerState(server);
+  if (state.fatal) return;
+  if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
+  clearTimeout(state.reconnectTimer);
+  state.attempts += 1;
+  state.status = 'connecting';
+  state.error = '';
+  renderServers();
+  if (activeServerId === server.id) {
+    renderHeader();
+    renderMessages(false);
+  }
+
+  let socket;
+  try {
+    socket = new WebSocket(`ws://${server.address}/chat`);
+  } catch {
+    state.status = 'offline';
+    state.error = 'Nieprawidłowy adres serwera.';
+    renderServers();
+    return;
+  }
+  state.ws = socket;
+
+  socket.onopen = () => {
+    if (state.ws !== socket) return;
+    const memberId = server.owner ? myId : server.memberId;
+    socket.send(JSON.stringify({
+      type: 'join-server',
+      invite: server.invite,
+      memberId,
+      name: myName,
+      color: myColor,
+      ownerKey: server.owner ? server.ownerKey : undefined,
+    }));
+  };
+
+  socket.onmessage = (event) => {
+    if (state.ws !== socket) return;
+    try {
+      handleServerFrame(server.id, JSON.parse(event.data));
+    } catch { /* ignore */ }
+  };
+
+  socket.onclose = () => {
+    if (state.ws !== socket) return;
+    state.ws = null;
+    if (state.status === 'online' || state.status === 'connecting') state.status = 'offline';
+    state.you = null;
+    state.members = state.members.map((member) => ({ ...member, online: false }));
+    renderServers();
+    if (activeServerId === server.id) {
+      renderSidebar();
+      renderHeader();
+      renderMessages(false);
+      renderMembers();
+      updateComposer();
+    }
+    if (currentUser && !state.fatal) scheduleServerReconnect(server.id);
+  };
+
+  socket.onerror = () => {};
+}
+
+function scheduleServerReconnect(serverId) {
+  const state = serverState(serverId);
+  if (!state || !currentUser || state.fatal) return;
+  clearTimeout(state.reconnectTimer);
+  const delay = Math.min(15_000, 3_000 + state.attempts * 1_500);
+  state.reconnectTimer = setTimeout(() => {
+    const latest = serverState(serverId);
+    if (!latest || !currentUser || latest.fatal) return;
+    connectServer(latest.server);
+  }, delay);
+}
+
+function handleServerFrame(serverId, msg) {
+  const state = serverState(serverId);
+  if (!state) return;
+
+  switch (msg.type) {
+    case 'server:joined': {
+      state.status = 'online';
+      state.fatal = false;
+      state.error = '';
+      state.attempts = 0;
+      state.you = msg.you || null;
+      state.channels = Array.isArray(msg.server?.channels) ? msg.server.channels : [];
+      state.members = Array.isArray(msg.members) ? msg.members : [];
+      if (msg.server) {
+        state.server = {
+          ...state.server,
+          id: msg.server.id || state.server.id,
+          name: msg.server.name || state.server.name,
+          icon: msg.server.icon || '',
+          color: msg.server.color || state.server.color,
+          invite: msg.server.invite || state.server.invite,
+          ownerId: msg.server.ownerId,
+          owner: Boolean(state.you?.owner),
+        };
+        const entry = servers.find((item) => item.id === serverId);
+        if (entry) Object.assign(entry, {
+          name: state.server.name,
+          icon: state.server.icon,
+          color: state.server.color,
+          invite: state.server.invite,
+          owner: state.server.owner,
+        });
+      }
+
+      for (const key of [...history.keys()]) {
+        if (key.startsWith(`server:${serverId}:`)) history.delete(key);
+      }
+      for (const [channelId, list] of Object.entries(msg.messages || {})) {
+        history.set(`server:${serverId}:${channelId}`, Array.isArray(list) ? list.slice(-300) : []);
+      }
+
+      if (activeServerId === serverId) {
+        if (!state.channels.some((channel) => channel.id === current.id)) {
+          current = { kind: 'server', serverId, id: state.channels[0]?.id || '' };
+        }
+        state.lastChannelId = current.id || state.lastChannelId;
+        renderSidebar();
+        renderHeader();
+        renderMessages(false);
+        renderMembers();
+        updateComposer();
+      }
+      renderServers();
+      updateBadges();
+      break;
+    }
+
+    case 'server:members': {
+      state.members = Array.isArray(msg.members) ? msg.members : [];
+      if (activeServerId === serverId) {
+        renderMembers();
+        renderHeader();
+      }
+      break;
+    }
+
+    case 'server:channels': {
+      state.channels = Array.isArray(msg.channels) ? msg.channels : [];
+      if (activeServerId === serverId) {
+        if (current.kind === 'server' && !state.channels.some((channel) => channel.id === current.id)) {
+          current = { kind: 'server', serverId, id: state.channels[0]?.id || '' };
+        }
+        renderSidebar();
+        renderHeader();
+        renderMessages(false);
+        updateComposer();
+      }
+      break;
+    }
+
+    case 'server:message': {
+      const message = msg.message;
+      if (!message || !message.channelId) return;
+      const key = `server:${serverId}:${message.channelId}`;
+      pushHistory(key, message);
+      const active = current.kind === 'server' && current.serverId === serverId && current.id === message.channelId;
+      const own = message.authorId === state.you?.memberId;
+      if (active) {
+        const nearBottom = isNearBottom();
+        if (!searchQuery) renderMessages(false);
+        if (nearBottom || !searchQuery) scrollBottom();
+      } else if (!own) {
+        bumpUnread(key);
+        renderSidebar();
+        updateBadges();
+      }
+      if (!own) {
+        const channel = state.channels.find((item) => item.id === message.channelId);
+        notifyIncoming(message, channel ? `#${channel.name} • ${state.server.name}` : state.server.name, active);
+      }
+      break;
+    }
+
+    case 'server:typing': {
+      if (msg.channelId && (current.kind !== 'server' || current.serverId !== serverId || current.id !== msg.channelId)) return;
+      if (msg.userId === state.you?.memberId) return;
+      if (msg.typing) {
+        typingUsers.set(msg.userId, { name: msg.name, until: Date.now() + 1800 });
+        clearTimeout(typingUsers.get(msg.userId)._timer);
+        const entry = typingUsers.get(msg.userId);
+        entry._timer = setTimeout(() => {
+          typingUsers.delete(msg.userId);
+          renderTyping();
+        }, 1800);
+      } else {
+        typingUsers.delete(msg.userId);
+      }
+      renderTyping();
+      break;
+    }
+
+    case 'server:error': {
+      state.error = String(msg.message || 'Wystąpił błąd serwera.');
+      toast(state.error);
+      if (msg.code === 'not-found' || msg.code === 'invalid-invite') {
+        state.fatal = true;
+        state.status = 'offline';
+        const socket = state.ws;
+        state.ws = null;
+        if (socket) {
+          socket.onclose = null;
+          try { socket.close(); } catch { /* ignore */ }
+        }
+      }
+      renderServers();
+      if (activeServerId === serverId) {
+        renderHeader();
+        renderMessages(false);
+        updateComposer();
+      }
+      break;
+    }
+
+    case 'server:deleted': {
+      const owned = Boolean(state.you?.owner);
+      removeServerLocally(serverId);
+      if (!state.fatal && !owned && CHILL.servers?.leave) CHILL.servers.leave({ id: serverId }).catch(() => {});
+      if (!owned) toast('Serwer został usunięty przez właściciela.');
+      break;
+    }
+  }
+}
+
+function removeServerLocally(serverId) {
+  const state = serverState(serverId);
+  if (state) {
+    clearTimeout(state.reconnectTimer);
+    if (state.ws) {
+      state.ws.onclose = null;
+      try { state.ws.close(); } catch { /* ignore */ }
+    }
+  }
+  serverStates.delete(serverId);
+  servers = servers.filter((server) => server.id !== serverId);
+  for (const key of [...unread.keys()]) {
+    if (key.startsWith(`server:${serverId}:`)) unread.delete(key);
+  }
+  if (activeServerId === serverId) selectHome();
+  else {
+    renderSidebar();
+    renderMessages(false);
+    renderMembers();
+    updateBadges();
+  }
+}
+
+async function probeServer(parsed, memberId) {
+  return new Promise((resolve, reject) => {
+    let socket;
+    let done = false;
+    let timer;
+    const finish = (fn, value) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { socket?.close(); } catch { /* ignore */ }
+      fn(value);
+    };
+    try {
+      socket = new WebSocket(`ws://${parsed.address}/chat`);
+    } catch {
+      reject(new Error('Nieprawidłowy adres serwera.'));
+      return;
+    }
+    timer = setTimeout(() => finish(reject, new Error('Serwer nie odpowiada. Sprawdź adres i spróbuj ponownie.')), 10_000);
+    socket.onopen = () => {
+      socket.send(JSON.stringify({
+        type: 'join-server',
+        invite: parsed.invite,
+        memberId,
+        name: myName,
+        color: myColor,
+      }));
+    };
+    socket.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'server:joined') finish(resolve, msg);
+        else if (msg.type === 'server:error') finish(reject, new Error(msg.message || 'Nie udało się dołączyć do serwera.'));
+      } catch { /* ignore */ }
+    };
+    socket.onerror = () => finish(reject, new Error('Nie można połączyć się z serwerem.'));
+    socket.onclose = () => finish(reject, new Error('Serwer przerwał połączenie.'));
+  });
+}
+
+function bindServers() {
+  $('homeBtn').addEventListener('click', selectHome);
+  $('addServerBtn').addEventListener('click', () => openServerModal('create'));
+  $('closeServerModal').addEventListener('click', closeServerModal);
+  $('serverOverlay').addEventListener('click', (e) => {
+    if (e.target === $('serverOverlay')) closeServerModal();
+  });
+
+  document.querySelectorAll('[data-server-tab]').forEach((button) => {
+    button.addEventListener('click', () => switchServerTab(button.dataset.serverTab));
+  });
+
+  $('serverColors').addEventListener('click', (e) => {
+    const button = e.target.closest('[data-server-color]');
+    if (!button) return;
+    serverColor = button.dataset.serverColor;
+    markColorSelection($('serverColors'), serverColor);
+  });
+  markColorSelection($('serverColors'), serverColor);
+
+  $('createServerBtn').addEventListener('click', createServer);
+  $('joinServerBtn').addEventListener('click', joinServer);
+  $('serverInvite').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      joinServer();
+    }
+  });
+  $('serverName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      createServer();
+    }
+  });
+
+  $('inviteBtn').addEventListener('click', openInviteModal);
+  $('closeInviteModal').addEventListener('click', () => { $('inviteOverlay').hidden = true; });
+  $('inviteOverlay').addEventListener('click', (e) => {
+    if (e.target === $('inviteOverlay')) $('inviteOverlay').hidden = true;
+  });
+  $('copyInviteBtn').addEventListener('click', () => {
+    copyText($('inviteLink').textContent).then(() => {
+      $('inviteSaved').textContent = 'Skopiowano';
+      setTimeout(() => { $('inviteSaved').textContent = ''; }, 2500);
+    }).catch(() => toast('Nie udało się skopiować linku.'));
+  });
+  $('leaveServerBtn').addEventListener('click', leaveActiveServer);
+
+  $('addChannelBtn').addEventListener('click', () => {
+    const form = $('channelForm');
+    form.hidden = !form.hidden;
+    if (!form.hidden) $('channelName').focus();
+  });
+  $('channelForm').addEventListener('submit', createChannelFromForm);
+  $('channelName').addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      $('channelForm').hidden = true;
+      $('channelName').value = '';
+    }
+  });
+}
+
+function openServerModal(tab = 'create') {
+  if (!currentUser) return;
+  $('serverOverlay').hidden = false;
+  $('serverName').value = '';
+  $('serverInvite').value = '';
+  $('createServerError').textContent = '';
+  $('joinServerError').textContent = '';
+  serverColor = '#3ee0a3';
+  markColorSelection($('serverColors'), serverColor);
+  switchServerTab(tab);
+}
+
+function closeServerModal() {
+  $('serverOverlay').hidden = true;
+  $('createServerBtn').disabled = false;
+  $('joinServerBtn').disabled = false;
+}
+
+function switchServerTab(tab) {
+  const target = tab === 'join' ? 'join' : 'create';
+  document.querySelectorAll('[data-server-tab]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.serverTab === target);
+  });
+  document.querySelectorAll('[data-server-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.serverPanel !== target;
+  });
+  setTimeout(() => (target === 'join' ? $('serverInvite') : $('serverName')).focus(), 40);
+}
+
+async function createServer() {
+  const name = $('serverName').value.trim();
+  const errorEl = $('createServerError');
+  errorEl.textContent = '';
+  if (name.length < 2 || name.length > 40) {
+    errorEl.textContent = 'Nazwa serwera musi mieć 2–40 znaków.';
+    return;
+  }
+  $('createServerBtn').disabled = true;
+  try {
+    const result = await CHILL.servers.create({ name, color: serverColor });
+    if (!result || !result.ok) {
+      errorEl.textContent = result?.error || 'Nie udało się utworzyć serwera.';
+      return;
+    }
+    upsertServer(result.server);
+    const state = ensureServerState(result.server);
+    state.server = result.server;
+    closeServerModal();
+    selectServer(result.server.id);
+    connectServer(result.server);
+    toast(`Serwer „${result.server.name}” utworzony`);
+  } catch {
+    errorEl.textContent = 'Wystąpił błąd podczas tworzenia serwera.';
+  } finally {
+    $('createServerBtn').disabled = false;
+  }
+}
+
+async function joinServer() {
+  const raw = $('serverInvite').value.trim();
+  const errorEl = $('joinServerError');
+  errorEl.textContent = '';
+  const parsed = parseInvite(raw);
+  if (!parsed) {
+    errorEl.textContent = 'Wklej pełny link, np. chill://192.168.1.5:47830/AB12CD.';
+    return;
+  }
+  $('joinServerBtn').disabled = true;
+  errorEl.textContent = 'Łączę…';
+  try {
+    const known = servers.find((server) => server.invite === parsed.invite && (server.address === parsed.address || server.owner));
+    if (known) {
+      closeServerModal();
+      selectServer(known.id);
+      connectServer(known);
+      toast('Już należysz do tego serwera');
+      return;
+    }
+    const memberId = randomMemberId();
+    const data = await probeServer(parsed, memberId);
+    const result = await CHILL.servers.saveJoined({
+      address: parsed.address,
+      invite: parsed.invite,
+      server: data.server,
+      memberId,
+    });
+    if (!result || !result.ok) throw new Error(result?.error || 'Nie udało się zapisać serwera.');
+    upsertServer(result.server);
+    ensureServerState(result.server);
+    closeServerModal();
+    selectServer(result.server.id);
+    connectServer(result.server);
+    toast(`Dołączono do „${result.server.name}”`);
+    errorEl.textContent = '';
+  } catch (err) {
+    errorEl.textContent = err.message || 'Nie udało się dołączyć do serwera.';
+  } finally {
+    $('joinServerBtn').disabled = false;
+    if (!errorEl.textContent) errorEl.textContent = '';
+  }
+}
+
+function createChannelFromForm(e) {
+  e.preventDefault();
+  const state = serverState(activeServerId);
+  if (!state || state.status !== 'online' || !state.you?.owner || !state.ws || state.ws.readyState !== WebSocket.OPEN) return;
+  const name = $('channelName').value.trim();
+  if (!name) return;
+  state.ws.send(JSON.stringify({ type: 'server:channel:create', name }));
+  $('channelName').value = '';
+  $('channelForm').hidden = true;
+}
+
+async function openInviteModal() {
+  const state = serverState(activeServerId);
+  if (!state) return;
+  $('inviteOverlay').hidden = false;
+  $('inviteServerName').textContent = state.server.name;
+  $('inviteSaved').textContent = '';
+  $('leaveServerBtn').textContent = state.you?.owner ? 'Usuń serwer' : 'Opuść serwer';
+  resetLeaveConfirm();
+  $('inviteLink').textContent = state.server.shareLink || `chill://${state.server.address}/${state.server.invite}`;
+  if (CHILL.servers?.invite) {
+    try {
+      const result = await CHILL.servers.invite({ id: state.server.id });
+      if (result?.ok && result.shareLink) {
+        state.server.shareLink = result.shareLink;
+        $('inviteLink').textContent = result.shareLink;
+      }
+    } catch { /* ignore */ }
+  }
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    area.remove();
+    if (!ok) throw new Error('copy failed');
+    return true;
+  }
+}
+
+let leaveArmed = false;
+let leaveTimer = null;
+
+function resetLeaveConfirm() {
+  leaveArmed = false;
+  clearTimeout(leaveTimer);
+  const state = serverState(activeServerId);
+  $('leaveServerBtn').textContent = state?.you?.owner ? 'Usuń serwer' : 'Opuść serwer';
+  $('leaveServerBtn').disabled = false;
+}
+
+async function leaveActiveServer() {
+  const state = serverState(activeServerId);
+  if (!state) return;
+  if (!leaveArmed) {
+    leaveArmed = true;
+    $('leaveServerBtn').textContent = state.you?.owner ? 'Kliknij ponownie, aby usunąć' : 'Kliknij ponownie, aby opuścić';
+    clearTimeout(leaveTimer);
+    leaveTimer = setTimeout(resetLeaveConfirm, 3500);
+    return;
+  }
+  clearTimeout(leaveTimer);
+  leaveArmed = false;
+  $('leaveServerBtn').disabled = true;
+  const id = state.server.id;
+  const deleted = Boolean(state.you?.owner);
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    try { state.ws.send(JSON.stringify({ type: 'server:leave' })); } catch { /* ignore */ }
+  }
+  try {
+    const result = await CHILL.servers.leave({ id });
+    if (!result || !result.ok) {
+      toast(result?.error || 'Nie udało się opuścić serwera.');
+      resetLeaveConfirm();
+      return;
+    }
+    $('inviteOverlay').hidden = true;
+    removeServerLocally(id);
+    toast(deleted ? 'Serwer został usunięty' : 'Opuszczono serwer');
+  } catch {
+    toast('Wystąpił błąd. Spróbuj ponownie.');
+    resetLeaveConfirm();
+  }
+}
+
 function isValidConversation() {
-  if (current.kind === 'room') return rooms.some((r) => r.id === current.id);
-  return allUsers.some((u) => u.id === current.id);
+  if (current.kind === 'dm') return allUsers.some((u) => u.id === current.id);
+  if (current.kind === 'server') {
+    const state = serverState(current.serverId);
+    return Boolean(state && state.channels.some((channel) => channel.id === current.id));
+  }
+  return current.kind === 'home';
 }
 
 function bumpUnread(key) {
@@ -702,52 +1265,233 @@ function pushHistory(key, message) {
 }
 
 function selectConversation(kind, id) {
+  activeServerId = null;
   current = { kind, id };
-  unread.delete(kind === 'room' ? `room:${id}` : `dm:${id}`);
+  unread.delete(kind === 'dm' ? `dm:${id}` : conversationKey());
+  searchQuery = '';
+  $('messageSearch').value = '';
+  $('searchBar').hidden = true;
+  $('conversationSearch').value = '';
+  $('messages').classList.remove('searching');
+  typingUsers.clear();
+  renderTyping();
+  renderSidebar();
+  renderHeader();
+  renderMessages(false);
+  renderMembers();
+  updateComposer();
+  scrollBottom();
+  updateBadges();
+  $('messageInput').focus();
+}
+
+function serverState(id) {
+  return serverStates.get(id) || null;
+}
+
+function ensureServerState(server) {
+  let state = serverStates.get(server.id);
+  if (!state) {
+    state = {
+      server,
+      ws: null,
+      status: 'offline',
+      channels: [],
+      members: [],
+      you: null,
+      error: '',
+      reconnectTimer: null,
+      attempts: 0,
+      lastChannelId: null,
+      fatal: false,
+    };
+    serverStates.set(server.id, state);
+  } else {
+    state.server = { ...state.server, ...server };
+  }
+  return state;
+}
+
+async function loadServers() {
+  if (!CHILL.servers?.list) return;
+  try {
+    const result = await CHILL.servers.list();
+    if (!result || !result.ok) {
+      if (result?.error) toast(result.error);
+      return;
+    }
+    servers = Array.isArray(result.servers) ? result.servers : [];
+    renderServers();
+    for (const server of servers) connectServer(server);
+    if (activeServerId && !servers.some((server) => server.id === activeServerId)) selectHome();
+    else renderSidebar();
+  } catch {
+    toast('Nie udało się wczytać serwerów.');
+  }
+}
+
+function upsertServer(server) {
+  const index = servers.findIndex((item) => item.id === server.id);
+  if (index >= 0) servers[index] = { ...servers[index], ...server };
+  else servers.push(server);
+  renderServers();
+}
+
+function unreadCountFor(prefix) {
+  let total = 0;
+  for (const [key, value] of unread.entries()) if (key.startsWith(prefix)) total += value;
+  return total;
+}
+
+function selectHome() {
+  activeServerId = null;
+  current = { kind: 'home' };
+  typingUsers.clear();
+  searchQuery = '';
+  $('conversationSearch').value = '';
+  $('messageSearch').value = '';
+  $('searchBar').hidden = true;
+  $('channelForm').hidden = true;
+  $('messages').classList.remove('searching');
+  renderSidebar();
+  renderHeader();
+  renderMessages(false);
+  renderMembers();
+  updateComposer();
+  updateBadges();
+}
+
+function selectServer(id) {
+  const server = servers.find((item) => item.id === id);
+  if (!server) return;
+  const state = ensureServerState(server);
+  activeServerId = id;
+  if (!state.ws && !state.fatal) connectServer(state.server);
+  let channelId = state.lastChannelId;
+  if (!state.channels.some((channel) => channel.id === channelId)) channelId = state.channels[0]?.id || '';
+  state.lastChannelId = channelId;
+  current = { kind: 'server', serverId: id, id: channelId };
+  if (channelId) unread.delete(`server:${id}:${channelId}`);
+  searchQuery = '';
+  $('conversationSearch').value = '';
+  $('messageSearch').value = '';
+  $('searchBar').hidden = true;
+  $('messages').classList.remove('searching');
+  typingUsers.clear();
+  renderSidebar();
+  renderHeader();
+  renderMessages(false);
+  renderMembers();
+  updateComposer();
+  updateBadges();
+  $('messageInput').focus();
+}
+
+function selectChannel(channelId) {
+  const state = serverState(activeServerId);
+  if (!state || !state.channels.some((channel) => channel.id === channelId)) return;
+  state.lastChannelId = channelId;
+  current = { kind: 'server', serverId: activeServerId, id: channelId };
+  unread.delete(`server:${activeServerId}:${channelId}`);
   searchQuery = '';
   $('messageSearch').value = '';
   $('searchBar').hidden = true;
   $('messages').classList.remove('searching');
   typingUsers.clear();
   renderTyping();
-  renderRooms();
-  renderDmList();
+  renderSidebar();
   renderHeader();
   renderMessages(false);
+  renderMembers();
+  updateComposer();
   scrollBottom();
   updateBadges();
   $('messageInput').focus();
 }
 
-function renderRoomIcon(room) {
-  return `<span class="nav-icon">${esc(room.emoji || '#')}</span>`;
+function renderSidebar() {
+  if (!currentUser) return;
+  const state = activeServerId ? serverState(activeServerId) : null;
+  $('serverBanner').hidden = !state;
+  $('channelsGroup').hidden = !state;
+  $('dmGroup').hidden = Boolean(state);
+  $('conversationSearch').placeholder = state ? 'Szukaj kanału' : 'Szukaj rozmowy';
+  $('inviteBtn').hidden = !state;
+  if (state) {
+    $('serverBannerName').textContent = state.server.name;
+    $('serverBannerAvatar').textContent = state.server.icon || initial(state.server.name);
+    $('serverBannerAvatar').style.background = safeColor(state.server.color, 'var(--panel-2)');
+    $('serverOwnerPill').hidden = !state.you?.owner;
+    $('addChannelBtn').hidden = !(state.you?.owner && state.status === 'online');
+    renderChannels();
+  } else {
+    $('channelForm').hidden = true;
+    renderDmList();
+  }
+  renderServers();
 }
 
-function renderRooms() {
-  const container = $('roomList');
+function renderServers() {
+  const container = $('serverList');
   if (!container) return;
+  container.innerHTML = '';
+
+  for (const server of servers) {
+    const state = serverState(server.id);
+    const count = unreadCountFor(`server:${server.id}:`);
+    const color = safeColor(server.color, '#3ee0a3');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `server-btn${activeServerId === server.id ? ' active' : ''}${count ? ' unread' : ''}${state?.status === 'online' ? '' : ' offline'}`;
+    button.title = `${server.name}${state?.status === 'online' ? '' : state?.status === 'connecting' ? ' — łączenie…' : ' — offline'}`;
+    button.innerHTML = `
+      <span class="server-avatar" style="background:linear-gradient(145deg, ${esc(color)}, color-mix(in srgb, ${esc(color)} 55%, #7cc8ff))">${esc(server.icon || initial(server.name))}</span>
+      ${count ? `<span class="server-badge">${count > 99 ? '99+' : count}</span>` : ''}
+      ${state?.status === 'online' ? '' : '<span class="server-status-dot"></span>'}
+    `;
+    button.addEventListener('click', () => selectServer(server.id));
+    container.appendChild(button);
+  }
+
+  $('homeBtn').classList.toggle('active', activeServerId === null);
+  const dmTotal = unreadCountFor('dm:');
+  const homeBadge = $('homeBadge');
+  if (homeBadge) {
+    homeBadge.hidden = dmTotal === 0;
+    homeBadge.textContent = dmTotal > 99 ? '99+' : String(dmTotal);
+  }
+}
+
+function renderChannels() {
+  const container = $('channelList');
+  if (!container) return;
+  const state = serverState(activeServerId);
+  if (!state) {
+    container.innerHTML = '';
+    return;
+  }
   const query = $('conversationSearch').value.trim().toLowerCase();
-  const list = rooms.filter((room) => !query || room.name.toLowerCase().includes(query) || (room.topic || '').toLowerCase().includes(query));
+  const list = state.channels.filter((channel) => !query || channel.name.toLowerCase().includes(query));
   container.innerHTML = '';
 
   if (!list.length) {
-    container.innerHTML = '<div class="nav-empty">Brak pokoi</div>';
+    container.innerHTML = `<div class="nav-empty">${state.status === 'online' ? 'Brak kanałów' : 'Łączę z serwerem…'}</div>`;
     return;
   }
 
-  for (const room of list) {
-    const key = `room:${room.id}`;
-    const isActive = current.kind === 'room' && current.id === room.id;
+  for (const channel of list) {
+    const key = `server:${state.server.id}:${channel.id}`;
+    const isActive = current.kind === 'server' && current.serverId === state.server.id && current.id === channel.id;
     const count = isActive ? 0 : unread.get(key) || 0;
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `nav-item${isActive ? ' active' : ''}${count ? ' unread' : ''}`;
     button.innerHTML = `
-      ${renderRoomIcon(room)}
-      <span class="nav-label">${esc(room.name)}</span>
+      <span class="nav-icon">#</span>
+      <span class="nav-label">${esc(channel.name)}</span>
       ${count ? `<span class="nav-badge">${count > 99 ? '99+' : count}</span>` : ''}
     `;
-    button.addEventListener('click', () => selectConversation('room', room.id));
+    button.addEventListener('click', () => selectChannel(channel.id));
     container.appendChild(button);
   }
 }
@@ -777,7 +1521,7 @@ function renderDmList() {
     button.type = 'button';
     button.className = `nav-item${isActive ? ' active' : ''}${count ? ' unread' : ''}`;
     button.innerHTML = `
-      <span class="nav-avatar" style="background:${esc(user.color)}">
+      <span class="nav-avatar" style="background:${safeColor(user.color, '#3ee0a3')}">
         ${esc(initial(user.name))}
         <span class="status-dot ${esc(status)}"></span>
       </span>
@@ -792,6 +1536,40 @@ function renderDmList() {
 function renderMembers() {
   const container = $('userList');
   if (!container) return;
+  const state = activeServerId ? serverState(activeServerId) : null;
+
+  if (state) {
+    const sorted = [...state.members].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'pl'));
+    const online = sorted.filter((member) => member.online).length;
+    $('onlineBadge').textContent = String(online);
+    $('onlineBadge').classList.toggle('empty', online === 0);
+    container.innerHTML = '';
+    if (!sorted.length) {
+      container.innerHTML = '<div class="nav-empty">Brak członków</div>';
+      return;
+    }
+    for (const member of sorted) {
+      const status = member.online ? 'online' : 'offline';
+      const sub = member.owner ? 'Właściciel serwera' : member.online ? 'Online' : 'Offline';
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'member';
+      item.innerHTML = `
+        <span class="member-avatar" style="background:${safeColor(member.color, '#3ee0a3')}">
+          ${esc(initial(member.name))}
+          <span class="status-dot ${esc(status)}"></span>
+        </span>
+        <span class="member-info">
+          <strong>${esc(member.name)}${member.id === state.you?.memberId ? ' (Ty)' : ''}</strong>
+          <small>${esc(sub)}</small>
+        </span>
+      `;
+      if (member.id === state.you?.memberId) item.addEventListener('click', () => openSettings('profile'));
+      container.appendChild(item);
+    }
+    return;
+  }
+
   const online = allUsers.filter((u) => u.online);
   $('onlineBadge').textContent = String(online.length);
   $('onlineBadge').classList.toggle('empty', online.length === 0);
@@ -805,7 +1583,7 @@ function renderMembers() {
     item.type = 'button';
     item.className = 'member';
     item.innerHTML = `
-      <span class="member-avatar" style="background:${esc(user.color)}">
+      <span class="member-avatar" style="background:${safeColor(user.color, '#3ee0a3')}">
         ${esc(initial(user.name))}
         <span class="status-dot ${esc(status)}"></span>
       </span>
@@ -828,23 +1606,65 @@ function renderHeader() {
     const user = allUsers.find((u) => u.id === current.id);
     const status = user ? (user.online ? user.status : 'offline') : 'offline';
     $('chatEmoji').textContent = initial(user?.name || '?');
-    $('chatEmoji').style.background = user?.color || 'var(--panel-2)';
+    $('chatEmoji').style.background = safeColor(user?.color, 'var(--panel-2)');
     $('chatEmoji').style.color = '#06251b';
     $('chatName').textContent = user?.name || 'Rozmowa prywatna';
     $('chatSub').textContent = user?.playing ? `Gra w ${user.playing} • ${statusLabel(status)}` : statusLabel(status);
+  } else if (current.kind === 'server') {
+    const state = serverState(current.serverId);
+    const channel = state?.channels.find((item) => item.id === current.id);
+    const online = state ? state.members.filter((member) => member.online).length : 0;
+    $('chatEmoji').textContent = '#';
+    $('chatEmoji').style.background = safeColor(state?.server.color, 'var(--panel-2)');
+    $('chatEmoji').style.color = '#06251b';
+    $('chatName').textContent = channel?.name || state?.server.name || 'Serwer';
+    $('chatSub').textContent = state
+      ? `${state.server.name} • ${state.status === 'online' ? `${online} online` : state.status === 'connecting' ? 'łączenie…' : 'offline'}`
+      : '';
   } else {
-    const room = rooms.find((r) => r.id === current.id) || rooms[0];
-    $('chatEmoji').textContent = room?.emoji || '#';
-    $('chatEmoji').style.background = 'var(--panel-2)';
-    $('chatEmoji').style.color = 'var(--text)';
-    $('chatName').textContent = room?.name || 'Lounge';
-    const online = allUsers.filter((u) => u.online).length;
-    $('chatSub').textContent = `${room?.topic || ''}${room?.topic ? ' • ' : ''}${online} online`;
+    $('chatEmoji').textContent = 'C';
+    $('chatEmoji').style.background = 'linear-gradient(140deg, var(--accent), var(--accent-2))';
+    $('chatEmoji').style.color = '#05231a';
+    $('chatName').textContent = 'Wiadomości prywatne';
+    $('chatSub').textContent = servers.length ? 'Wybierz rozmowę lub serwer' : 'Utwórz lub dołącz do serwera';
   }
+  updateComposer();
+}
+
+function updateComposer() {
+  const input = $('messageInput');
+  const state = current.kind === 'server' ? serverState(current.serverId) : null;
+  const channel = state?.channels.find((item) => item.id === current.id);
+  const enabled = current.kind === 'dm' || (current.kind === 'server' && state?.status === 'online' && Boolean(channel));
+  $('composer').hidden = !enabled;
+  input.disabled = !enabled;
+  if (current.kind === 'dm') {
+    const user = allUsers.find((u) => u.id === current.id);
+    input.placeholder = `Napisz do ${user?.name || 'rozmówcy'}…`;
+  } else if (current.kind === 'server' && channel) {
+    input.placeholder = `Napisz na #${channel.name}…`;
+  } else {
+    input.placeholder = 'Wybierz kanał, aby napisać…';
+  }
+  $('sendBtn').disabled = !enabled || !input.value.trim();
+  $('typingBar').hidden = !enabled || typingUsers.size === 0;
 }
 
 function conversationKey() {
-  return `${current.kind}:${current.id}`;
+  if (current.kind === 'server') return `server:${current.serverId}:${current.id}`;
+  if (current.kind === 'dm') return `dm:${current.id}`;
+  return 'home';
+}
+
+function addEmptyAction(wrap, label, className, handler) {
+  const actions = wrap.querySelector('.empty-actions');
+  if (!actions) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = className;
+  button.textContent = label;
+  button.addEventListener('click', handler);
+  actions.appendChild(button);
 }
 
 function renderMessages(scroll = true) {
@@ -856,20 +1676,87 @@ function renderMessages(scroll = true) {
   container.classList.toggle('searching', Boolean(searchQuery));
   container.innerHTML = '';
 
+  if (current.kind === 'home') {
+    const wrap = document.createElement('div');
+    wrap.className = 'empty-chat';
+    if (!servers.length) {
+      wrap.innerHTML = `
+        <div class="empty-ico">C</div>
+        <h3>Zacznij od serwera</h3>
+        <p>Nie masz jeszcze żadnego serwera. Utwórz własny albo dołącz kodem zaproszenia od znajomego.</p>
+        <div class="empty-actions"></div>
+      `;
+      addEmptyAction(wrap, 'Utwórz serwer', 'btn-primary', () => openServerModal('create'));
+      addEmptyAction(wrap, 'Dołącz kodem', 'btn-secondary', () => openServerModal('join'));
+    } else {
+      wrap.innerHTML = `
+        <div class="empty-ico">💬</div>
+        <h3>Wiadomości prywatne</h3>
+        <p>Wybierz rozmowę z listy po lewej. Prywatne wiadomości działają między kontami na tym komputerze.</p>
+      `;
+    }
+    container.appendChild(wrap);
+    updateComposer();
+    return;
+  }
+
+  if (current.kind === 'server') {
+    const state = serverState(current.serverId);
+    if (!state || state.status !== 'online') {
+      const wrap = document.createElement('div');
+      wrap.className = 'empty-chat';
+      if (state?.status === 'connecting') {
+        wrap.innerHTML = `<div class="empty-ico">◌</div><h3>Łączę z serwerem…</h3><p>${esc(state.server.name)}</p>`;
+      } else {
+        wrap.innerHTML = `
+          <div class="empty-ico">⚠</div>
+          <h3>Serwer offline</h3>
+          <p>${esc(state?.error || `Nie można połączyć się z ${state?.server.name || 'serwerem'}.`)}</p>
+          <div class="empty-actions"></div>
+        `;
+        if (state) {
+          addEmptyAction(wrap, 'Spróbuj ponownie', 'btn-secondary', () => {
+            state.fatal = false;
+            state.attempts = 0;
+            connectServer(state.server);
+          });
+        }
+      }
+      container.appendChild(wrap);
+      updateComposer();
+      return;
+    }
+    if (!current.id) {
+      const wrap = document.createElement('div');
+      wrap.className = 'empty-chat';
+      wrap.innerHTML = `<div class="empty-ico">#</div><h3>Brak kanałów</h3><p>Ten serwer nie ma jeszcze żadnego kanału.</p><div class="empty-actions"></div>`;
+      if (state.you?.owner) {
+        addEmptyAction(wrap, 'Utwórz kanał', 'btn-primary', () => {
+          $('channelForm').hidden = false;
+          $('channelName').focus();
+        });
+      }
+      container.appendChild(wrap);
+      updateComposer();
+      return;
+    }
+  }
+
   if (searchQuery) {
     list = list.filter((m) => String(m.text).toLowerCase().includes(searchQuery));
   }
 
   if (!list.length) {
-    const room = rooms.find((r) => r.id === current.id);
-    const user = allUsers.find((u) => u.id === current.id);
+    const state = current.kind === 'server' ? serverState(current.serverId) : null;
+    const channel = state?.channels.find((item) => item.id === current.id);
+    const user = current.kind === 'dm' ? allUsers.find((u) => u.id === current.id) : null;
     const wrap = document.createElement('div');
     wrap.className = 'empty-chat';
     wrap.innerHTML = searchQuery
       ? `<div class="empty-ico">⌕</div><h3>Brak wyników</h3><p>Nie znaleziono wiadomości pasujących do „${esc($('messageSearch').value.trim())}”.</p>`
-      : `<div class="empty-ico">${current.kind === 'room' ? esc(room?.emoji || '💬') : esc(initial(user?.name || '?'))}</div>
-         <h3>${current.kind === 'room' ? esc(room?.name || 'Lounge') : esc(user?.name || 'Rozmowa')}</h3>
-         <p>${current.kind === 'room' ? 'To początek tego pokoju. Napisz pierwszą wiadomość!' : 'To początek Waszej prywatnej rozmowy.'}</p>`;
+      : current.kind === 'server'
+        ? `<div class="empty-ico">#</div><h3>#${esc(channel?.name || 'kanał')}</h3><p>To początek tego kanału. Napisz pierwszą wiadomość!</p>`
+        : `<div class="empty-ico">${esc(initial(user?.name || '?'))}</div><h3>${esc(user?.name || 'Rozmowa')}</h3><p>To początek Waszej prywatnej rozmowy.</p>`;
     container.appendChild(wrap);
     if (scroll) scrollBottom();
     return;
@@ -896,14 +1783,16 @@ function renderMessages(scroll = true) {
 }
 
 function buildMessage(message, grouped) {
-  const own = message.authorId === myId;
+  const own = current.kind === 'server'
+    ? message.authorId === serverState(current.serverId)?.you?.memberId
+    : message.authorId === myId;
   const el = document.createElement('div');
   el.className = `msg${own ? ' own' : ''}${grouped ? ' grouped' : ''}${searchQuery ? ' search-hit' : ''}`;
   el.dataset.id = message.id;
 
   const avatar = document.createElement('span');
   avatar.className = `msg-avatar${grouped ? ' hidden' : ''}`;
-  avatar.style.background = message.authorColor || 'var(--accent)';
+  avatar.style.background = safeColor(message.authorColor, 'var(--accent)');
   avatar.textContent = initial(message.authorName);
 
   const main = document.createElement('div');
@@ -962,30 +1851,38 @@ function sendCurrentMessage(e) {
   const input = $('messageInput');
   const text = input.value.trim();
   if (!text) return;
-  if (!wsReady()) {
-    toast('Łączę z serwerem — spróbuj za chwilę.');
-    connect();
+  if (current.kind === 'home') {
+    toast('Wybierz rozmowę lub kanał, aby napisać.');
     return;
   }
 
-  const message = {
-    id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-    authorId: myId,
-    authorName: myName,
-    authorColor: myColor,
-    text,
-    at: Date.now(),
-  };
-
-  if (current.kind === 'dm') {
-    message.to = current.id;
-    ws.send(JSON.stringify({ type: 'dm', to: current.id, text }));
+  if (current.kind === 'server') {
+    const state = serverState(current.serverId);
+    const channel = state?.channels.find((item) => item.id === current.id);
+    if (!state || !state.ws || state.ws.readyState !== WebSocket.OPEN || !channel) {
+      toast('Łączę z serwerem — spróbuj za chwilę.');
+      return;
+    }
+    state.ws.send(JSON.stringify({ type: 'server:message', channelId: channel.id, text }));
   } else {
-    message.roomId = current.id;
-    ws.send(JSON.stringify({ type: 'message', roomId: current.id, text }));
+    if (!wsReady()) {
+      toast('Łączę z serwerem — spróbuj za chwilę.');
+      connect();
+      return;
+    }
+    const message = {
+      id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      authorId: myId,
+      authorName: myName,
+      authorColor: myColor,
+      to: current.id,
+      text,
+      at: Date.now(),
+    };
+    ws.send(JSON.stringify({ type: 'dm', to: current.id, text }));
+    pushHistory(conversationKey(), message);
   }
 
-  pushHistory(conversationKey(), message);
   if (searchQuery) {
     setMessageSearch(false);
   } else {
@@ -1004,13 +1901,17 @@ let typingSent = false;
 let typingStopTimer = null;
 
 function sendTyping() {
-  if (!wsReady()) return;
+  const state = current.kind === 'server' ? serverState(current.serverId) : null;
+  const socket = current.kind === 'dm'
+    ? (wsReady() ? ws : null)
+    : state?.ws && state.ws.readyState === WebSocket.OPEN ? state.ws : null;
+  if (!socket) return;
   if (!typingSent) {
     typingSent = true;
     const payload = current.kind === 'dm'
       ? { type: 'dm:typing', to: current.id, typing: true }
-      : { type: 'typing', roomId: current.id, typing: true };
-    ws.send(JSON.stringify(payload));
+      : { type: 'server:typing', channelId: current.id, typing: true };
+    socket.send(JSON.stringify(payload));
   }
   clearTimeout(typingStopTimer);
   typingStopTimer = setTimeout(stopTyping, 900);
@@ -1020,11 +1921,15 @@ function stopTyping() {
   clearTimeout(typingStopTimer);
   if (!typingSent) return;
   typingSent = false;
-  if (!wsReady()) return;
+  const state = current.kind === 'server' ? serverState(current.serverId) : null;
+  const socket = current.kind === 'dm'
+    ? (wsReady() ? ws : null)
+    : state?.ws && state.ws.readyState === WebSocket.OPEN ? state.ws : null;
+  if (!socket) return;
   const payload = current.kind === 'dm'
     ? { type: 'dm:typing', to: current.id, typing: false }
-    : { type: 'typing', roomId: current.id, typing: false };
-  ws.send(JSON.stringify(payload));
+    : { type: 'server:typing', channelId: current.id, typing: false };
+  socket.send(JSON.stringify(payload));
 }
 
 function renderTyping() {
@@ -1052,6 +1957,12 @@ function updateBadges() {
   for (const [key, value] of unread.entries()) if (key.startsWith('dm:')) dmTotal += value;
   $('dmBadge').textContent = dmTotal > 99 ? '99+' : String(dmTotal);
   $('dmBadge').classList.toggle('empty', dmTotal === 0);
+
+  const homeBadge = $('homeBadge');
+  if (homeBadge) {
+    homeBadge.hidden = dmTotal === 0;
+    homeBadge.textContent = dmTotal > 99 ? '99+' : String(dmTotal);
+  }
 }
 
 // ---------- Powiadomienia ----------
@@ -1380,6 +2291,11 @@ async function saveProfile() {
     $('profileSaved').textContent = 'Zapisano';
     toast('Profil zaktualizowany');
     if (wsReady()) ws.send(JSON.stringify({ type: 'profile', displayName: myName, color: myColor, about: myAbout }));
+    for (const state of serverStates.values()) {
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        state.ws.send(JSON.stringify({ type: 'server:profile', name: myName, color: myColor }));
+      }
+    }
   } catch {
     errorEl.textContent = 'Wystąpił błąd podczas zapisywania.';
   } finally {
@@ -1446,6 +2362,8 @@ function showUpdate(info) {
 function bindShortcuts() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if (!$('serverOverlay').hidden) { closeServerModal(); return; }
+      if (!$('inviteOverlay').hidden) { $('inviteOverlay').hidden = true; return; }
       if (!$('settingsOverlay').hidden) { closeSettings(); return; }
       if (!$('emojiOverlay').hidden) { $('emojiOverlay').hidden = true; return; }
       if (!$('searchBar').hidden) { setMessageSearch(false); return; }

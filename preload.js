@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('chill', {
   platform: process.platform,
+  chatPort: Number(process.env.CHILL_PORT) || 47830,
 
   auth: {
     session: () => ipcRenderer.invoke('chill:auth-session'),
@@ -39,5 +40,13 @@ contextBridge.exposeInMainWorld('chill', {
     onUpdateProgress: (cb) => {
       ipcRenderer.on('chill:update-progress', (_e, pct) => cb(Number(pct) || 0));
     },
+  },
+
+  servers: {
+    list: () => ipcRenderer.invoke('chill:servers-list'),
+    create: (payload) => ipcRenderer.invoke('chill:servers-create', payload),
+    saveJoined: (payload) => ipcRenderer.invoke('chill:servers-save-joined', payload),
+    leave: (payload) => ipcRenderer.invoke('chill:servers-leave', payload),
+    invite: (payload) => ipcRenderer.invoke('chill:servers-invite', payload),
   },
 });

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws://127.0.0.1:47830 http://127.0.0.1:47830;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws: wss: http: https:;">
 <title>Chill</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -32,12 +32,12 @@
     <div class="showcase-copy">
       <p class="eyebrow">Twoja przestrzeń na spokojne rozmowy</p>
       <h1>Pogadajmy.<br><span>Bez pośpiechu.</span></h1>
-      <p class="showcase-lead">Pokoje tematyczne, prywatne wiadomości i wszystko, co potrzebne, żeby po prostu pogadać — w jednym miejscu.</p>
+      <p class="showcase-lead">Własne serwery, kanały tematyczne i prywatne wiadomości — wszystko, co potrzebne, żeby po prostu pogadać, w jednym miejscu.</p>
 
       <ul class="showcase-points">
-        <li><span class="point-ico">◇</span> Pokoje tematyczne i rozmowy 1:1</li>
-        <li><span class="point-ico">◇</span> Emoji, statusy i ulubione gry</li>
-        <li><span class="point-ico">◇</span> Historia, która zostaje po restarcie</li>
+        <li><span class="point-ico">◇</span> Serwery i kanały tworzone przez Ciebie</li>
+        <li><span class="point-ico">◇</span> Zaproszenia linkiem i rozmowy 1:1</li>
+        <li><span class="point-ico">◇</span> Emoji, statusy i historia, która zostaje</li>
       </ul>
     </div>
 
@@ -145,6 +145,16 @@
 
 <!-- ========== APLIKACJA ========== -->
 <div class="app" id="chatApp" style="display:none">
+  <aside class="server-rail" id="serverRailPane" aria-label="Serwery">
+    <button type="button" class="rail-home active" id="homeBtn" title="Wiadomości prywatne">
+      <span class="rail-home-logo">C</span>
+      <span class="server-badge" id="homeBadge" hidden>0</span>
+    </button>
+    <div class="rail-sep"></div>
+    <nav class="rail-servers" id="serverList" aria-label="Lista serwerów"></nav>
+    <button type="button" class="rail-add" id="addServerBtn" title="Dodaj serwer" aria-label="Dodaj serwer">+</button>
+  </aside>
+
   <aside class="sidebar" id="sidebar">
     <header class="brand-row">
       <div class="logo-mark small">C</div>
@@ -152,17 +162,30 @@
       <span class="brand-tag">beta</span>
     </header>
 
+    <div class="server-banner" id="serverBanner" hidden>
+      <span class="server-banner-avatar" id="serverBannerAvatar">#</span>
+      <span class="server-banner-name" id="serverBannerName">Serwer</span>
+      <span class="owner-pill" id="serverOwnerPill" hidden>właściciel</span>
+    </div>
+
     <div class="conversation-search">
       <span class="search-ico" aria-hidden="true">⌕</span>
       <input type="text" id="conversationSearch" placeholder="Szukaj rozmowy" spellcheck="false">
     </div>
 
-    <div class="nav-group">
-      <div class="group-label">Pokoje</div>
-      <nav class="nav-list" id="roomList" aria-label="Pokoje"></nav>
+    <div class="nav-group channels-group" id="channelsGroup" hidden>
+      <div class="group-label">
+        Kanały
+        <button type="button" class="group-add" id="addChannelBtn" title="Nowy kanał" aria-label="Nowy kanał" hidden>+</button>
+      </div>
+      <nav class="nav-list" id="channelList" aria-label="Kanały"></nav>
+      <form class="channel-form" id="channelForm" hidden>
+        <input type="text" id="channelName" maxlength="32" placeholder="nowy-kanał" spellcheck="false">
+        <button type="submit" class="mini-btn">Dodaj</button>
+      </form>
     </div>
 
-    <div class="nav-group dm-group">
+    <div class="nav-group dm-group" id="dmGroup">
       <div class="group-label">Wiadomości prywatne <span class="pill" id="dmBadge">0</span></div>
       <nav class="nav-list" id="dmList" aria-label="Wiadomości prywatne"></nav>
     </div>
@@ -189,13 +212,14 @@
     <header class="chat-header">
       <button type="button" class="icon-btn back-btn" id="backBtn" title="Wstecz" style="display:none">←</button>
       <div class="chat-ident">
-        <span class="chat-emoji" id="chatEmoji">☕</span>
+        <span class="chat-emoji" id="chatEmoji">C</span>
         <div class="chat-title">
-          <h1 id="chatName">Lounge</h1>
-          <p id="chatSub">Przywitaj się i pogadaj o wszystkim</p>
+          <h1 id="chatName">Wiadomości prywatne</h1>
+          <p id="chatSub">Utwórz lub dołącz do serwera</p>
         </div>
       </div>
       <div class="header-tools">
+        <button type="button" class="invite-btn" id="inviteBtn" title="Zaproś do serwera" hidden>Zaproś</button>
         <div class="message-search" id="searchBar" hidden>
           <input type="search" id="messageSearch" placeholder="Szukaj w wiadomościach" spellcheck="false">
           <button type="button" class="icon-btn tiny" id="closeSearch" title="Zamknij">✕</button>
@@ -265,7 +289,7 @@
 
         <section class="settings-panel" data-settings-panel="profile">
           <h2>Twój profil</h2>
-          <p class="settings-lead">Tak widzą Cię inni w pokojach i wiadomościach prywatnych.</p>
+          <p class="settings-lead">Tak widzą Cię inni na serwerach i wiadomościach prywatnych.</p>
 
           <div class="profile-preview">
             <span class="avatar large" id="settingsAvatar">?</span>
@@ -433,6 +457,75 @@
           <div class="divider"></div>
           <p class="settings-note">Konta i historia są przechowywane lokalnie w folderze danych aplikacji. Odinstalowanie Chill usuwa także te dane.</p>
         </section>
+      </div>
+    </div>
+  </div>
+
+  <!-- Dodawanie serwera -->
+  <div class="modal" id="serverOverlay" hidden>
+    <div class="modal-card server-card">
+      <button type="button" class="icon-btn modal-close" id="closeServerModal" aria-label="Zamknij">✕</button>
+      <div class="server-modal-head">
+        <h2>Dodaj serwer</h2>
+        <p>Utwórz własną przestrzeń albo dołącz kodem zaproszenia od znajomych.</p>
+      </div>
+
+      <div class="segmented server-tabs" id="serverModalTabs">
+        <button type="button" class="active" data-server-tab="create">Utwórz serwer</button>
+        <button type="button" data-server-tab="join">Dołącz kodem</button>
+      </div>
+
+      <section class="server-panel" data-server-panel="create">
+        <label class="field">
+          <span>Nazwa serwera</span>
+          <input type="text" id="serverName" maxlength="40" placeholder="np. Ekipa z podwórka" spellcheck="false">
+        </label>
+        <div class="field">
+          <span>Kolor serwera</span>
+          <div class="color-row" id="serverColors">
+            <button type="button" class="color-dot selected" data-server-color="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy"></button>
+            <button type="button" class="color-dot" data-server-color="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny"></button>
+            <button type="button" class="color-dot" data-server-color="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy"></button>
+            <button type="button" class="color-dot" data-server-color="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy"></button>
+            <button type="button" class="color-dot" data-server-color="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy"></button>
+            <button type="button" class="color-dot" data-server-color="#ffd166" style="--dot:#ffd166" aria-label="Żółty"></button>
+          </div>
+        </div>
+        <p class="form-error" id="createServerError" role="alert"></p>
+        <div class="settings-actions">
+          <button type="button" class="btn-primary" id="createServerBtn">Utwórz serwer</button>
+        </div>
+      </section>
+
+      <section class="server-panel" data-server-panel="join" hidden>
+        <label class="field">
+          <span>Link zaproszenia</span>
+          <input type="text" id="serverInvite" placeholder="chill://192.168.1.5:47830/AB12CD" spellcheck="false">
+        </label>
+        <p class="server-hint">Poproś właściciela serwera o link. Działa w sieci lokalnej, a po przekierowaniu portu 47830 — także przez internet.</p>
+        <p class="form-error" id="joinServerError" role="alert"></p>
+        <div class="settings-actions">
+          <button type="button" class="btn-primary" id="joinServerBtn">Dołącz do serwera</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Zaproszenie / zarządzanie serwerem -->
+  <div class="modal" id="inviteOverlay" hidden>
+    <div class="modal-card invite-card">
+      <button type="button" class="icon-btn modal-close" id="closeInviteModal" aria-label="Zamknij">✕</button>
+      <h2>Zaproś do serwera</h2>
+      <p class="settings-lead" id="inviteServerName">Serwer</p>
+      <div class="invite-box">
+        <code id="inviteLink">chill://…</code>
+        <button type="button" class="btn-secondary" id="copyInviteBtn">Kopiuj</button>
+      </div>
+      <p class="server-hint">Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie „Dołącz kodem”.</p>
+      <div class="divider"></div>
+      <div class="settings-actions invite-actions">
+        <span class="saved-note" id="inviteSaved"></span>
+        <button type="button" class="btn-secondary danger" id="leaveServerBtn">Opuść serwer</button>
       </div>
     </div>
   </div>

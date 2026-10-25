@@ -5,13 +5,23 @@ const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
+const os = require('node:os');
 const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { WebSocketServer } = require('ws');
 
 app.setName('Chill');
 
+if (process.env.CHILL_DATA_DIR) {
+  try {
+    app.setPath('userData', path.resolve(process.env.CHILL_DATA_DIR));
+  } catch (err) {
+    console.error('[chill] Nie udało się ustawić folderu danych:', err.message);
+  }
+}
+
 const ICON = path.join(__dirname, 'build', 'icon.png');
+const CHAT_PORT = Number(process.env.CHILL_PORT) || 47830;
 
 // ================= KONFIGURACJA GITHUB =================
 const GITHUB_REPO = 'HyperZmylka/chill';
@@ -36,6 +46,7 @@ function dataDir() {
 }
 const accountsPath = () => path.join(dataDir(), 'accounts.json');
 const chatDataPath = () => path.join(dataDir(), 'chat-data.json');
+const serversPath = () => path.join(dataDir(), 'servers.json');
 
 // ---------- Konta ----------
 let accountStore = null;
@@ -180,32 +191,203 @@ function dmKey(a, b) {
   return [String(a), String(b)].sort().join('|');
 }
 
-// ---------- Użytkownicy online i pokoje ----------
+// ---------- Użytkownicy online ----------
 const users = new Map();
 const userSockets = new Map();
-const rooms = new Map();
+const serverSessions = new Map();
 
-const ROOM_DEFS = [
-  { id: 'lounge', name: 'Lounge', emoji: '☕', topic: 'Przywitaj się i pogadaj o wszystkim' },
-  { id: 'gaming', name: 'Gaming', emoji: '🎮', topic: 'Gry, co-op i turnieje' },
-  { id: 'muzyka', name: 'Muzyka', emoji: '🎧', topic: 'Czego teraz słuchasz?' },
-  { id: 'memy', name: 'Memy', emoji: '😂', topic: 'Najlepsze znaleziska z internetu' },
-];
+// ---------- Serwery (kanały + zaproszenia) ----------
+let serversStore = null;
+let serversSaveTimer = null;
+const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
-function ensureRooms() {
-  loadChatStore();
-  for (const def of ROOM_DEFS) {
-    if (!rooms.has(def.id)) {
-      rooms.set(def.id, {
-        id: def.id,
-        name: def.name,
-        emoji: def.emoji,
-        topic: def.topic,
-        members: new Set(),
-        messages: Array.isArray(chatStore.rooms[def.id]) ? chatStore.rooms[def.id] : [],
-      });
+function makeServerId() {
+  return crypto.randomBytes(8).toString('hex');
+}
+
+function makeInviteCode() {
+  let out = '';
+  for (let i = 0; i < 6; i++) out += INVITE_ALPHABET[crypto.randomInt(INVITE_ALPHABET.length)];
+  return out;
+}
+
+function makeChannelId() {
+  return crypto.randomBytes(6).toString('hex');
+}
+
+function lanAddress() {
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const entry of list || []) {
+      if (entry && entry.family === 'IPv4' && !entry.internal) return entry.address;
     }
   }
+  return '127.0.0.1';
+}
+
+function normalizeHostedServer(raw) {
+  if (!raw || typeof raw !== 'object' || !raw.id || !raw.ownerId) return null;
+  const server = raw;
+  server.name = String(server.name || 'Serwer').trim().slice(0, 40) || 'Serwer';
+  server.icon = typeof server.icon === 'string' ? server.icon.slice(0, 4) : '';
+  server.color = /^#[0-9a-f]{6}$/i.test(String(server.color || '')) ? server.color : '#3ee0a3';
+  server.invite = /^[A-Z0-9]{4,12}$/.test(String(server.invite || '')) ? server.invite : makeInviteCode();
+  server.ownerKey = typeof server.ownerKey === 'string' && server.ownerKey.length >= 24 ? server.ownerKey : crypto.randomBytes(24).toString('hex');
+  server.createdAt = Number(server.createdAt) || Date.now();
+  if (!Array.isArray(server.channels)) server.channels = [];
+  server.channels = server.channels
+    .filter((channel) => channel && channel.id && channel.name)
+    .map((channel) => ({
+      id: String(channel.id),
+      name: String(channel.name).trim().slice(0, 32) || 'kanał',
+      createdAt: Number(channel.createdAt) || Date.now(),
+    }));
+  if (!server.channels.length) server.channels.push({ id: makeChannelId(), name: 'ogólny', createdAt: Date.now() });
+  if (!Array.isArray(server.members)) server.members = [];
+  server.members = server.members
+    .filter((member) => member && member.id)
+    .map((member) => ({
+      id: String(member.id).slice(0, 64),
+      name: String(member.name || 'Gość').trim().slice(0, 32) || 'Gość',
+      color: /^#[0-9a-f]{6}$/i.test(String(member.color || '')) ? member.color : '#3ee0a3',
+      owner: Boolean(member.owner),
+      joinedAt: Number(member.joinedAt) || Date.now(),
+      lastSeen: Number(member.lastSeen) || Number(member.joinedAt) || Date.now(),
+    }));
+  if (!server.messages || typeof server.messages !== 'object') server.messages = {};
+  for (const channel of server.channels) {
+    const list = Array.isArray(server.messages[channel.id]) ? server.messages[channel.id] : [];
+    server.messages[channel.id] = list.slice(-300);
+  }
+  return server;
+}
+
+function loadServersStore() {
+  if (serversStore) return serversStore;
+  try {
+    serversStore = JSON.parse(fs.readFileSync(serversPath(), 'utf8'));
+  } catch {
+    serversStore = {};
+  }
+  if (!Array.isArray(serversStore.hosted)) serversStore.hosted = [];
+  if (!Array.isArray(serversStore.joined)) serversStore.joined = [];
+  serversStore.hosted = serversStore.hosted.map(normalizeHostedServer).filter(Boolean);
+  serversStore.joined = serversStore.joined.filter((entry) => entry && entry.id && entry.userId && entry.address && entry.invite);
+  return serversStore;
+}
+
+function saveServersStore() {
+  try {
+    fs.writeFileSync(serversPath(), JSON.stringify(serversStore, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[servers] Nie udało się zapisać serwerów:', err.message);
+  }
+}
+
+function scheduleServersSave() {
+  clearTimeout(serversSaveTimer);
+  serversSaveTimer = setTimeout(saveServersStore, 400);
+}
+
+function findHostedServer(id) {
+  return loadServersStore().hosted.find((server) => server.id === id) || null;
+}
+
+function uniqueInviteCode() {
+  const hosted = loadServersStore().hosted;
+  let code = makeInviteCode();
+  for (let i = 0; i < 20 && hosted.some((server) => server.invite === code); i++) code = makeInviteCode();
+  return code;
+}
+
+function serverShareLink(server) {
+  return `chill://${lanAddress()}:${CHAT_PORT}/${server.invite}`;
+}
+
+function hostedMembership(server, userId) {
+  return {
+    id: server.id,
+    name: server.name,
+    icon: server.icon || '',
+    color: server.color,
+    owner: true,
+    ownerId: server.ownerId,
+    address: `127.0.0.1:${CHAT_PORT}`,
+    invite: server.invite,
+    shareLink: serverShareLink(server),
+    channels: server.channels.map((channel) => ({ id: channel.id, name: channel.name, createdAt: channel.createdAt })),
+    ownerKey: server.ownerKey,
+    memberId: userId,
+    createdAt: server.createdAt,
+  };
+}
+
+function joinedMembership(entry) {
+  return {
+    id: entry.id,
+    name: entry.name || 'Serwer',
+    icon: entry.icon || '',
+    color: entry.color || '#3ee0a3',
+    owner: false,
+    address: entry.address,
+    invite: entry.invite,
+    shareLink: `chill://${entry.address}/${entry.invite}`,
+    memberId: entry.memberId,
+    joinedAt: entry.joinedAt || Date.now(),
+  };
+}
+
+function serverMembersPayload(server) {
+  const online = new Set();
+  for (const ws of serverSessions.get(server.id) || []) {
+    if (ws && ws._serverSession) online.add(ws._serverSession.memberId);
+  }
+  return server.members
+    .map((member) => ({
+      id: member.id,
+      name: member.name,
+      color: member.color,
+      owner: Boolean(member.owner),
+      online: online.has(member.id),
+      lastSeen: member.lastSeen || null,
+    }))
+    .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'pl'));
+}
+
+function serverSockets(serverId) {
+  let set = serverSessions.get(serverId);
+  if (!set) {
+    set = new Set();
+    serverSessions.set(serverId, set);
+  }
+  return set;
+}
+
+function broadcastServer(serverId, payload, except = null) {
+  const set = serverSessions.get(serverId);
+  if (!set || !set.size) return;
+  const raw = JSON.stringify({ ...payload, at: Date.now() });
+  for (const ws of set) {
+    if (ws !== except && ws.readyState === 1) ws.send(raw);
+  }
+}
+
+function broadcastServerMembers(server) {
+  broadcastServer(server.id, { type: 'server:members', members: serverMembersPayload(server) });
+}
+
+function closeServerSessions(serverId, payload) {
+  const set = serverSessions.get(serverId);
+  if (!set) return;
+  const raw = JSON.stringify({ ...payload, at: Date.now() });
+  for (const ws of set) {
+    if (ws.readyState === 1) ws.send(raw);
+  }
+  serverSessions.delete(serverId);
+  setTimeout(() => {
+    for (const ws of set) {
+      try { ws.close(); } catch { /* ignore */ }
+    }
+  }, 80);
 }
 
 function userColorFor(name) {
@@ -236,16 +418,6 @@ function usersPayload() {
 function broadcastGlobal(type, payload) {
   const msg = JSON.stringify({ type, ...payload, at: Date.now() });
   for (const ws of userSockets.values()) {
-    if (ws && ws.readyState === 1) ws.send(msg);
-  }
-}
-
-function broadcastToRoom(roomId, type, payload) {
-  const room = rooms.get(roomId);
-  if (!room) return;
-  const msg = JSON.stringify({ type, ...payload, at: Date.now() });
-  for (const memberId of room.members) {
-    const ws = userSockets.get(memberId);
     if (ws && ws.readyState === 1) ws.send(msg);
   }
 }
@@ -309,8 +481,92 @@ function scheduleUpdateCheck() {
 }
 
 // ---------- Serwer HTTP + WebSocket ----------
-function startChatServer(port = 47830) {
-  ensureRooms();
+function isLoopback(address) {
+  return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
+}
+
+function detachServerSession(ws) {
+  const session = ws._serverSession;
+  if (!session) return;
+  ws._serverSession = null;
+  const set = serverSessions.get(session.serverId);
+  if (set) {
+    set.delete(ws);
+    if (!set.size) serverSessions.delete(session.serverId);
+  }
+  const server = findHostedServer(session.serverId);
+  if (!server) return;
+  const member = server.members.find((item) => item.id === session.memberId);
+  if (member) member.lastSeen = Date.now();
+  scheduleServersSave();
+  broadcastServerMembers(server);
+}
+
+function handleJoinServer(ws, msg, send) {
+  const invite = String(msg.invite || '').trim().toUpperCase();
+  const store = loadServersStore();
+  let server = msg.serverId ? findHostedServer(String(msg.serverId)) : null;
+  if (!server || server.invite !== invite) {
+    server = store.hosted.find((item) => item.invite === invite) || null;
+  }
+  if (!server) {
+    send({ type: 'server:error', code: 'not-found', message: 'Nie znaleziono serwera o tym kodzie zaproszenia.' });
+    return;
+  }
+  if (server.invite !== invite) {
+    send({ type: 'server:error', code: 'invalid-invite', message: 'Nieprawidłowy kod zaproszenia.' });
+    return;
+  }
+
+  detachServerSession(ws);
+
+  const owner = Boolean(msg.ownerKey && msg.ownerKey === server.ownerKey);
+  let memberId = String(msg.memberId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+  if (!memberId) memberId = crypto.randomUUID();
+  if (owner) memberId = server.ownerId;
+  else if (memberId === server.ownerId) memberId = crypto.randomUUID();
+
+  const name = String(msg.name || '').trim().slice(0, 32) || 'Gość';
+  const color = /^#[0-9a-f]{6}$/i.test(String(msg.color || '')) ? msg.color : '#3ee0a3';
+
+  let member = server.members.find((item) => item.id === memberId);
+  if (!member) {
+    member = { id: memberId, name, color, owner, joinedAt: Date.now(), lastSeen: Date.now() };
+    server.members.push(member);
+  } else {
+    member.name = name;
+    member.color = color;
+    member.owner = owner;
+    member.lastSeen = Date.now();
+  }
+
+  ws._serverSession = { serverId: server.id, memberId, name, color, owner };
+  serverSockets(server.id).add(ws);
+  scheduleServersSave();
+
+  const messages = {};
+  for (const channel of server.channels) messages[channel.id] = (server.messages[channel.id] || []).slice(-300);
+
+  send({
+    type: 'server:joined',
+    server: {
+      id: server.id,
+      name: server.name,
+      icon: server.icon || '',
+      color: server.color,
+      invite: server.invite,
+      ownerId: server.ownerId,
+      createdAt: server.createdAt,
+      channels: server.channels.map((channel) => ({ id: channel.id, name: channel.name, createdAt: channel.createdAt })),
+    },
+    members: serverMembersPayload(server),
+    messages,
+    you: { memberId, owner },
+  });
+  broadcastServerMembers(server);
+}
+
+function startChatServer(port = CHAT_PORT) {
   httpServer = http.createServer((req, res) => {
     const { pathname } = new URL(req.url, `http://localhost:${port}`);
     res.setHeader('access-control-allow-origin', '*');
@@ -333,8 +589,9 @@ function startChatServer(port = 47830) {
 
   wss = new WebSocketServer({ server: httpServer, path: '/chat' });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
     let currentUserId = null;
+    const local = isLoopback(req.socket.remoteAddress);
 
     const send = (payload) => {
       if (ws.readyState === 1) ws.send(JSON.stringify(payload));
@@ -346,6 +603,7 @@ function startChatServer(port = 47830) {
 
         switch (msg.type) {
           case 'join': {
+            if (!local) return;
             const account = findUserById(msg.userId);
             if (!account) {
               send({ type: 'auth-error', message: 'Sesja wygasła. Zaloguj się ponownie.' });
@@ -372,57 +630,132 @@ function startChatServer(port = 47830) {
             users.set(currentUserId, user);
             userSockets.set(currentUserId, ws);
 
-            for (const room of rooms.values()) room.members.add(currentUserId);
-
             const dmHistory = {};
             for (const [key, list] of Object.entries(loadChatStore().dms)) {
               const [a, b] = key.split('|');
               if (a === currentUserId || b === currentUserId) dmHistory[key] = list.slice(-300);
             }
 
-            send({
-              type: 'joined',
-              userId: currentUserId,
-              users: usersPayload(),
-              rooms: [...rooms.values()].map((r) => ({
-                id: r.id,
-                name: r.name,
-                emoji: r.emoji,
-                topic: r.topic,
-                messages: r.messages.slice(-300),
-                lastMessage: r.messages[r.messages.length - 1] || null,
-              })),
-              dmHistory,
-            });
+            send({ type: 'joined', userId: currentUserId, users: usersPayload(), dmHistory });
             broadcastGlobal('user:update', { users: usersPayload() });
             break;
           }
 
-          case 'message': {
-            const { roomId, text } = msg;
-            if (!currentUserId || !roomId || !text) return;
-            const user = users.get(currentUserId);
-            const room = rooms.get(roomId);
-            if (!user || !room || !room.members.has(currentUserId)) return;
+          case 'join-server': {
+            handleJoinServer(ws, msg, send);
+            break;
+          }
+
+          case 'server:leave': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const server = findHostedServer(session.serverId);
+            if (server) {
+              const before = server.members.length;
+              server.members = server.members.filter((member) => member.id !== session.memberId);
+              if (server.members.length !== before) {
+                scheduleServersSave();
+                broadcastServerMembers(server);
+              }
+            }
+            detachServerSession(ws);
+            break;
+          }
+
+          case 'server:message': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const server = findHostedServer(session.serverId);
+            if (!server) return;
+            const channel = server.channels.find((item) => item.id === String(msg.channelId || ''));
+            const text = String(msg.text || '').trim().slice(0, 4000);
+            if (!channel || !text) return;
 
             const message = {
               id: `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
-              roomId,
-              authorId: currentUserId,
-              authorName: user.name,
-              authorColor: user.color,
-              text: String(text).slice(0, 4000),
+              channelId: channel.id,
+              authorId: session.memberId,
+              authorName: session.name,
+              authorColor: session.color,
+              text,
               at: Date.now(),
             };
-            room.messages.push(message);
-            if (room.messages.length > 500) room.messages.shift();
-            loadChatStore().rooms[roomId] = room.messages;
-            scheduleChatSave();
-            broadcastToRoom(roomId, 'message', { message });
+            if (!Array.isArray(server.messages[channel.id])) server.messages[channel.id] = [];
+            server.messages[channel.id].push(message);
+            if (server.messages[channel.id].length > 300) server.messages[channel.id].shift();
+            scheduleServersSave();
+            broadcastServer(server.id, { type: 'server:message', message });
+            break;
+          }
+
+          case 'server:typing': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const server = findHostedServer(session.serverId);
+            if (!server) return;
+            const channel = server.channels.find((item) => item.id === String(msg.channelId || ''));
+            if (!channel) return;
+            broadcastServer(server.id, {
+              type: 'server:typing',
+              channelId: channel.id,
+              userId: session.memberId,
+              name: session.name,
+              typing: Boolean(msg.typing),
+            }, ws);
+            break;
+          }
+
+          case 'server:channel:create': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const server = findHostedServer(session.serverId);
+            if (!server) return;
+            if (!session.owner) {
+              send({ type: 'server:error', code: 'forbidden', message: 'Tylko właściciel serwera może tworzyć kanały.' });
+              return;
+            }
+            const name = String(msg.name || '').trim().replace(/\s+/g, '-').replace(/[^\p{L}\p{N}_.-]/gu, '').slice(0, 32);
+            if (!name) {
+              send({ type: 'server:error', code: 'invalid-channel', message: 'Podaj poprawną nazwę kanału.' });
+              return;
+            }
+            if (server.channels.some((channel) => channel.name.toLowerCase() === name.toLowerCase())) {
+              send({ type: 'server:error', code: 'channel-exists', message: 'Kanał o tej nazwie już istnieje.' });
+              return;
+            }
+            server.channels.push({ id: makeChannelId(), name, createdAt: Date.now() });
+            server.messages[server.channels[server.channels.length - 1].id] = [];
+            scheduleServersSave();
+            broadcastServer(server.id, {
+              type: 'server:channels',
+              channels: server.channels.map((channel) => ({ id: channel.id, name: channel.name, createdAt: channel.createdAt })),
+            });
+            break;
+          }
+
+          case 'server:profile': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const server = findHostedServer(session.serverId);
+            if (!server) return;
+            const member = server.members.find((item) => item.id === session.memberId);
+            if (!member) return;
+            if (typeof msg.name === 'string' && msg.name.trim()) {
+              member.name = msg.name.trim().slice(0, 32);
+              session.name = member.name;
+            }
+            if (typeof msg.color === 'string' && /^#[0-9a-f]{6}$/i.test(msg.color)) {
+              member.color = msg.color;
+              session.color = member.color;
+            }
+            member.lastSeen = Date.now();
+            scheduleServersSave();
+            broadcastServerMembers(server);
             break;
           }
 
           case 'dm': {
+            if (!local) return;
             const { to, text } = msg;
             if (!currentUserId || !to || !text) return;
             const user = users.get(currentUserId);
@@ -455,6 +788,7 @@ function startChatServer(port = 47830) {
           }
 
           case 'dm:typing': {
+            if (!local) return;
             const { to, typing } = msg;
             if (!currentUserId || !to) return;
             const user = users.get(currentUserId);
@@ -466,17 +800,8 @@ function startChatServer(port = 47830) {
             break;
           }
 
-          case 'typing': {
-            const { roomId, typing } = msg;
-            if (!currentUserId || !roomId) return;
-            const user = users.get(currentUserId);
-            if (!user) return;
-            broadcastToRoom(roomId, 'user:typing', { roomId, userId: currentUserId, name: user.name, typing: Boolean(typing) });
-            break;
-          }
-
           case 'activity': {
-            if (!currentUserId) return;
+            if (!local || !currentUserId) return;
             const user = users.get(currentUserId);
             if (!user) return;
             user.playing = msg.playing || null;
@@ -486,7 +811,7 @@ function startChatServer(port = 47830) {
           }
 
           case 'status': {
-            if (!currentUserId) return;
+            if (!local || !currentUserId) return;
             const user = users.get(currentUserId);
             if (!user) return;
             const allowed = ['online', 'away', 'dnd', 'invisible'];
@@ -497,7 +822,7 @@ function startChatServer(port = 47830) {
           }
 
           case 'profile': {
-            if (!currentUserId) return;
+            if (!local || !currentUserId) return;
             const account = findUserById(currentUserId);
             const user = users.get(currentUserId);
             if (!account || !user) return;
@@ -520,6 +845,7 @@ function startChatServer(port = 47830) {
           }
 
           case 'users': {
+            if (!local) return;
             send({ type: 'users:list', users: usersPayload() });
             break;
           }
@@ -530,11 +856,11 @@ function startChatServer(port = 47830) {
     });
 
     ws.on('close', () => {
+      detachServerSession(ws);
       if (currentUserId) {
         const user = users.get(currentUserId);
         if (user) user.status = 'offline';
         userSockets.delete(currentUserId);
-        for (const room of rooms.values()) room.members.delete(currentUserId);
         if (user) {
           users.delete(currentUserId);
           broadcastGlobal('user:update', { users: usersPayload() });
@@ -843,6 +1169,19 @@ ipcMain.handle('chill:auth-update-profile', (e, payload = {}) => {
     live.color = color;
     live.about = about;
   }
+
+  const serverStore = loadServersStore();
+  let touched = false;
+  for (const server of serverStore.hosted) {
+    const member = server.members.find((item) => item.id === account.id);
+    if (!member) continue;
+    member.name = displayName;
+    member.color = color;
+    member.lastSeen = Date.now();
+    touched = true;
+    broadcastServerMembers(server);
+  }
+  if (touched) scheduleServersSave();
   return { ok: true, user: publicUser(account) };
 });
 
@@ -865,6 +1204,119 @@ ipcMain.handle('chill:auth-change-password', (e, payload = {}) => {
   saveAccounts();
   return { ok: true };
 });
+
+// ---------- Serwery (IPC) ----------
+ipcMain.handle('chill:servers-list', () => {
+  const current = activeSession();
+  if (!current) return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.', servers: [] };
+  const store = loadServersStore();
+  const hosted = store.hosted
+    .filter((server) => server.ownerId === current.id)
+    .map((server) => hostedMembership(server, current.id));
+  const hostedIds = new Set(hosted.map((server) => server.id));
+  const joined = store.joined
+    .filter((entry) => entry.userId === current.id && !hostedIds.has(entry.id))
+    .map(joinedMembership);
+  return { ok: true, servers: [...hosted, ...joined] };
+});
+
+ipcMain.handle('chill:servers-create', (e, payload = {}) => {
+  const current = activeSession();
+  if (!current) return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.' };
+  const name = String(payload.name || '').trim();
+  const color = /^#[0-9a-f]{6}$/i.test(String(payload.color || '')) ? payload.color : '#3ee0a3';
+  const icon = String(payload.icon || '').trim().slice(0, 4);
+  if (name.length < 2 || name.length > 40) return { ok: false, error: 'Nazwa serwera musi mieć 2–40 znaków.' };
+
+  const store = loadServersStore();
+  const channelName = String(payload.channelName || 'ogólny').trim().replace(/\s+/g, '-').replace(/[^\p{L}\p{N}_.-]/gu, '').slice(0, 32) || 'ogólny';
+  const server = {
+    id: makeServerId(),
+    ownerId: current.id,
+    name,
+    icon,
+    color,
+    invite: uniqueInviteCode(),
+    ownerKey: crypto.randomBytes(24).toString('hex'),
+    createdAt: Date.now(),
+    channels: [{ id: makeChannelId(), name: channelName, createdAt: Date.now() }],
+    members: [],
+    messages: {},
+  };
+  server.messages[server.channels[0].id] = [];
+  store.hosted.push(server);
+  saveServersStore();
+  return { ok: true, server: hostedMembership(server, current.id) };
+});
+
+ipcMain.handle('chill:servers-save-joined', (e, payload = {}) => {
+  const current = activeSession();
+  if (!current) return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.' };
+  const incoming = payload.server && typeof payload.server === 'object' ? payload.server : {};
+  const id = String(incoming.id || '').trim();
+  const address = String(payload.address || '').trim();
+  const invite = String(payload.invite || '').trim().toUpperCase();
+  if (!/^[a-zA-Z0-9_-]{6,80}$/.test(id)) return { ok: false, error: 'Serwer przesłał nieprawidłowy identyfikator.' };
+  if (!/^[a-zA-Z0-9.-]+:\d{2,5}$/.test(address)) return { ok: false, error: 'Nieprawidłowy adres serwera.' };
+  if (!/^[A-Z0-9]{4,16}$/.test(invite)) return { ok: false, error: 'Nieprawidłowy kod zaproszenia.' };
+
+  const store = loadServersStore();
+  const owned = store.hosted.find((server) => server.id === id && server.ownerId === current.id);
+  if (owned) return { ok: true, server: hostedMembership(owned, current.id) };
+
+  const name = String(incoming.name || 'Serwer').trim().slice(0, 40) || 'Serwer';
+  const color = /^#[0-9a-f]{6}$/i.test(String(incoming.color || '')) ? incoming.color : '#3ee0a3';
+  const icon = String(incoming.icon || '').trim().slice(0, 4);
+  let entry = store.joined.find((item) => item.userId === current.id && item.id === id);
+  if (!entry) {
+    entry = { userId: current.id, id, joinedAt: Date.now(), memberId: '' };
+    store.joined.push(entry);
+  }
+  entry.address = address;
+  entry.invite = invite;
+  entry.name = name;
+  entry.color = color;
+  entry.icon = icon;
+  const memberId = String(payload.memberId || entry.memberId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+  entry.memberId = memberId || crypto.randomUUID();
+  entry.joinedAt = entry.joinedAt || Date.now();
+  saveServersStore();
+  return { ok: true, server: joinedMembership(entry) };
+});
+
+ipcMain.handle('chill:servers-leave', (e, payload = {}) => {
+  const current = activeSession();
+  if (!current) return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.' };
+  const id = String(payload.id || '').trim();
+  if (!id) return { ok: false, error: 'Nie wskazano serwera.' };
+  const store = loadServersStore();
+  const hostedIndex = store.hosted.findIndex((server) => server.id === id && server.ownerId === current.id);
+  if (hostedIndex >= 0) {
+    store.hosted.splice(hostedIndex, 1);
+    store.joined = store.joined.filter((entry) => !(entry.userId === current.id && entry.id === id));
+    saveServersStore();
+    closeServerSessions(id, { type: 'server:deleted', serverId: id });
+    return { ok: true, deleted: true };
+  }
+  const before = store.joined.length;
+  store.joined = store.joined.filter((entry) => !(entry.userId === current.id && entry.id === id));
+  if (store.joined.length === before) return { ok: false, error: 'Nie należysz do tego serwera.' };
+  saveServersStore();
+  return { ok: true, deleted: false };
+});
+
+ipcMain.handle('chill:servers-invite', (e, payload = {}) => {
+  const current = activeSession();
+  if (!current) return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.' };
+  const id = String(payload.id || '').trim();
+  const store = loadServersStore();
+  const hosted = store.hosted.find((server) => server.id === id && server.ownerId === current.id);
+  if (hosted) return { ok: true, shareLink: serverShareLink(hosted), invite: hosted.invite };
+  const entry = store.joined.find((item) => item.userId === current.id && item.id === id);
+  if (!entry) return { ok: false, error: 'Nie znaleziono serwera.' };
+  return { ok: true, shareLink: `chill://${entry.address}/${entry.invite}`, invite: entry.invite };
+});
+
 
 // ---------- IPC aplikacji ----------
 ipcMain.handle('chill:app-version', () => app.getVersion());
@@ -1033,8 +1485,8 @@ if (!app.requestSingleInstanceLock()) {
 
     loadAccounts();
     loadChatStore();
-    ensureRooms();
-    startChatServer(47830);
+    loadServersStore();
+    startChatServer(CHAT_PORT);
     createWindow();
     createTray();
     Menu.setApplicationMenu(null);
@@ -1046,7 +1498,15 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
-app.on('before-quit', () => { quitting = true; });
+app.on('before-quit', () => {
+  quitting = true;
+  clearTimeout(chatSaveTimer);
+  clearTimeout(serversSaveTimer);
+  try {
+    if (chatStore) fs.writeFileSync(chatDataPath(), JSON.stringify(chatStore), 'utf8');
+    if (serversStore) fs.writeFileSync(serversPath(), JSON.stringify(serversStore), 'utf8');
+  } catch { /* ignore */ }
+});
 app.on('will-quit', () => { setTimeout(() => app.exit(0), 8_000).unref?.(); });
 app.on('window-all-closed', () => { /* aplikacja zostaje w tray */ });
 app.on('activate', () => { if (win) show(); else createWindow(); });
