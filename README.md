@@ -12,12 +12,14 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 - **Wiadomości prywatne** — lokalne rozmowy 1:1, niezależne od serwerów.
 - **Trwała historia** — wiadomości serwera zapisują się u osoby, która go hostuje; DM-y zapisują się lokalnie.
 - **Emoji** — picker z wyszukiwarką i listą ostatnio używanych.
+- **Wzmianki `@`** — podpowiedzi członków serwera i znajomych, wstawianie nicku z klawiatury i wyróżnienie w wiadomości.
 - **Statusy** — online, zaraz wracam, nie przeszkadzać, niewidoczny.
 - **Wykrywanie gier** — „Gra w …” na profilu i liście członków.
 - **Powiadomienia** — systemowe dymki, dźwięk, tryb „tylko wzmianki”, odznaki.
-- **Wygląd** — motyw ciemny/jasny, akcenty, kompaktowe wiadomości.
+- **Wygląd** — motyw czarny, biały, dopasowany do systemu albo gradient; akcenty i kompaktowe wiadomości.
+- **Profil w rogu** — awatar, nazwa, ustawienia i wylogowanie są przypięte do lewego dolnego rogu.
 - **Tray i autostart** — Chill zostaje w zasobniku i może startować z Windows.
-- **Aktualizacje** — sprawdzanie GitHub Releases i pobieranie instalatora z poziomu aplikacji.
+- **Aktualizacje** — sprawdzanie GitHub Releases i automatyczne pobranie oraz uruchomienie instalatora, bez pytania o zgodę.
 
 ## Jak działają serwery
 
@@ -81,9 +83,14 @@ const GITHUB_REPO = 'HyperZmylka/chill';
 ```
 
 Aplikacja sprawdza `https://api.github.com/repos/HyperZmylka/chill/releases/latest`
-5 sekund po starcie i potem co 4 godziny. Jeśli tag wydania jest nowszy niż
-wersja aplikacji, pokazuje kartę aktualizacji; przycisk **Aktualizuj** pobiera
-instalator i uruchamia go.
+2 sekundy po starcie i potem co 4 godziny. Jeśli tag wydania jest nowszy niż
+wersja aplikacji, Chill sam pobiera instalator, pokazuje postęp i uruchamia go,
+a następnie zamyka się, żeby aktualizacja mogła się dokończyć. Nie ma pytania
+o zgodę ani przycisku do klikania.
+
+> Automatyczne instalowanie działa w wersjach **4.0.1 i nowszych**. Użytkownicy
+> z 4.0.0 muszą ostatni raz pobrać instalator ręcznie — kolejne aktualizacje będą
+> już w pełni automatyczne.
 
 Szczegóły wydawania nowej wersji: [GITHUB-UPDATER.md](GITHUB-UPDATER.md).
 
@@ -91,7 +98,7 @@ Szczegóły wydawania nowej wersji: [GITHUB-UPDATER.md](GITHUB-UPDATER.md).
 
 - `main.js` — okno, tray, konta, hostowanie serwerów (HTTP/WebSocket), `servers.json`, aktualizacje.
 - `preload.js` — bezpieczny most `window.chill` (context isolation).
-- `renderer.js` — logowanie, serwery, kanały, zaproszenia, DM-y, emoji, ustawienia, powiadomienia.
+- `renderer.js` — logowanie, serwery, kanały, zaproszenia, DM-y, emoji, wzmianki `@`, motywy, ustawienia, powiadomienia.
 - `index.html` / `style.css` — interfejs Chill.
 
 Czat serwerów działa przez wbudowany serwer WebSocket na porcie `47830`. Każdy hostowany serwer jest dostępny pod kodem zaproszenia; wiadomości i członkowie są zapisywani w `servers.json`.

@@ -7,7 +7,7 @@
 <title>Chill</title>
 <link rel="stylesheet" href="style.css">
 </head>
-<body data-theme="dark">
+<body data-theme="gradient">
 
 <!-- Ekran startowy -->
 <div class="boot" id="bootSplash">
@@ -238,6 +238,7 @@
       <div class="composer-field">
         <textarea id="messageInput" rows="1" placeholder="Napisz wiadomość…" maxlength="4000" spellcheck="true"></textarea>
         <button type="button" class="composer-btn" id="emojiBtn" title="Emoji" aria-label="Emoji">☺</button>
+        <div class="mention-pop" id="mentionPop" hidden></div>
       </div>
       <button type="submit" class="send-btn" id="sendBtn" title="Wyślij" disabled>↑</button>
     </form>
@@ -268,9 +269,10 @@
     <div class="update-badge">↓</div>
     <div class="update-copy">
       <strong>Nowa wersja <span id="updateVersion"></span></strong>
-      <p id="updateText">Pobierz i uruchom instalator, aby zaktualizować Chill.</p>
+      <p id="updateText">Aktualizacja pobiera się automatycznie…</p>
+      <div class="update-track"><span id="updateProgress"></span></div>
     </div>
-    <button type="button" class="btn-primary small" id="updateBtn">Aktualizuj</button>
+    <button type="button" class="btn-primary small" id="updateBtn" hidden>Pobierz ręcznie</button>
   </div>
 
   <!-- Ustawienia -->
@@ -364,8 +366,10 @@
           <div class="setting-block">
             <span class="setting-label">Motyw</span>
             <div class="segmented" id="themeChoices">
-              <button type="button" data-theme-choice="dark">Ciemny</button>
-              <button type="button" data-theme-choice="light">Jasny</button>
+              <button type="button" data-theme-choice="system">Systemowy</button>
+              <button type="button" data-theme-choice="black">Czarny</button>
+              <button type="button" data-theme-choice="white">Biały</button>
+              <button type="button" data-theme-choice="gradient">Gradient</button>
             </div>
           </div>
 

@@ -60,14 +60,17 @@ let profileColor = '#3ee0a3';
 let regColor = '#3ee0a3';
 let serverColor = '#3ee0a3';
 let downloadingUpdate = false;
+let autoUpdateVersion = '';
+let currentUpdateInfo = null;
 let audioCtx = null;
+let mentionState = { start: 0, end: 0, items: [], index: 0 };
 
 const history = new Map();
 const unread = new Map();
 const typingUsers = new Map();
 
 const DEFAULT_PREFS = {
-  theme: 'dark',
+  theme: 'system',
   accent: '#3ee0a3',
   compact: false,
   notify: true,
@@ -105,6 +108,9 @@ function loadPrefs() {
   } catch {
     prefs = { ...DEFAULT_PREFS };
   }
+  if (prefs.theme === 'dark') prefs.theme = 'gradient';
+  else if (prefs.theme === 'light') prefs.theme = 'white';
+  else if (!['system', 'black', 'white', 'gradient'].includes(prefs.theme)) prefs.theme = 'system';
 }
 function savePrefs() {
   try { localStorage.setItem(prefsKey(), JSON.stringify(prefs)); } catch { /* ignore */ }
@@ -112,13 +118,29 @@ function savePrefs() {
   localStorage.setItem('chill.accent', prefs.accent);
 }
 
+const themeMedia = window.matchMedia('(prefers-color-scheme: light)');
+
+function resolveTheme(theme) {
+  if (theme === 'system') return themeMedia.matches ? 'white' : 'black';
+  if (theme === 'white') return 'white';
+  if (theme === 'black') return 'black';
+  return 'gradient';
+}
+
 function applyTheme(theme) {
-  const value = theme === 'light' ? 'light' : 'dark';
-  document.body.dataset.theme = value;
-  prefs.theme = value;
+  let mode = ['system', 'black', 'white', 'gradient'].includes(theme) ? theme : 'system';
+  if (theme === 'dark') mode = 'gradient';
+  if (theme === 'light') mode = 'white';
+  document.body.dataset.theme = resolveTheme(mode);
+  document.body.dataset.themeMode = mode;
+  prefs.theme = mode;
   document.querySelectorAll('[data-theme-choice]').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.themeChoice === value);
+    btn.classList.toggle('active', btn.dataset.themeChoice === mode);
   });
+}
+
+function syncSystemTheme() {
+  if (prefs.theme === 'system') applyTheme('system');
 }
 
 function applyAccent(color) {
@@ -154,8 +176,9 @@ function markColorSelection(container, color) {
 
 // ---------- Start ----------
 document.addEventListener('DOMContentLoaded', () => {
-  document.body.dataset.theme = localStorage.getItem('chill.theme') === 'light' ? 'light' : 'dark';
+  applyTheme(localStorage.getItem('chill.theme') || 'system');
   applyAccent(localStorage.getItem('chill.accent') || '#3ee0a3');
+  if (typeof themeMedia.addEventListener === 'function') themeMedia.addEventListener('change', syncSystemTheme);
   bindAuth();
   bindChat();
   bindServers();
@@ -451,6 +474,127 @@ function renderIdentity() {
 }
 
 // ============================================================
+// WZMIANKI (@osoba)
+// ============================================================
+function mentionHandle(name) {
+  return String(name || '')
+    .trim()
+    .replace(/\s+/g, '')
+    .replace(/[^\p{L}\p{N}_.-]/gu, '')
+    .slice(0, 32);
+}
+
+function mentionCandidates() {
+  if (current.kind === 'server') {
+    const state = serverState(current.serverId);
+    const myMemberId = state?.you?.memberId;
+    return (state?.members || [])
+      .filter((member) => member.id !== myMemberId)
+      .map((member) => ({
+        handle: mentionHandle(member.name),
+        name: member.name,
+        meta: member.owner ? 'Właściciel serwera' : member.online ? 'Online' : 'Offline',
+        color: safeColor(member.color, '#3ee0a3'),
+        online: Boolean(member.online),
+      }))
+      .filter((item) => item.handle);
+  }
+
+  return allUsers
+    .filter((user) => user.id !== myId)
+    .map((user) => ({
+      handle: mentionHandle(user.username || user.name),
+      name: user.name,
+      meta: user.online ? statusLabel(user.status) : 'Offline',
+      color: safeColor(user.color, '#3ee0a3'),
+      online: Boolean(user.online),
+    }))
+    .filter((item) => item.handle);
+}
+
+function currentMentionToken() {
+  const input = $('messageInput');
+  if (document.activeElement !== input) return null;
+  const position = input.selectionStart ?? 0;
+  const before = input.value.slice(0, position);
+  const match = before.match(/(?:^|[\s([{])@([\p{L}\p{N}_.-]{0,32})$/u);
+  if (!match) return null;
+  return { start: position - match[1].length - 1, query: match[1] };
+}
+
+function hideMentionPop() {
+  const pop = $('mentionPop');
+  if (pop) pop.hidden = true;
+  mentionState = { start: 0, end: 0, items: [], index: 0 };
+}
+
+function paintMentionActive() {
+  document.querySelectorAll('#mentionPop [data-mention-index]').forEach((button, index) => {
+    button.classList.toggle('active', index === mentionState.index);
+  });
+}
+
+function updateMentionPop() {
+  const pop = $('mentionPop');
+  if (!pop) return;
+  const token = currentMentionToken();
+  if (!token) {
+    hideMentionPop();
+    return;
+  }
+
+  const query = token.query.toLowerCase();
+  const items = mentionCandidates()
+    .filter((item) => !query || item.name.toLowerCase().includes(query) || item.handle.toLowerCase().includes(query))
+    .sort((a, b) => {
+      const aStarts = a.name.toLowerCase().startsWith(query) || a.handle.toLowerCase().startsWith(query);
+      const bStarts = b.name.toLowerCase().startsWith(query) || b.handle.toLowerCase().startsWith(query);
+      return Number(bStarts) - Number(aStarts) || Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'pl');
+    })
+    .slice(0, 8);
+
+  if (!items.length) {
+    hideMentionPop();
+    return;
+  }
+
+  const input = $('messageInput');
+  mentionState = { start: token.start, end: input.selectionStart ?? 0, items, index: 0 };
+  pop.innerHTML = `${items.map((item, index) => `
+    <button type="button" class="mention-item${index === 0 ? ' active' : ''}" data-mention-index="${index}">
+      <span class="mention-avatar" style="background:${item.color}">${esc(initial(item.name))}</span>
+      <span class="mention-info">
+        <strong>${esc(item.name)}</strong>
+        <small>@${esc(item.handle)} • ${esc(item.meta)}</small>
+      </span>
+    </button>
+  `).join('')}<div class="mention-foot">↑ ↓ wybierz • Enter wstaw • Esc zamknij</div>`;
+  pop.hidden = false;
+}
+
+function chooseMention(index = mentionState.index) {
+  const item = mentionState.items[index];
+  if (!item) return;
+  const input = $('messageInput');
+  const end = input.selectionStart ?? mentionState.end;
+  const next = `${input.value.slice(0, mentionState.start)}@${item.handle} ${input.value.slice(end)}`;
+  input.value = next;
+  const caret = mentionState.start + item.handle.length + 2;
+  input.setSelectionRange(caret, caret);
+  hideMentionPop();
+  resizeInput();
+  $('sendBtn').disabled = !input.value.trim() || !wsReady();
+  sendTyping();
+  input.focus();
+}
+
+function moveMention(step) {
+  if (!mentionState.items.length) return;
+  mentionState.index = (mentionState.index + step + mentionState.items.length) % mentionState.items.length;
+  paintMentionActive();
+}
+
+// ============================================================
 // CZAT
 // ============================================================
 function bindChat() {
@@ -460,12 +604,44 @@ function bindChat() {
     resizeInput();
     $('sendBtn').disabled = !input.value.trim() || !wsReady();
     sendTyping();
+    updateMentionPop();
   });
+  input.addEventListener('click', updateMentionPop);
+  input.addEventListener('blur', () => setTimeout(hideMentionPop, 90));
   input.addEventListener('keydown', (e) => {
+    if (!$('mentionPop').hidden) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        moveMention(1);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        moveMention(-1);
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        chooseMention();
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        hideMentionPop();
+        return;
+      }
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      hideMentionPop();
       $('composer').requestSubmit();
     }
+  });
+  $('mentionPop').addEventListener('mousedown', (e) => {
+    const button = e.target.closest('[data-mention-index]');
+    if (!button) return;
+    e.preventDefault();
+    chooseMention(Number(button.dataset.mentionIndex));
   });
 
   $('logoutBtn').addEventListener('click', logout);
@@ -498,34 +674,11 @@ function bindChat() {
   if (CHILL.chat?.onUpdateProgress) {
     CHILL.chat.onUpdateProgress((pct) => {
       if (!downloadingUpdate) return;
-      $('updateBtn').textContent = `Pobieram… ${pct}%`;
-      $('updateText').textContent = `Pobieranie instalatora — ${pct}%`;
+      $('updateProgress').style.width = `${pct}%`;
+      $('updateText').textContent = `Pobieranie aktualizacji — ${pct}%`;
     });
   }
-  $('updateBtn').addEventListener('click', async () => {
-    if (downloadingUpdate) return;
-    downloadingUpdate = true;
-    $('updateBtn').disabled = true;
-    $('updateBtn').textContent = 'Pobieram… 0%';
-    $('updateText').textContent = 'Pobieranie instalatora — 0%';
-    try {
-      const started = CHILL.app?.installUpdate ? await CHILL.app.installUpdate() : false;
-      if (started) {
-        $('updateBtn').textContent = 'Uruchamiam instalator…';
-        $('updateText').textContent = 'Za chwilę otworzy się instalator. Możesz zamknąć Chill.';
-        toast('Pobrano aktualizację — uruchamiam instalator', 4000);
-      } else {
-        $('updateBtn').disabled = false;
-        $('updateBtn').textContent = 'Pobierz ręcznie';
-        $('updateText').textContent = 'Otworzyłem stronę pobierania w przeglądarce.';
-      }
-    } catch {
-      $('updateBtn').disabled = false;
-      $('updateBtn').textContent = 'Spróbuj ponownie';
-    } finally {
-      downloadingUpdate = false;
-    }
-  });
+  $('updateBtn').addEventListener('click', () => startUpdateInstall(true));
 }
 
 function resizeInput() {
@@ -1267,6 +1420,7 @@ function pushHistory(key, message) {
 function selectConversation(kind, id) {
   activeServerId = null;
   current = { kind, id };
+  hideMentionPop();
   unread.delete(kind === 'dm' ? `dm:${id}` : conversationKey());
   searchQuery = '';
   $('messageSearch').value = '';
@@ -1346,6 +1500,7 @@ function unreadCountFor(prefix) {
 function selectHome() {
   activeServerId = null;
   current = { kind: 'home' };
+  hideMentionPop();
   typingUsers.clear();
   searchQuery = '';
   $('conversationSearch').value = '';
@@ -1364,6 +1519,7 @@ function selectHome() {
 function selectServer(id) {
   const server = servers.find((item) => item.id === id);
   if (!server) return;
+  hideMentionPop();
   const state = ensureServerState(server);
   activeServerId = id;
   if (!state.ws && !state.fatal) connectServer(state.server);
@@ -1390,6 +1546,7 @@ function selectServer(id) {
 function selectChannel(channelId) {
   const state = serverState(activeServerId);
   if (!state || !state.channels.some((channel) => channel.id === channelId)) return;
+  hideMentionPop();
   state.lastChannelId = channelId;
   current = { kind: 'server', serverId: activeServerId, id: channelId };
   unread.delete(`server:${activeServerId}:${channelId}`);
@@ -1815,7 +1972,7 @@ function buildMessage(message, grouped) {
 
 function formatMessageText(text) {
   return esc(text)
-    .replace(/@([a-zA-Z0-9_.ąćęłńóśźż]{2,20})/gi, '<b>@$1</b>')
+    .replace(/@([\p{L}\p{N}_.-]{2,32})/gu, '<b>@$1</b>')
     .replace(/\n/g, '\n');
 }
 
@@ -1848,6 +2005,7 @@ function setMessageSearch(open) {
 
 function sendCurrentMessage(e) {
   e.preventDefault();
+  hideMentionPop();
   const input = $('messageInput');
   const text = input.value.trim();
   if (!text) return;
@@ -1968,10 +2126,14 @@ function updateBadges() {
 // ---------- Powiadomienia ----------
 function isMention(text) {
   if (!text) return false;
-  const lower = text.toLowerCase();
-  const handle = `@${String(currentUser?.username || '').toLowerCase()}`;
-  const name = `@${String(myName).toLowerCase()}`;
-  return (handle.length > 1 && lower.includes(handle)) || lower.includes(name) || lower.includes('@wszyscy');
+  const lower = String(text).toLowerCase();
+  const handle = mentionHandle(currentUser?.username).toLowerCase();
+  const myHandle = mentionHandle(myName).toLowerCase();
+  const rawName = String(myName || '').toLowerCase();
+  return (handle && lower.includes(`@${handle}`))
+    || (myHandle && lower.includes(`@${myHandle}`))
+    || (rawName && lower.includes(`@${rawName}`))
+    || lower.includes('@wszyscy');
 }
 
 function notifyIncoming(message, where, isCurrent) {
@@ -2351,11 +2513,60 @@ function setStatus(status) {
 // ---------- Aktualizacje ----------
 function showUpdate(info) {
   if (!info || !info.version) return;
+  currentUpdateInfo = info;
   $('updateVersion').textContent = info.version;
   $('updateBanner').hidden = false;
-  $('updateBtn').disabled = false;
-  $('updateBtn').textContent = 'Aktualizuj';
-  $('updateText').textContent = 'Pobierz i uruchom instalator, aby zaktualizować Chill.';
+  $('updateProgress').style.width = '0%';
+
+  if (!CHILL.isPackaged) {
+    $('updateText').textContent = 'Dostępna jest nowsza wersja Chill.';
+    $('updateBtn').hidden = false;
+    $('updateBtn').disabled = false;
+    $('updateBtn').textContent = 'Pobierz ręcznie';
+    return;
+  }
+
+  $('updateBtn').hidden = true;
+  $('updateText').textContent = 'Aktualizacja pobiera się i zainstaluje automatycznie…';
+  if (autoUpdateVersion === info.version) return;
+  autoUpdateVersion = info.version;
+  setTimeout(() => startUpdateInstall(false), 900);
+}
+
+async function startUpdateInstall(manual) {
+  if (downloadingUpdate) return;
+  if (!CHILL.app?.installUpdate) {
+    $('updateText').textContent = 'Nie można uruchomić aktualizacji w tej wersji.';
+    return;
+  }
+
+  downloadingUpdate = true;
+  $('updateBtn').disabled = true;
+  $('updateBtn').hidden = true;
+  $('updateProgress').style.width = '0%';
+  $('updateText').textContent = 'Pobieranie aktualizacji — 0%';
+
+  try {
+    const started = await CHILL.app.installUpdate();
+    if (started) {
+      $('updateText').textContent = 'Uruchamiam instalator — Chill za chwilę się zamknie.';
+      $('updateProgress').style.width = '100%';
+      toast('Pobrano aktualizację — uruchamiam instalator', 4000);
+    } else {
+      $('updateText').textContent = 'Automatyczna aktualizacja nie powiodła się. Pobierz instalator ręcznie.';
+      $('updateBtn').hidden = false;
+      $('updateBtn').disabled = false;
+      $('updateBtn').textContent = 'Pobierz ręcznie';
+      if (manual && currentUpdateInfo?.url) CHILL.app.openExternal?.(currentUpdateInfo.url);
+    }
+  } catch {
+    $('updateText').textContent = 'Nie udało się pobrać aktualizacji. Spróbuj ponownie.';
+    $('updateBtn').hidden = false;
+    $('updateBtn').disabled = false;
+    $('updateBtn').textContent = 'Spróbuj ponownie';
+  } finally {
+    downloadingUpdate = false;
+  }
 }
 
 // ---------- Skróty ----------

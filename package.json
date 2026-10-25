@@ -1,7 +1,7 @@
 {
   "name": "chill",
   "productName": "Chill",
-  "version": "4.0.0",
+  "version": "4.0.1",
   "description": "Chill — spokojny komunikator desktopowy: serwery, kanały, wiadomości prywatne, emoji i aktualizacje.",
   "main": "main.js",
   "private": true,
@@ -38,8 +38,9 @@
       "sign": null
     },
     "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Chill",

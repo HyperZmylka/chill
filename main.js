@@ -476,7 +476,7 @@ async function checkForUpdates() {
 
 function scheduleUpdateCheck() {
   if (updateCheckInterval) clearInterval(updateCheckInterval);
-  setTimeout(checkForUpdates, 5000);
+  setTimeout(checkForUpdates, 2000);
   updateCheckInterval = setInterval(checkForUpdates, 4 * 60 * 60 * 1000);
 }
 
@@ -1319,6 +1319,7 @@ ipcMain.handle('chill:servers-invite', (e, payload = {}) => {
 
 
 // ---------- IPC aplikacji ----------
+ipcMain.on('chill:app-packaged', (e) => { e.returnValue = app.isPackaged; });
 ipcMain.handle('chill:app-version', () => app.getVersion());
 
 ipcMain.handle('chill:autostart-get', () => app.getLoginItemSettings().openAtLogin);
@@ -1376,6 +1377,7 @@ ipcMain.handle('chill:screen-pick', (e, id) => typeof id === 'string');
 ipcMain.handle('chill:update-check', async () => checkForUpdates());
 
 ipcMain.handle('chill:update-install', async () => {
+  if (!app.isPackaged) return false;
   const url = updateInfo?.url || '';
   if (!url) return false;
 
@@ -1391,10 +1393,13 @@ ipcMain.handle('chill:update-install', async () => {
     if (!fs.existsSync(file)) await downloadUpdate(url, file);
     const openError = await shell.openPath(file);
     if (openError) throw new Error(openError);
+    setTimeout(() => {
+      quitting = true;
+      app.quit();
+    }, 900);
     return true;
   } catch (err) {
     console.error('[updater] Błąd pobierania:', err.message);
-    void shell.openExternal(url);
     return false;
   }
 });

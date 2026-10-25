@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('chill', {
   platform: process.platform,
+  isPackaged: ipcRenderer.sendSync('chill:app-packaged') === true,
   chatPort: Number(process.env.CHILL_PORT) || 47830,
 
   auth: {
