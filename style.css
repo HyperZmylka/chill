@@ -868,7 +868,7 @@ body[data-theme="gradient"] .server-rail {
   color: inherit;
   background: rgba(0, 0, 0, 0.14);
 }
-.bubble-gif { padding: 4px; line-height: 0; }
+.bubble-gif { padding: 4px; line-height: 0; max-width: min(368px, 100%); }
 .chat-gif {
   display: block;
   width: auto; height: auto;
@@ -1173,10 +1173,11 @@ body[data-theme="gradient"] .server-rail {
 }
 .gif-item:hover { transform: scale(1.015); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
 .gif-item img { display: block; width: 100%; height: auto; object-fit: contain; }
+.gif-item img:not([src]) { visibility: hidden; }
 .gif-missing-label { display: grid; place-items: center; width: 100%; min-height: 110px; color: var(--faint); font-size: 11px; font-weight: 800; letter-spacing: 0.08em; }
 .gif-empty { text-align: center; color: var(--faint); font-size: 12px; padding: 22px 0; }
 .gif-foot {
-  display: flex; align-items: center; justify-content: flex-end;
+  display: flex; align-items: center; justify-content: flex-end; gap: 6px;
   padding: 6px 12px;
   border-top: 1px solid var(--line);
   flex: 0 0 auto;
@@ -1190,6 +1191,7 @@ body[data-theme="gradient"] .server-rail {
   text-transform: uppercase;
 }
 .gif-attribution:hover { color: var(--text); }
+.gif-foot-sep { color: var(--faint); font-size: 10px; line-height: 1; }
 .gif-btn { width: 34px; font-size: 9.5px; font-weight: 800; letter-spacing: 0.03em; }
 
 /* ---------- Toast / aktualizacja ---------- */

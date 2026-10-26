@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://*.giphy.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws: wss: http: https:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://*.giphy.com https://*.klipy.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws: wss: http: https:;">
 <title>Chill</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -262,6 +262,8 @@
       <div class="gif-grid" id="gifGrid"></div>
       <footer class="gif-foot">
         <button type="button" class="gif-attribution" id="giphyLink" title="GIPHY">Powered by GIPHY</button>
+        <span class="gif-foot-sep" aria-hidden="true">·</span>
+        <button type="button" class="gif-attribution" id="klipyLink" title="KLIPY">Powered by KLIPY</button>
       </footer>
     </div>
   </main>

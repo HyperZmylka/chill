@@ -54,13 +54,14 @@ Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach p
 
 ## GIF-y
 
-- Przycisk **GIF** znajduje się w polu pisania, obok emoji. Otwiera picker z kategoriami (`Wszystkie`, `Popularne`, `Reakcje`, `Śmieszne`, `Zwierzęta`, `Jedzenie`, `Gry`) i wyszukiwarką.
+- Przycisk **GIF** znajduje się w polu pisania, obok emoji. Otwiera picker z kategoriami (`Wszystkie`, `KLIPY`, `Popularne`, `Reakcje`, `Śmieszne`, `Zwierzęta`, `Jedzenie`, `Gry`) i wyszukiwarką.
 - Domyślnie widać cały katalog w dwóch kolumnach. Każdy GIF jest wyświetlany w całości, bez przycinania, a przewijanie prowadzi przez wszystkie pozycje aż do końca.
 - Wyszukiwanie działa lokalnie, bez wysyłania zapytań do internetu. Ignoruje polskie znaki diakrytyczne i obsługuje proste synonimy, np. `kot`/`koty` oraz `serce`/`serca`.
-- Katalog jest wbudowany w aplikację (`gifs.js`, 96 pozycji, treści: GIPHY) — nie wymaga klucza API ani konta GIPHY.
-- Wybrany GIF jest wysyłany jako zwykły link `https://media.giphy.com/media/<id>/giphy.gif`, dzięki czemu działa w kanałach serwera i w DM-ach, a historia zapisuje się tak jak pozostałe wiadomości.
-- W rozmowie link GIF-a jest rozpoznawany i wyświetlany jako obrazek. Sama miniatura i obrazek są pobierane z `media.giphy.com`, więc do wyświetlania GIF-ów potrzebne jest połączenie z internetem.
-- W pickerze i pod wiadomościami znajduje się oznaczenie **Powered by GIPHY**.
+- Katalog jest wbudowany w aplikację (`gifs.js`, 96 pozycji GIPHY + 40 pozycji KLIPY) — nie wymaga klucza API ani konta.
+- Miniatury są ładowane dopiero przy przewijaniu. GIPHY używa lekkich podglądów `200w.webp`, a KLIPY animowanych WebP w wysokiej rozdzielczości. Wymiary pozycji są zapisane w katalogu, więc lista nie skacze podczas ładowania.
+- Wybrany GIF jest wysyłany jako zwykły link: GIPHY `https://media.giphy.com/media/<id>/giphy.gif`, KLIPY `https://static2.klipy.com/...gif`. Dzięki temu działa w kanałach serwera i w DM-ach, a historia zapisuje się tak jak pozostałe wiadomości.
+- W rozmowie link GIF-a jest rozpoznawany i wyświetlany jako obrazek: GIPHY z `giphy.webp`, KLIPY z animowanego WebP. Jeśli WebP się nie wczyta, aplikacja użyje GIF-a, a potem pokaże przycisk **Otwórz GIF**. Do wyświetlania potrzebne jest połączenie z internetem.
+- W pickerze i pod wiadomościami znajdują się oznaczenia **Powered by GIPHY** i **Powered by KLIPY**. Pozycje KLIPY korzystają z publicznych linków do mediów, bez klucza API.
 
 ## Język interfejsu
 
@@ -139,7 +140,7 @@ Szczegóły wydawania nowej wersji: [GITHUB-UPDATER.md](GITHUB-UPDATER.md).
 - `main.js` — okno, tray (także w języku interfejsu), konta, hostowanie serwerów (HTTP/WebSocket), walidacja uprawnień kanałów, `servers.json`, `language.json`, aktualizacje.
 - `preload.js` — bezpieczny most `window.chill` (context isolation).
 - `renderer.js` — logowanie, serwery, kanały tekstowe/głosowe, zaproszenia, profile i znajomi, DM-y, emoji, GIF-y, wzmianki `@`, motywy, ustawienia, tłumaczenia PL/EN, powiadomienia.
-- `gifs.js` — statyczny katalog GIF-ów (treści: GIPHY, bez klucza API).
+- `gifs.js` — statyczny katalog GIF-ów (96 pozycji GIPHY + 40 KLIPY, bez klucza API).
 - `index.html` / `style.css` — interfejs Chill.
 
 Czat serwerów działa przez wbudowany serwer WebSocket na porcie `47830`. Każdy hostowany serwer jest dostępny pod kodem zaproszenia; wiadomości, członkowie i DM-y serwerowe są zapisywani w `servers.json`.

@@ -5,12 +5,15 @@ const CHILL = window.chill || {};
 const WS_URL = `ws://127.0.0.1:${CHILL.chatPort || 47830}/chat`;
 const $ = (id) => document.getElementById(id);
 
-// ---------- GIF-y (statyczny katalog GIPHY) ----------
+// ---------- GIF-y (statyczny katalog GIPHY + KLIPY) ----------
 const GIFS = Array.isArray(window.CHILL_GIFS) ? window.CHILL_GIFS : [];
 const GIF_BASE = 'https://media.giphy.com/media';
 const GIF_ID_RE = /^[A-Za-z0-9]{5,40}$/;
 const GIF_MESSAGE_RE = /^https:\/\/media\.giphy\.com\/media\/([A-Za-z0-9]{5,40})\/giphy\.gif$/;
+const KLIPY_MEDIA_RE = /^https:\/\/static2?\.klipy\.com\/ii\/[a-f0-9]{32}\/[a-f0-9]{2}\/[a-f0-9]{2}\/[A-Za-z0-9]+\.(?:webp|gif)$/;
+const KLIPY_PAGE_RE = /^[a-z0-9][a-z0-9-]{2,79}$/;
 const GIF_ALL_CATEGORIES = 'Wszystkie';
+const GIF_KLIPY_CATEGORY = 'KLIPY';
 const GIF_CATEGORY_QUERY = {
   Popularne: 'popular trending',
   Reakcje: 'reactions reaction reakcja',
@@ -18,6 +21,7 @@ const GIF_CATEGORY_QUERY = {
   Zwierzęta: 'animals pets',
   Jedzenie: 'food drink',
   Gry: 'games gaming gra',
+  KLIPY: 'klipy',
 };
 const GIF_QUERY_ALIASES = {
   serce: ['serca'],
@@ -31,6 +35,19 @@ const GIF_QUERY_ALIASES = {
   reakcje: ['reakcja'],
 };
 let gifState = { category: GIF_ALL_CATEGORIES, query: '' };
+let gifPreviewObserver = null;
+
+const GIF_BY_ID = new Map();
+const KLIPY_BY_URL = new Map();
+for (const gif of GIFS) {
+  if (!gif) continue;
+  if (gif.source === 'klipy') {
+    if (KLIPY_MEDIA_RE.test(String(gif.webp || ''))) KLIPY_BY_URL.set(gif.webp, gif);
+    if (KLIPY_MEDIA_RE.test(String(gif.gif || ''))) KLIPY_BY_URL.set(gif.gif, gif);
+  } else if (GIF_ID_RE.test(String(gif.id || ''))) {
+    GIF_BY_ID.set(gif.id, gif);
+  }
+}
 
 // ---------- Emoji ----------
 const EMOJI_GROUPS = [
@@ -3078,26 +3095,40 @@ function buildMessage(message, grouped) {
 
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
-  const gifId = gifMessageId(message.text);
-  if (gifId) {
+  const gif = gifMessageDescriptor(message.text);
+  const chatUrl = gif ? gifChatSource(gif) : '';
+  if (gif && chatUrl) {
     bubble.classList.add('bubble-gif');
+    const fallbackUrl = gifChatFallback(gif);
+    const openUrl = gifOpenUrl(gif);
     const img = document.createElement('img');
     img.className = 'chat-gif';
-    img.src = gifThumbUrl(gifId);
+    img.src = chatUrl;
     img.alt = 'GIF';
-    img.title = 'GIF • GIPHY';
+    img.title = gifAttributionLabel(gif);
+    if (gifSource(gif) === 'klipy' && gif.w > 0 && gif.h > 0) {
+      img.width = gif.w;
+      img.height = gif.h;
+    }
     img.loading = 'lazy';
     img.decoding = 'async';
     img.draggable = false;
     img.referrerPolicy = 'no-referrer';
     img.addEventListener('error', () => {
+      if (img.dataset.fallback !== '1' && fallbackUrl && fallbackUrl !== chatUrl) {
+        img.dataset.fallback = '1';
+        img.src = fallbackUrl;
+        return;
+      }
       img.remove();
       const fallback = document.createElement('button');
       fallback.type = 'button';
       fallback.className = 'chat-gif-fallback';
       fallback.textContent = t('Otwórz GIF');
-      fallback.title = gifFullUrl(gifId);
-      fallback.addEventListener('click', () => CHILL.app?.openExternal?.(gifFullUrl(gifId)));
+      fallback.title = openUrl;
+      fallback.addEventListener('click', () => {
+        if (openUrl) CHILL.app?.openExternal?.(openUrl);
+      });
       bubble.appendChild(fallback);
     });
     bubble.appendChild(img);
@@ -3337,7 +3368,7 @@ function notifyIncoming(message, where, isCurrent) {
   if (prefs.notify && CHILL.chat?.notify) {
     CHILL.chat.notify({
       title: mention ? t('Wzmianka od {name}', { name: message.authorName }) : `${message.authorName} • ${where}`,
-      body: gifMessageId(message.text) ? 'GIF' : String(message.text).slice(0, 160),
+      body: gifMessageDescriptor(message.text) ? 'GIF' : String(message.text).slice(0, 160),
     });
   }
   if (prefs.sound) playSound(mention);
@@ -3502,11 +3533,18 @@ function bindGif() {
   $('giphyLink').addEventListener('click', () => {
     CHILL.app?.openExternal?.('https://giphy.com');
   });
+  $('klipyLink').addEventListener('click', () => {
+    CHILL.app?.openExternal?.('https://klipy.com');
+  });
 }
 
 function closeGifPicker() {
   const pop = $('gifOverlay');
   if (pop) pop.hidden = true;
+  if (gifPreviewObserver) {
+    gifPreviewObserver.disconnect();
+    gifPreviewObserver = null;
+  }
   const button = $('gifBtn');
   if (button) button.setAttribute('aria-expanded', 'false');
 }
@@ -3515,6 +3553,7 @@ function renderGifCategories() {
   const container = $('gifCategories');
   if (!container) return;
   const categories = [GIF_ALL_CATEGORIES];
+  if (GIFS.some((gif) => gif?.source === 'klipy')) categories.push(GIF_KLIPY_CATEGORY);
   for (const gif of GIFS) {
     if (gif?.category && !categories.includes(gif.category)) categories.push(gif.category);
   }
@@ -3539,17 +3578,24 @@ function renderGifs() {
   const query = foldGifText(gifState.query);
   const terms = query.split(/\s+/).filter(Boolean);
   const list = GIFS.filter((gif) => {
-    if (!gif || !GIF_ID_RE.test(String(gif.id || ''))) return false;
+    if (!isGifEntry(gif)) return false;
     if (terms.length) {
       const categorySearch = GIF_CATEGORY_QUERY[gif.category] || '';
-      const haystack = foldGifText(`${gif.title} ${gif.category} ${categorySearch} ${gif.tags}`);
+      const source = gif.source === 'klipy' ? 'klipy' : 'giphy';
+      const haystack = foldGifText(`${gif.title} ${gif.category} ${source} ${categorySearch} ${gif.tags}`);
       return terms.every((term) => {
         if (haystack.includes(term)) return true;
         return (GIF_QUERY_ALIASES[term] || []).some((alias) => haystack.includes(alias));
       });
     }
-    return gifState.category === GIF_ALL_CATEGORIES || gif.category === gifState.category;
+    if (gifState.category === GIF_ALL_CATEGORIES) return true;
+    if (gifState.category === GIF_KLIPY_CATEGORY) return gif.source === 'klipy';
+    return gif.category === gifState.category;
   });
+  if (gifPreviewObserver) {
+    gifPreviewObserver.disconnect();
+    gifPreviewObserver = null;
+  }
   grid.innerHTML = '';
   grid.classList.toggle('is-empty', !list.length);
   if (!list.length) {
@@ -3561,50 +3607,152 @@ function renderGifs() {
     column.className = 'gif-column';
     grid.appendChild(column);
   }
+  const observer = typeof IntersectionObserver === 'function'
+    ? new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const img = entry.target;
+          observer.unobserve(img);
+          if (img.dataset.src && !img.getAttribute('src')) img.src = img.dataset.src;
+        }
+      }, { root: grid, rootMargin: '320px 0px' })
+    : null;
+  gifPreviewObserver = observer;
   list.forEach((gif, index) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'gif-item';
     button.title = gif.title || 'GIF';
     button.setAttribute('aria-label', gif.title || 'GIF');
+    const preview = gifPreviewSource(gif);
+    const fallback = gifPreviewFallbackSource(gif);
+    const tiny = gifPreviewTinySource(gif);
     const img = document.createElement('img');
-    img.src = gifPreviewUrl(gif.id);
+    img.dataset.src = preview;
     img.alt = gif.title || 'GIF';
+    if (gif.w > 0 && gif.h > 0) {
+      img.width = gif.w;
+      img.height = gif.h;
+    }
     img.loading = 'lazy';
     img.decoding = 'async';
     img.draggable = false;
     img.referrerPolicy = 'no-referrer';
     img.addEventListener('error', () => {
-      if (img.dataset.fallback === '1') {
-        img.remove();
-        const label = document.createElement('span');
-        label.className = 'gif-missing-label';
-        label.textContent = 'GIF';
-        button.appendChild(label);
+      if (img.dataset.fallback !== '1' && fallback && fallback !== preview) {
+        img.dataset.fallback = '1';
+        img.src = fallback;
         return;
       }
-      img.dataset.fallback = '1';
-      img.src = gifThumbUrl(gif.id);
+      if (img.dataset.fallback !== '2' && tiny && tiny !== fallback) {
+        img.dataset.fallback = '2';
+        img.src = tiny;
+        return;
+      }
+      img.remove();
+      const label = document.createElement('span');
+      label.className = 'gif-missing-label';
+      label.textContent = 'GIF';
+      button.appendChild(label);
     });
     button.appendChild(img);
     button.addEventListener('click', () => sendGif(gif));
     columns[index % 2].appendChild(button);
+    if (observer) observer.observe(img);
+    else img.src = img.dataset.src;
   });
 }
 
 function sendGif(gif) {
-  const id = String(gif?.id || '');
-  if (!GIF_ID_RE.test(id) || $('composer').hidden) return;
+  if (!isGifEntry(gif) || $('composer').hidden) return;
+  const url = gifMessageUrl(gif);
+  if (!url) return;
   hideMentionPop();
-  if (!deliverMessage(gifFullUrl(id))) return;
+  if (!deliverMessage(url)) return;
   closeGifPicker();
   stopTyping();
   $('messageInput').focus();
 }
 
-function gifMessageId(text) {
-  const match = String(text ?? '').trim().match(GIF_MESSAGE_RE);
-  return match ? match[1] : null;
+function gifMessageDescriptor(text) {
+  const value = String(text ?? '').trim();
+  const match = value.match(GIF_MESSAGE_RE);
+  if (match) {
+    const id = match[1];
+    return GIF_BY_ID.get(id) || { source: 'giphy', id, title: 'GIF', w: 0, h: 0 };
+  }
+  if (!KLIPY_MEDIA_RE.test(value)) return null;
+  const known = KLIPY_BY_URL.get(value);
+  if (known) return known;
+  return {
+    source: 'klipy',
+    id: '',
+    title: 'GIF',
+    w: 0,
+    h: 0,
+    webp: value.endsWith('.webp') ? value : '',
+    gif: value.endsWith('.gif') ? value : '',
+  };
+}
+
+function gifSource(gif) {
+  return gif?.source === 'klipy' ? 'klipy' : 'giphy';
+}
+
+function gifMessageUrl(gif) {
+  if (gifSource(gif) === 'klipy') {
+    return KLIPY_MEDIA_RE.test(String(gif?.gif || '')) ? gif.gif : '';
+  }
+  return gifFullUrl(gif?.id);
+}
+
+function gifChatSource(gif) {
+  if (gifSource(gif) === 'klipy') return gif?.webp || gif?.gif || '';
+  return gifChatUrl(gif?.id);
+}
+
+function gifChatFallback(gif) {
+  if (gifSource(gif) === 'klipy') return gif?.gif || gif?.webp || '';
+  return gifFullUrl(gif?.id);
+}
+
+function gifOpenUrl(gif) {
+  if (gifSource(gif) === 'klipy') {
+    const id = String(gif?.id || '');
+    if (KLIPY_PAGE_RE.test(id)) return `https://klipy.com/gifs/${id}`;
+    return gif?.gif || gif?.webp || '';
+  }
+  return gifFullUrl(gif?.id);
+}
+
+function gifAttributionLabel(gif) {
+  return gifSource(gif) === 'klipy' ? 'GIF • KLIPY' : 'GIF • GIPHY';
+}
+
+function isGifEntry(gif) {
+  if (!gif) return false;
+  if (gifSource(gif) === 'klipy') {
+    return KLIPY_MEDIA_RE.test(String(gif.webp || ''))
+      && KLIPY_MEDIA_RE.test(String(gif.gif || ''))
+      && Number(gif.w) > 0
+      && Number(gif.h) > 0;
+  }
+  return GIF_ID_RE.test(String(gif.id || ''));
+}
+
+function gifPreviewSource(gif) {
+  if (gifSource(gif) === 'klipy') return gif?.webp || gif?.gif || '';
+  return gifPreviewUrl(gif?.id);
+}
+
+function gifPreviewFallbackSource(gif) {
+  if (gifSource(gif) === 'klipy') return gif?.gif || gif?.webp || '';
+  return gifPreviewFallbackUrl(gif?.id);
+}
+
+function gifPreviewTinySource(gif) {
+  if (gifSource(gif) === 'klipy') return '';
+  return gifTinyPreviewUrl(gif?.id);
 }
 
 function gifUrl(id, file) {
@@ -3612,8 +3760,10 @@ function gifUrl(id, file) {
 }
 
 function gifFullUrl(id) { return gifUrl(id, 'giphy.gif'); }
-function gifThumbUrl(id) { return gifUrl(id, '200w.gif'); }
-function gifPreviewUrl(id) { return gifUrl(id, 'giphy-preview.gif'); }
+function gifChatUrl(id) { return gifUrl(id, 'giphy.webp'); }
+function gifPreviewUrl(id) { return gifUrl(id, '200w.webp'); }
+function gifPreviewFallbackUrl(id) { return gifUrl(id, '200w.gif'); }
+function gifTinyPreviewUrl(id) { return gifUrl(id, 'giphy-preview.gif'); }
 
 function foldGifText(value) {
   return String(value ?? '')
