@@ -258,6 +258,15 @@ function normalizeHostedServer(raw) {
     const list = Array.isArray(server.messages[channel.id]) ? server.messages[channel.id] : [];
     server.messages[channel.id] = list.slice(-300);
   }
+  if (!server.dms || typeof server.dms !== 'object') server.dms = {};
+  for (const [key, list] of Object.entries(server.dms)) {
+    const parts = String(key).split('|');
+    if (parts.length !== 2 || !parts[0] || !parts[1]) {
+      delete server.dms[key];
+      continue;
+    }
+    server.dms[key] = Array.isArray(list) ? list.slice(-500) : [];
+  }
   return server;
 }
 
@@ -351,6 +360,15 @@ function serverMembersPayload(server) {
       lastSeen: member.lastSeen || null,
     }))
     .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'pl'));
+}
+
+function serverDmsPayload(server, memberId) {
+  const out = {};
+  for (const [key, list] of Object.entries(server.dms || {})) {
+    const [a, b] = String(key).split('|');
+    if (a === memberId || b === memberId) out[key] = Array.isArray(list) ? list.slice(-300) : [];
+  }
+  return out;
 }
 
 function serverSockets(serverId) {
@@ -561,6 +579,7 @@ function handleJoinServer(ws, msg, send) {
     },
     members: serverMembersPayload(server),
     messages,
+    dms: serverDmsPayload(server, memberId),
     you: { memberId, owner },
   });
   broadcastServerMembers(server);
@@ -685,6 +704,71 @@ function startChatServer(port = CHAT_PORT) {
             if (server.messages[channel.id].length > 300) server.messages[channel.id].shift();
             scheduleServersSave();
             broadcastServer(server.id, { type: 'server:message', message });
+            break;
+          }
+
+          case 'server:dm': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const server = findHostedServer(session.serverId);
+            if (!server) return;
+            const to = String(msg.to || '');
+            const text = String(msg.text || '').trim().slice(0, 4000);
+            if (!to || !text || to === session.memberId) return;
+            const target = server.members.find((member) => member.id === to);
+            if (!target) {
+              send({ type: 'server:error', code: 'dm-target', message: 'Ta osoba nie jest już członkiem serwera.' });
+              return;
+            }
+
+            const message = {
+              id: `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+              authorId: session.memberId,
+              authorName: session.name,
+              authorColor: session.color,
+              to,
+              text,
+              at: Date.now(),
+            };
+            const key = dmKey(session.memberId, to);
+            if (!server.dms || typeof server.dms !== 'object') server.dms = {};
+            if (!Array.isArray(server.dms[key])) server.dms[key] = [];
+            server.dms[key].push(message);
+            if (server.dms[key].length > 500) server.dms[key].shift();
+            scheduleServersSave();
+
+            const payload = { type: 'server:dm', serverId: server.id, message };
+            send(payload);
+            for (const socket of serverSockets(server.id)) {
+              if (socket === ws) continue;
+              if (socket._serverSession?.memberId === to && socket.readyState === 1) {
+                socket.send(JSON.stringify(payload));
+              }
+            }
+            break;
+          }
+
+          case 'server:dm:typing': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const server = findHostedServer(session.serverId);
+            if (!server) return;
+            const to = String(msg.to || '');
+            if (!to || to === session.memberId) return;
+            const target = server.members.find((member) => member.id === to);
+            if (!target) return;
+            const payload = {
+              type: 'server:dm:typing',
+              serverId: server.id,
+              from: session.memberId,
+              name: session.name,
+              typing: Boolean(msg.typing),
+            };
+            for (const socket of serverSockets(server.id)) {
+              if (socket._serverSession?.memberId === to && socket.readyState === 1) {
+                socket.send(JSON.stringify(payload));
+              }
+            }
             break;
           }
 

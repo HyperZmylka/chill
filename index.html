@@ -275,6 +275,29 @@
     <button type="button" class="btn-primary small" id="updateBtn" hidden>Pobierz ręcznie</button>
   </div>
 
+  <!-- Profil innej osoby -->
+  <div class="modal" id="userProfileOverlay" hidden>
+    <div class="modal-card user-card">
+      <button type="button" class="icon-btn modal-close" id="closeUserProfile" aria-label="Zamknij">✕</button>
+      <div class="user-card-head">
+        <span class="avatar large" id="userProfileAvatar">?</span>
+        <div class="user-card-id">
+          <h2 id="userProfileName">—</h2>
+          <p id="userProfileHandle">@—</p>
+          <span class="user-card-status" id="userProfileStatus">—</span>
+        </div>
+      </div>
+      <p class="user-card-about" id="userProfileAbout"></p>
+      <div class="user-card-server" id="userProfileServer" hidden></div>
+      <p class="saved-note" id="userProfileNote"></p>
+      <p class="form-error" id="userProfileError"></p>
+      <div class="user-card-actions">
+        <button type="button" class="btn-secondary" id="addFriendBtn">Dodaj do znajomych</button>
+        <button type="button" class="btn-primary" id="dmFriendBtn">Napisz wiadomość</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Ustawienia -->
   <div class="modal" id="settingsOverlay" hidden>
     <div class="modal-card">

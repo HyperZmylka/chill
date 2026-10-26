@@ -9,8 +9,9 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 - **Zaproszenia linkiem** — `chill://adres:port/kod`. Działa w sieci lokalnej, a po skonfigurowaniu sieci także przez internet.
 - **Role** — właściciel i członkowie. Tylko właściciel tworzy kanały i usuwa serwer.
 - **Lista obecnych** — status online/offline i oznaczenie właściciela.
-- **Wiadomości prywatne** — lokalne rozmowy 1:1, niezależne od serwerów.
-- **Trwała historia** — wiadomości serwera zapisują się u osoby, która go hostuje; DM-y zapisują się lokalnie.
+- **Wiadomości prywatne** — rozmowy 1:1 z kontami lokalnymi oraz ze znajomymi dodanymi z serwerów.
+- **Znajomi** — kliknij profil innego członka serwera, dodaj go do znajomych i pisz bezpośrednio.
+- **Trwała historia** — wiadomości serwera zapisują się u osoby, która go hostuje; DM-y lokalne w `chat-data.json`, a DM-y serwerowe u hosta w `servers.json`.
 - **Emoji** — picker z wyszukiwarką i listą ostatnio używanych.
 - **Wzmianki `@`** — podpowiedzi członków serwera i znajomych, wstawianie nicku z klawiatury i wyróżnienie w wiadomości.
 - **Statusy** — online, zaraz wracam, nie przeszkadzać, niewidoczny.
@@ -30,6 +31,16 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 5. Oboje musicie mieć uruchomiony Chill. Host musi być online, żeby jego serwer działał.
 
 Serwer działa na komputerze właściciela — nie ma centralnego serwera. Gdy host wyłączy aplikację, pozostali zobaczą stan „Serwer offline”, a po jego powrocie Chill połączy się ponownie automatycznie.
+
+## Znajomi i wiadomości prywatne
+
+1. Wejdź na serwer i kliknij nazwę lub awatar innego członka (albo jego wiadomość).
+2. W profilu wybierz **Dodaj do znajomych**.
+3. Osoba pojawi się w **Wiadomościach prywatnych** — kliknij ją i napisz wiadomość.
+
+Znajomi z serwera są zapisani dla Twojego konta lokalnie, a ich wiadomości prywatne przechodzą przez serwer hosta. Rozmowa działa, gdy host jest online; historia DM-ów serwerowych jest przechowywana w `servers.json` na komputerze hosta. Konto, które otrzyma wiadomość prywatną z serwera, automatycznie dodaje nadawcę do znajomych.
+
+Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach prywatnych** od razu — bez dodawania do znajomych.
 
 ### Sieć lokalna
 
@@ -54,8 +65,8 @@ Konta są **lokalne** — nie ma chmury ani zewnętrznego serwera uwierzytelnian
 - Po pięciu nieudanych próbach logowania konto jest chwilowo blokowane.
 - Dane trafiają do `%APPDATA%\Chill`:
   - `accounts.json` — konta i sesja,
-  - `chat-data.json` — wiadomości prywatne,
-  - `servers.json` — hostowane i dołączone serwery, kanały, członkowie i historia kanałów.
+  - `chat-data.json` — lokalne wiadomości prywatne,
+  - `servers.json` — hostowane i dołączone serwery, kanały, członkowie, historia kanałów i wiadomości prywatne serwera.
 - Odinstalowanie aplikacji usuwa także te dane.
 - Serwer nie ma centralnego systemu kont — dostęp reguluje kod zaproszenia. Link traktuj jak hasło.
 
@@ -98,10 +109,10 @@ Szczegóły wydawania nowej wersji: [GITHUB-UPDATER.md](GITHUB-UPDATER.md).
 
 - `main.js` — okno, tray, konta, hostowanie serwerów (HTTP/WebSocket), `servers.json`, aktualizacje.
 - `preload.js` — bezpieczny most `window.chill` (context isolation).
-- `renderer.js` — logowanie, serwery, kanały, zaproszenia, DM-y, emoji, wzmianki `@`, motywy, ustawienia, powiadomienia.
+- `renderer.js` — logowanie, serwery, kanały, zaproszenia, profile i znajomi, DM-y, emoji, wzmianki `@`, motywy, ustawienia, powiadomienia.
 - `index.html` / `style.css` — interfejs Chill.
 
-Czat serwerów działa przez wbudowany serwer WebSocket na porcie `47830`. Każdy hostowany serwer jest dostępny pod kodem zaproszenia; wiadomości i członkowie są zapisywani w `servers.json`.
+Czat serwerów działa przez wbudowany serwer WebSocket na porcie `47830`. Każdy hostowany serwer jest dostępny pod kodem zaproszenia; wiadomości, członkowie i DM-y serwerowe są zapisywani w `servers.json`.
 
 ## Zmienne środowiskowe (opcjonalne)
 

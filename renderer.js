@@ -53,6 +53,8 @@ let servers = [];
 let activeServerId = null;
 const serverStates = new Map();
 let allUsers = [];
+let friends = [];
+let profileTarget = null;
 let playing = null;
 let searchQuery = '';
 let current = { kind: 'home' };
@@ -184,6 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindServers();
   bindEmoji();
   bindSettings();
+  bindUserProfile();
   bindShortcuts();
   boot();
 });
@@ -388,6 +391,8 @@ function enterApp(user) {
   activeServerId = null;
   serverStates.clear();
   allUsers = [];
+  friends = [];
+  profileTarget = null;
   history.clear();
   unread.clear();
   typingUsers.clear();
@@ -396,6 +401,7 @@ function enterApp(user) {
   loadPrefs();
   applyTheme(prefs.theme);
   applyAccent(prefs.accent);
+  loadFriends();
 
   $('loginScreen').style.display = 'none';
   $('chatApp').style.display = 'grid';
@@ -442,6 +448,8 @@ function logout() {
   activeServerId = null;
   current = { kind: 'home' };
   allUsers = [];
+  friends = [];
+  profileTarget = null;
   history.clear();
   unread.clear();
   typingUsers.clear();
@@ -733,7 +741,9 @@ function handleMessage(msg) {
   switch (msg.type) {
     case 'joined': {
       allUsers = Array.isArray(msg.users) ? msg.users : [];
-      history.clear();
+      for (const key of [...history.keys()]) {
+        if (key.startsWith('dm:') && !key.startsWith('dm:srv:')) history.delete(key);
+      }
       for (const [key, list] of Object.entries(msg.dmHistory || {})) {
         const other = key.split('|').find((part) => part !== myId);
         if (other) history.set(`dm:${other}`, Array.isArray(list) ? list.slice(-300) : []);
@@ -964,6 +974,23 @@ function handleServerFrame(serverId, msg) {
         history.set(`server:${serverId}:${channelId}`, Array.isArray(list) ? list.slice(-300) : []);
       }
 
+      const dmPrefix = `dm:${serverFriendId(serverId, '')}`;
+      for (const key of [...history.keys()]) {
+        if (key.startsWith(dmPrefix)) history.delete(key);
+      }
+      for (const [key, list] of Object.entries(msg.dms || {})) {
+        const parts = String(key).split('|');
+        const other = parts.length === 2 ? parts.find((part) => part !== state.you?.memberId) : null;
+        const messages = Array.isArray(list) ? list.slice(-300) : [];
+        if (!other) continue;
+        const dmId = serverFriendId(serverId, other);
+        history.set(`dm:${dmId}`, messages);
+        const member = state.members.find((item) => item.id === other);
+        const inbound = messages.find((item) => item?.authorId === other);
+        if (member) upsertServerFriend(serverId, member);
+        else if (inbound) upsertServerFriend(serverId, { id: other, name: inbound.authorName, color: inbound.authorColor });
+      }
+
       if (activeServerId === serverId) {
         if (!state.channels.some((channel) => channel.id === current.id)) {
           current = { kind: 'server', serverId, id: state.channels[0]?.id || '' };
@@ -974,6 +1001,8 @@ function handleServerFrame(serverId, msg) {
         renderMessages(false);
         renderMembers();
         updateComposer();
+      } else if (!activeServerId) {
+        renderDmList();
       }
       renderServers();
       updateBadges();
@@ -982,9 +1011,15 @@ function handleServerFrame(serverId, msg) {
 
     case 'server:members': {
       state.members = Array.isArray(msg.members) ? msg.members : [];
+      syncServerFriends(serverId);
       if (activeServerId === serverId) {
         renderMembers();
         renderHeader();
+      }
+      if (current.kind === 'dm' && current.id.startsWith(`srv:${serverId}:`)) {
+        renderDmList();
+        renderHeader();
+        updateComposer();
       }
       break;
     }
@@ -1023,6 +1058,56 @@ function handleServerFrame(serverId, msg) {
         const channel = state.channels.find((item) => item.id === message.channelId);
         notifyIncoming(message, channel ? `#${channel.name} • ${state.server.name}` : state.server.name, active);
       }
+      break;
+    }
+
+    case 'server:dm': {
+      const message = msg.message;
+      if (!message || !message.authorId) return;
+      if (message.authorId === state.you?.memberId) return;
+      const other = String(message.authorId);
+      const dmId = serverFriendId(serverId, other);
+      const key = `dm:${dmId}`;
+      pushHistory(key, message);
+      const member = state.members.find((item) => item.id === other);
+      upsertServerFriend(serverId, member || {
+        id: other,
+        name: message.authorName,
+        color: message.authorColor,
+      });
+      const active = current.kind === 'dm' && current.id === dmId;
+      if (active) {
+        if (!searchQuery) renderMessages(false);
+        scrollBottom();
+        renderHeader();
+        updateBadges();
+      } else {
+        bumpUnread(key);
+        renderSidebar();
+        updateBadges();
+      }
+      notifyIncoming(message, `${state.server.name} • wiadomość prywatna`, active);
+      break;
+    }
+
+    case 'server:dm:typing': {
+      const from = String(msg.from || '');
+      if (!from || from === state.you?.memberId) return;
+      const dmId = serverFriendId(serverId, from);
+      if (current.kind !== 'dm' || current.id !== dmId) return;
+      if (msg.typing) {
+        clearTimeout(typingUsers.get(from)?._timer);
+        const entry = { name: msg.name || 'Znajomy', until: Date.now() + 1800 };
+        entry._timer = setTimeout(() => {
+          typingUsers.delete(from);
+          renderTyping();
+        }, 1800);
+        typingUsers.set(from, entry);
+      } else {
+        clearTimeout(typingUsers.get(from)?._timer);
+        typingUsers.delete(from);
+      }
+      renderTyping();
       break;
     }
 
@@ -1398,7 +1483,7 @@ async function leaveActiveServer() {
 }
 
 function isValidConversation() {
-  if (current.kind === 'dm') return allUsers.some((u) => u.id === current.id);
+  if (current.kind === 'dm') return Boolean(dmEntry(current.id));
   if (current.kind === 'server') {
     const state = serverState(current.serverId);
     return Boolean(state && state.channels.some((channel) => channel.id === current.id));
@@ -1653,39 +1738,189 @@ function renderChannels() {
   }
 }
 
+function friendsKey() {
+  return `chill.friends.${myId}`;
+}
+
+function loadFriends() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(friendsKey()) || '[]');
+    friends = Array.isArray(stored)
+      ? stored.filter((item) => item && item.kind === 'server' && item.dmId && item.serverId && item.memberId)
+      : [];
+  } catch {
+    friends = [];
+  }
+}
+
+function saveFriends() {
+  try {
+    localStorage.setItem(friendsKey(), JSON.stringify(friends));
+  } catch { /* ignore */ }
+}
+
+function serverFriendId(serverId, memberId) {
+  return `srv:${serverId}:${memberId}`;
+}
+
+function friendByDmId(dmId) {
+  return friends.find((item) => item.dmId === dmId) || null;
+}
+
+function friendByServerMember(serverId, memberId) {
+  return friends.find((item) => item.kind === 'server' && item.serverId === serverId && item.memberId === memberId) || null;
+}
+
+function serverFriendDisplay(friend) {
+  const state = serverState(friend.serverId);
+  const member = state?.members.find((item) => item.id === friend.memberId);
+  return {
+    dmId: friend.dmId,
+    name: member?.name || friend.name || 'Znajomy',
+    color: safeColor(member?.color || friend.color, '#3ee0a3'),
+    online: Boolean(member?.online),
+    owner: Boolean(member?.owner),
+    serverId: friend.serverId,
+    memberId: friend.memberId,
+    serverName: state?.server?.name || friend.serverName || 'Serwer',
+    serverOnline: state?.status === 'online',
+  };
+}
+
+function dmEntry(dmId) {
+  const friend = friendByDmId(dmId);
+  if (friend) {
+    return { ...serverFriendDisplay(friend), kind: 'server', friend, username: '', about: '', playing: null };
+  }
+  const user = allUsers.find((item) => item.id === dmId);
+  if (!user) return null;
+  return {
+    dmId,
+    kind: 'local',
+    friend: null,
+    name: user.name,
+    username: user.username,
+    color: user.color,
+    online: Boolean(user.online),
+    status: user.online ? user.status : 'offline',
+    about: user.about || '',
+    playing: user.playing || null,
+    serverName: '',
+    serverOnline: true,
+  };
+}
+
+function upsertServerFriend(serverId, member) {
+  if (!serverId || !member?.id) return null;
+  const dmId = serverFriendId(serverId, member.id);
+  let friend = friends.find((item) => item.dmId === dmId);
+  const serverName = serverState(serverId)?.server?.name || '';
+  if (!friend) {
+    friend = {
+      kind: 'server',
+      dmId,
+      serverId,
+      memberId: member.id,
+      name: String(member.name || 'Znajomy').slice(0, 32),
+      color: safeColor(member.color, '#3ee0a3'),
+      serverName,
+      addedAt: Date.now(),
+    };
+    friends.push(friend);
+  } else {
+    if (member.name) friend.name = String(member.name).slice(0, 32);
+    if (member.color) friend.color = safeColor(member.color, '#3ee0a3');
+    if (serverName) friend.serverName = serverName;
+  }
+  saveFriends();
+  return friend;
+}
+
+function syncServerFriends(serverId) {
+  const state = serverState(serverId);
+  if (!state) return;
+  let changed = false;
+  for (const friend of friends) {
+    if (friend.serverId !== serverId) continue;
+    const member = state.members.find((item) => item.id === friend.memberId);
+    if (!member) continue;
+    const name = String(member.name || friend.name).slice(0, 32);
+    const color = safeColor(member.color, friend.color);
+    if (friend.name !== name || friend.color !== color) {
+      friend.name = name;
+      friend.color = color;
+      changed = true;
+    }
+  }
+  if (state.server?.name) {
+    for (const friend of friends) {
+      if (friend.serverId !== serverId || friend.serverName === state.server.name) continue;
+      friend.serverName = state.server.name;
+      changed = true;
+    }
+  }
+  if (changed) saveFriends();
+}
+
 function renderDmList() {
   const container = $('dmList');
   if (!container) return;
   const query = $('conversationSearch').value.trim().toLowerCase();
-  const others = allUsers
-    .filter((u) => u.id !== myId)
-    .filter((u) => !query || u.name.toLowerCase().includes(query) || u.username.toLowerCase().includes(query))
+  const entries = [];
+
+  for (const user of allUsers) {
+    if (user.id === myId) continue;
+    const status = user.online ? user.status : 'offline';
+    entries.push({
+      dmId: user.id,
+      name: user.name,
+      color: user.color,
+      online: Boolean(user.online),
+      status,
+      sub: user.playing ? `Gra w ${user.playing}` : statusLabel(status),
+      search: `${user.name} ${user.username || ''}`,
+    });
+  }
+
+  for (const friend of friends.filter((item) => item.kind === 'server')) {
+    const info = serverFriendDisplay(friend);
+    entries.push({
+      dmId: friend.dmId,
+      name: info.name,
+      color: info.color,
+      online: info.online,
+      status: info.online ? 'online' : 'offline',
+      sub: `${info.serverName} • ${info.online ? 'Online' : 'Offline'}`,
+      search: `${info.name} ${info.serverName}`,
+    });
+  }
+
+  const filtered = entries
+    .filter((entry) => !query || entry.search.toLowerCase().includes(query))
     .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'pl'));
 
   container.innerHTML = '';
-  if (!others.length) {
-    container.innerHTML = '<div class="nav-empty">Brak innych kont</div>';
+  if (!filtered.length) {
+    container.innerHTML = '<div class="nav-empty">Brak znajomych — kliknij osobę na liście członków</div>';
     return;
   }
 
-  for (const user of others) {
-    const key = `dm:${user.id}`;
-    const isActive = current.kind === 'dm' && current.id === user.id;
+  for (const entry of filtered) {
+    const key = `dm:${entry.dmId}`;
+    const isActive = current.kind === 'dm' && current.id === entry.dmId;
     const count = isActive ? 0 : unread.get(key) || 0;
-    const status = user.online ? user.status : 'offline';
-    const sub = user.playing ? `Gra w ${user.playing}` : statusLabel(status);
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `nav-item${isActive ? ' active' : ''}${count ? ' unread' : ''}`;
     button.innerHTML = `
-      <span class="nav-avatar" style="background:${safeColor(user.color, '#3ee0a3')}">
-        ${esc(initial(user.name))}
-        <span class="status-dot ${esc(status)}"></span>
+      <span class="nav-avatar" style="background:${safeColor(entry.color, '#3ee0a3')}">
+        ${esc(initial(entry.name))}
+        <span class="status-dot ${esc(entry.status)}"></span>
       </span>
-      <span class="nav-label">${esc(user.name)}<span class="nav-sub">${esc(sub)}</span></span>
+      <span class="nav-label">${esc(entry.name)}<span class="nav-sub">${esc(entry.sub)}</span></span>
       ${count ? `<span class="nav-badge">${count > 99 ? '99+' : count}</span>` : ''}
     `;
-    button.addEventListener('click', () => selectConversation('dm', user.id));
+    button.addEventListener('click', () => selectConversation('dm', entry.dmId));
     container.appendChild(button);
   }
 }
@@ -1722,6 +1957,7 @@ function renderMembers() {
         </span>
       `;
       if (member.id === state.you?.memberId) item.addEventListener('click', () => openSettings('profile'));
+      else item.addEventListener('click', () => openServerProfile(state.server.id, member.id, member));
       container.appendChild(item);
     }
     return;
@@ -1751,22 +1987,171 @@ function renderMembers() {
     `;
     item.addEventListener('click', () => {
       if (user.id === myId) openSettings('profile');
-      else selectConversation('dm', user.id);
+      else openLocalProfile(user.id, user);
     });
     container.appendChild(item);
   }
 }
 
+function openLocalProfile(userId, fallback = {}) {
+  if (!userId) return;
+  if (userId === myId) {
+    openSettings('profile');
+    return;
+  }
+  const user = allUsers.find((item) => item.id === userId) || {
+    id: userId,
+    name: fallback.name || 'Użytkownik',
+    username: fallback.username || mentionHandle(fallback.name),
+    color: fallback.color || '#3ee0a3',
+    about: '',
+    online: false,
+    status: 'offline',
+  };
+  profileTarget = { kind: 'local', user };
+  $('userProfileError').textContent = '';
+  renderUserProfile();
+  $('userProfileOverlay').hidden = false;
+}
+
+function openServerProfile(serverId, memberId, fallback = {}) {
+  const state = serverState(serverId);
+  if (state?.you?.memberId && state.you.memberId === memberId) {
+    openSettings('profile');
+    return;
+  }
+  const member = state?.members.find((item) => item.id === memberId) || {
+    id: memberId,
+    name: fallback.name || 'Gość',
+    color: fallback.color || '#3ee0a3',
+    owner: Boolean(fallback.owner),
+    online: false,
+  };
+  profileTarget = { kind: 'server', serverId, member };
+  $('userProfileError').textContent = '';
+  renderUserProfile();
+  $('userProfileOverlay').hidden = false;
+}
+
+function closeUserProfile() {
+  $('userProfileOverlay').hidden = true;
+  profileTarget = null;
+}
+
+function renderUserProfile() {
+  const target = profileTarget;
+  if (!target) return;
+
+  const isServer = target.kind === 'server';
+  const name = isServer ? target.member.name : target.user.name;
+  const color = isServer ? target.member.color : target.user.color;
+  const online = isServer ? Boolean(target.member.online) : Boolean(target.user.online);
+  const friend = isServer ? friendByServerMember(target.serverId, target.member.id) : null;
+  const serverStateEntry = isServer ? serverState(target.serverId) : null;
+  const serverName = serverStateEntry?.server?.name || 'Serwer';
+  const statusText = isServer
+    ? target.member.owner ? 'Właściciel serwera' : online ? 'Online' : 'Offline'
+    : online ? statusLabel(target.user.status) : 'Offline';
+
+  $('userProfileAvatar').textContent = initial(name);
+  $('userProfileAvatar').style.background = safeColor(color, '#3ee0a3');
+  $('userProfileName').textContent = name;
+  $('userProfileHandle').textContent = isServer
+    ? `@${mentionHandle(name) || 'osoba'}`
+    : `@${target.user.username || mentionHandle(name)}`;
+  $('userProfileStatus').textContent = target.user?.playing && !isServer
+    ? `${statusText} • Gra w ${target.user.playing}`
+    : statusText;
+  $('userProfileStatus').classList.toggle('offline', !online);
+  $('userProfileAbout').textContent = isServer
+    ? (online ? 'Ta osoba jest teraz online na serwerze.' : 'Ta osoba jest teraz offline.')
+    : (target.user.about || 'Brak opisu profilu.');
+
+  const serverBox = $('userProfileServer');
+  if (isServer) {
+    serverBox.hidden = false;
+    serverBox.innerHTML = `Serwer: <strong>${esc(serverName)}</strong>${serverStateEntry?.status === 'online' ? '' : ' • połączenie offline'}`;
+  } else {
+    serverBox.hidden = true;
+    serverBox.textContent = '';
+  }
+
+  const addBtn = $('addFriendBtn');
+  const dmBtn = $('dmFriendBtn');
+  const note = $('userProfileNote');
+  addBtn.hidden = !isServer || Boolean(friend);
+  dmBtn.hidden = isServer && !friend;
+  dmBtn.disabled = false;
+  addBtn.disabled = false;
+  addBtn.textContent = 'Dodaj do znajomych';
+  dmBtn.textContent = 'Napisz wiadomość';
+
+  if (isServer && !friend) {
+    note.textContent = 'Dodaj tę osobę do znajomych, aby zacząć prywatną rozmowę.';
+  } else if (isServer) {
+    note.textContent = 'Masz tę osobę w znajomych.';
+  } else {
+    note.textContent = 'Konto lokalne — możesz napisać od razu.';
+  }
+}
+
+function addProfileFriend() {
+  const target = profileTarget;
+  if (!target || target.kind !== 'server') return;
+  const state = serverState(target.serverId);
+  const member = state?.members.find((item) => item.id === target.member.id) || target.member;
+  const friend = upsertServerFriend(target.serverId, member);
+  if (!friend) {
+    $('userProfileError').textContent = 'Nie udało się dodać do znajomych.';
+    return;
+  }
+  renderDmList();
+  renderUserProfile();
+  renderMembers();
+  toast(`Dodano ${friend.name} do znajomych`);
+}
+
+function messageProfileFriend() {
+  const target = profileTarget;
+  if (!target) return;
+  const dmId = target.kind === 'server'
+    ? serverFriendId(target.serverId, target.member.id)
+    : target.user.id;
+  closeUserProfile();
+  selectConversation('dm', dmId);
+}
+
+function bindUserProfile() {
+  $('closeUserProfile').addEventListener('click', closeUserProfile);
+  $('userProfileOverlay').addEventListener('click', (e) => {
+    if (e.target === $('userProfileOverlay')) closeUserProfile();
+  });
+  $('addFriendBtn').addEventListener('click', addProfileFriend);
+  $('dmFriendBtn').addEventListener('click', messageProfileFriend);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && !$('userProfileOverlay').hidden) {
+      e.preventDefault();
+      closeUserProfile();
+    }
+  });
+}
+
 function renderHeader() {
   $('backBtn').style.display = 'none';
   if (current.kind === 'dm') {
-    const user = allUsers.find((u) => u.id === current.id);
-    const status = user ? (user.online ? user.status : 'offline') : 'offline';
-    $('chatEmoji').textContent = initial(user?.name || '?');
-    $('chatEmoji').style.background = safeColor(user?.color, 'var(--panel-2)');
+    const entry = dmEntry(current.id);
+    const status = entry ? (entry.online ? entry.status : 'offline') : 'offline';
+    $('chatEmoji').textContent = initial(entry?.name || '?');
+    $('chatEmoji').style.background = safeColor(entry?.color, 'var(--panel-2)');
     $('chatEmoji').style.color = '#06251b';
-    $('chatName').textContent = user?.name || 'Rozmowa prywatna';
-    $('chatSub').textContent = user?.playing ? `Gra w ${user.playing} • ${statusLabel(status)}` : statusLabel(status);
+    $('chatName').textContent = entry?.name || 'Rozmowa prywatna';
+    if (!entry) {
+      $('chatSub').textContent = 'Rozmowa niedostępna';
+    } else if (entry.kind === 'server') {
+      $('chatSub').textContent = `${entry.serverName} • ${entry.online ? 'Online' : 'Offline'}`;
+    } else {
+      $('chatSub').textContent = entry.playing ? `Gra w ${entry.playing} • ${statusLabel(status)}` : statusLabel(status);
+    }
   } else if (current.kind === 'server') {
     const state = serverState(current.serverId);
     const channel = state?.channels.find((item) => item.id === current.id);
@@ -1792,12 +2177,21 @@ function updateComposer() {
   const input = $('messageInput');
   const state = current.kind === 'server' ? serverState(current.serverId) : null;
   const channel = state?.channels.find((item) => item.id === current.id);
-  const enabled = current.kind === 'dm' || (current.kind === 'server' && state?.status === 'online' && Boolean(channel));
+  const entry = current.kind === 'dm' ? dmEntry(current.id) : null;
+  const dmServerOnline = entry?.kind === 'server' ? serverState(entry.serverId)?.status === 'online' : true;
+  const enabled = current.kind === 'dm'
+    ? Boolean(entry) && dmServerOnline
+    : current.kind === 'server' && state?.status === 'online' && Boolean(channel);
   $('composer').hidden = !enabled;
   input.disabled = !enabled;
   if (current.kind === 'dm') {
-    const user = allUsers.find((u) => u.id === current.id);
-    input.placeholder = `Napisz do ${user?.name || 'rozmówcy'}…`;
+    if (entry?.kind === 'server') {
+      input.placeholder = enabled
+        ? `Napisz do ${entry.name}…`
+        : 'Serwer jest offline — wiadomości wrócą po połączeniu';
+    } else {
+      input.placeholder = `Napisz do ${entry?.name || 'rozmówcy'}…`;
+    }
   } else if (current.kind === 'server' && channel) {
     input.placeholder = `Napisz na #${channel.name}…`;
   } else {
@@ -1849,7 +2243,7 @@ function renderMessages(scroll = true) {
       wrap.innerHTML = `
         <div class="empty-ico">💬</div>
         <h3>Wiadomości prywatne</h3>
-        <p>Wybierz rozmowę z listy po lewej. Prywatne wiadomości działają między kontami na tym komputerze.</p>
+        <p>Wybierz rozmowę z listy po lewej. Pisz do kont na tym komputerze i do znajomych dodanych z serwerów.</p>
       `;
     }
     container.appendChild(wrap);
@@ -1906,14 +2300,14 @@ function renderMessages(scroll = true) {
   if (!list.length) {
     const state = current.kind === 'server' ? serverState(current.serverId) : null;
     const channel = state?.channels.find((item) => item.id === current.id);
-    const user = current.kind === 'dm' ? allUsers.find((u) => u.id === current.id) : null;
+    const entry = current.kind === 'dm' ? dmEntry(current.id) : null;
     const wrap = document.createElement('div');
     wrap.className = 'empty-chat';
     wrap.innerHTML = searchQuery
       ? `<div class="empty-ico">⌕</div><h3>Brak wyników</h3><p>Nie znaleziono wiadomości pasujących do „${esc($('messageSearch').value.trim())}”.</p>`
       : current.kind === 'server'
         ? `<div class="empty-ico">#</div><h3>#${esc(channel?.name || 'kanał')}</h3><p>To początek tego kanału. Napisz pierwszą wiadomość!</p>`
-        : `<div class="empty-ico">${esc(initial(user?.name || '?'))}</div><h3>${esc(user?.name || 'Rozmowa')}</h3><p>To początek Waszej prywatnej rozmowy.</p>`;
+        : `<div class="empty-ico">${esc(initial(entry?.name || '?'))}</div><h3>${esc(entry?.name || 'Rozmowa')}</h3><p>To początek Waszej prywatnej rozmowy${entry?.kind === 'server' ? ` przez serwer ${esc(entry.serverName)}` : ''}.</p>`;
     container.appendChild(wrap);
     if (scroll) scrollBottom();
     return;
@@ -1940,24 +2334,64 @@ function renderMessages(scroll = true) {
 }
 
 function buildMessage(message, grouped) {
-  const own = current.kind === 'server'
-    ? message.authorId === serverState(current.serverId)?.you?.memberId
+  const dm = current.kind === 'dm' ? dmEntry(current.id) : null;
+  const serverStateEntry = current.kind === 'server'
+    ? serverState(current.serverId)
+    : dm?.kind === 'server' ? serverState(dm.serverId) : null;
+  const own = current.kind === 'server' || dm?.kind === 'server'
+    ? message.authorId === serverStateEntry?.you?.memberId
     : message.authorId === myId;
   const el = document.createElement('div');
   el.className = `msg${own ? ' own' : ''}${grouped ? ' grouped' : ''}${searchQuery ? ' search-hit' : ''}`;
   el.dataset.id = message.id;
 
+  const openAuthor = () => {
+    if (own) {
+      openSettings('profile');
+      return;
+    }
+    if (current.kind === 'server') {
+      openServerProfile(current.serverId, message.authorId, {
+        name: message.authorName,
+        color: message.authorColor,
+      });
+      return;
+    }
+    if (dm?.kind === 'server') {
+      openServerProfile(dm.serverId, message.authorId, {
+        name: message.authorName,
+        color: message.authorColor,
+      });
+      return;
+    }
+    openLocalProfile(message.authorId, {
+      name: message.authorName,
+      color: message.authorColor,
+    });
+  };
+
   const avatar = document.createElement('span');
-  avatar.className = `msg-avatar${grouped ? ' hidden' : ''}`;
+  avatar.className = `msg-avatar clickable${grouped ? ' hidden' : ''}`;
   avatar.style.background = safeColor(message.authorColor, 'var(--accent)');
   avatar.textContent = initial(message.authorName);
+  avatar.setAttribute('role', 'button');
+  avatar.tabIndex = 0;
+  avatar.title = `Profil: ${message.authorName}`;
+  avatar.addEventListener('click', openAuthor);
+  avatar.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openAuthor();
+    }
+  });
 
   const main = document.createElement('div');
   main.className = 'msg-main';
 
   const meta = document.createElement('div');
   meta.className = 'msg-meta';
-  meta.innerHTML = `<span class="msg-author">${esc(message.authorName)}</span><span class="msg-time">${formatTime(message.at)}</span>`;
+  meta.innerHTML = `<span class="msg-author clickable">${esc(message.authorName)}</span><span class="msg-time">${formatTime(message.at)}</span>`;
+  meta.querySelector('.msg-author')?.addEventListener('click', openAuthor);
 
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
@@ -2023,22 +2457,47 @@ function sendCurrentMessage(e) {
     }
     state.ws.send(JSON.stringify({ type: 'server:message', channelId: channel.id, text }));
   } else {
-    if (!wsReady()) {
-      toast('Łączę z serwerem — spróbuj za chwilę.');
-      connect();
+    const entry = dmEntry(current.id);
+    if (!entry) {
+      toast('Ta rozmowa nie jest już dostępna.');
       return;
     }
-    const message = {
-      id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      authorId: myId,
-      authorName: myName,
-      authorColor: myColor,
-      to: current.id,
-      text,
-      at: Date.now(),
-    };
-    ws.send(JSON.stringify({ type: 'dm', to: current.id, text }));
-    pushHistory(conversationKey(), message);
+
+    if (entry.kind === 'server') {
+      const state = serverState(entry.serverId);
+      if (!state || state.status !== 'online' || !state.ws || state.ws.readyState !== WebSocket.OPEN || !state.you) {
+        toast('Serwer jest offline — spróbuj, gdy połączenie wróci.');
+        return;
+      }
+      const message = {
+        id: `sdm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        authorId: state.you.memberId,
+        authorName: myName,
+        authorColor: myColor,
+        to: entry.memberId,
+        text,
+        at: Date.now(),
+      };
+      state.ws.send(JSON.stringify({ type: 'server:dm', to: entry.memberId, text }));
+      pushHistory(conversationKey(), message);
+    } else {
+      if (!wsReady()) {
+        toast('Łączę z serwerem — spróbuj za chwilę.');
+        connect();
+        return;
+      }
+      const message = {
+        id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        authorId: myId,
+        authorName: myName,
+        authorColor: myColor,
+        to: current.id,
+        text,
+        at: Date.now(),
+      };
+      ws.send(JSON.stringify({ type: 'dm', to: current.id, text }));
+      pushHistory(conversationKey(), message);
+    }
   }
 
   if (searchQuery) {
@@ -2058,18 +2517,31 @@ function sendCurrentMessage(e) {
 let typingSent = false;
 let typingStopTimer = null;
 
+function typingTransport() {
+  if (current.kind === 'dm') {
+    const entry = dmEntry(current.id);
+    if (!entry) return null;
+    if (entry.kind === 'server') {
+      const state = serverState(entry.serverId);
+      if (!state || state.status !== 'online' || !state.ws || state.ws.readyState !== WebSocket.OPEN) return null;
+      return { socket: state.ws, payload: { type: 'server:dm:typing', to: entry.memberId } };
+    }
+    return wsReady() ? { socket: ws, payload: { type: 'dm:typing', to: current.id } } : null;
+  }
+  if (current.kind === 'server') {
+    const state = serverState(current.serverId);
+    if (!state || state.status !== 'online' || !state.ws || state.ws.readyState !== WebSocket.OPEN) return null;
+    return { socket: state.ws, payload: { type: 'server:typing', channelId: current.id } };
+  }
+  return null;
+}
+
 function sendTyping() {
-  const state = current.kind === 'server' ? serverState(current.serverId) : null;
-  const socket = current.kind === 'dm'
-    ? (wsReady() ? ws : null)
-    : state?.ws && state.ws.readyState === WebSocket.OPEN ? state.ws : null;
-  if (!socket) return;
+  const transport = typingTransport();
+  if (!transport) return;
   if (!typingSent) {
     typingSent = true;
-    const payload = current.kind === 'dm'
-      ? { type: 'dm:typing', to: current.id, typing: true }
-      : { type: 'server:typing', channelId: current.id, typing: true };
-    socket.send(JSON.stringify(payload));
+    transport.socket.send(JSON.stringify({ ...transport.payload, typing: true }));
   }
   clearTimeout(typingStopTimer);
   typingStopTimer = setTimeout(stopTyping, 900);
@@ -2079,15 +2551,9 @@ function stopTyping() {
   clearTimeout(typingStopTimer);
   if (!typingSent) return;
   typingSent = false;
-  const state = current.kind === 'server' ? serverState(current.serverId) : null;
-  const socket = current.kind === 'dm'
-    ? (wsReady() ? ws : null)
-    : state?.ws && state.ws.readyState === WebSocket.OPEN ? state.ws : null;
-  if (!socket) return;
-  const payload = current.kind === 'dm'
-    ? { type: 'dm:typing', to: current.id, typing: false }
-    : { type: 'server:typing', channelId: current.id, typing: false };
-  socket.send(JSON.stringify(payload));
+  const transport = typingTransport();
+  if (!transport) return;
+  transport.socket.send(JSON.stringify({ ...transport.payload, typing: false }));
 }
 
 function renderTyping() {

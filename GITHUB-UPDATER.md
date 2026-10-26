@@ -5,29 +5,29 @@ i porównuje jego tag z wersją zainstalowanej aplikacji (`package.json` → `ve
 
 ## Jak wydać nową wersję
 
-1. **Podnieś wersję** w `package.json`, np. z `4.0.0` na `4.0.1`.
+1. **Podnieś wersję** w `package.json`, np. z `4.0.0` na `4.0.2`.
 
 2. **Zbuduj instalator:**
    ```bash
    npm run dist
    ```
-   Powstanie `dist/Chill-Setup-4.0.1.exe`.
+   Powstanie `dist/Chill-Setup-4.0.2.exe`.
 
 3. **Zacommituj i wypchnij zmiany:**
    ```bash
    git add .
-   git commit -m "Chill 4.0.1"
-   git tag v4.0.1
+   git commit -m "Chill 4.0.2"
+   git tag v4.0.2
    git push
    git push --tags
    ```
 
 4. **Utwórz wydanie z plikiem .exe** (GitHub CLI):
    ```bash
-   gh release create v4.0.1 "dist/Chill-Setup-4.0.1.exe" --title "Chill 4.0.1" --notes "Opis zmian"
+   gh release create v4.0.2 "dist/Chill-Setup-4.0.2.exe" --title "Chill 4.0.2" --notes "Opis zmian"
    ```
 
-   Albo przez stronę: **Releases → Draft a new release**, tag `v4.0.1`,
+   Albo przez stronę: **Releases → Draft a new release**, tag `v4.0.2`,
    dołącz plik `.exe` i opublikuj.
 
 5. **Gotowe.** Użytkownicy ze starszą wersją zobaczą po starcie kartę
@@ -39,7 +39,7 @@ i porównuje jego tag z wersją zainstalowanej aplikacji (`package.json` → `ve
 
 ## Ważne
 
-- Tag wydania musi mieć postać `vX.Y.Z` (np. `v4.0.1`) — porównywane są cyfry.
+- Tag wydania musi mieć postać `vX.Y.Z` (np. `v4.0.2`) — porównywane są cyfry.
 - Wydanie musi być **opublikowane** (nie draft) i zawierać plik `.exe`.
 - Repozytorium musi być **publiczne**, inaczej sprawdzanie wersji bez logowania
   zwróci błąd 404.
