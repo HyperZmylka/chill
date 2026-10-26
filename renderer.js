@@ -170,9 +170,10 @@ function toast(text, ms = 2600) {
 
 function markColorSelection(container, color) {
   if (!container) return;
+  const target = String(color || '').toLowerCase();
   container.querySelectorAll('button').forEach((btn) => {
-    const value = btn.dataset.color || btn.dataset.regColor || btn.dataset.accent;
-    btn.classList.toggle('selected', value && value.toLowerCase() === String(color).toLowerCase());
+    const value = btn.dataset.color || btn.dataset.regColor || btn.dataset.serverColor || btn.dataset.accent || '';
+    btn.classList.toggle('selected', Boolean(value) && value.toLowerCase() === target);
   });
 }
 
