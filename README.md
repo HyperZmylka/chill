@@ -5,9 +5,9 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 ## Najważniejsze funkcje
 
 - **Własne serwery zamiast stałych pokoi** — na starcie nie ma żadnych pokoi ani kanałów. Tworzysz serwer, dostajesz kanał `ogólny` i zapraszasz znajomych.
-- **Kanały** — właściciel serwera dodaje kolejne kanały, a wszyscy członkowie rozmawiają na każdym z nich.
+- **Kanały tekstowe i głosowe** — właściciel serwera tworzy kanały do pisania albo głosowe, a następnie może je usuwać prawym przyciskiem myszy. Serwer może mieć zero kanałów.
 - **Zaproszenia linkiem** — `chill://adres:port/kod`. Działa w sieci lokalnej, a po skonfigurowaniu sieci także przez internet.
-- **Role** — właściciel i członkowie. Tylko właściciel tworzy kanały i usuwa serwer.
+- **Role** — właściciel i członkowie. Tylko właściciel tworzy i usuwa kanały oraz usuwa serwer.
 - **Lista obecnych** — status online/offline i oznaczenie właściciela.
 - **Wiadomości prywatne** — rozmowy 1:1 z kontami lokalnymi oraz ze znajomymi dodanymi z serwerów.
 - **Znajomi** — kliknij profil innego członka serwera, dodaj go do znajomych i pisz bezpośrednio.
@@ -18,6 +18,7 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 - **Wykrywanie gier** — „Gra w …” na profilu i liście członków.
 - **Powiadomienia** — systemowe dymki, dźwięk, tryb „tylko wzmianki”, odznaki.
 - **Wygląd** — motyw czarny, biały, dopasowany do systemu albo gradient; akcenty i kompaktowe wiadomości.
+- **Język interfejsu** — polski (domyślnie) albo angielski, przełączany w Ustawieniach → Język. Zmiana działa od razu, również w menu tray.
 - **Profil w rogu** — awatar, nazwa, ustawienia i wylogowanie są przypięte do lewego dolnego rogu.
 - **Tray i autostart** — Chill zostaje w zasobniku i może startować z Windows.
 - **Aktualizacje** — sprawdzanie GitHub Releases i automatyczne pobranie oraz uruchomienie instalatora, bez pytania o zgodę.
@@ -25,12 +26,20 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 ## Jak działają serwery
 
 1. Otwórz Chill i kliknij **+** na pasku serwerów.
-2. Wybierz **Utwórz serwer**, podaj nazwę i kolor. Serwer dostanie pierwszy kanał `ogólny`.
+2. Wybierz **Utwórz serwer**, podaj nazwę i kolor. Serwer dostanie pierwszy kanał tekstowy `ogólny`.
 3. Kliknij **Zaproś** w nagłówku i skopiuj link `chill://...`.
 4. Znajomy wybierze **+** → **Dołącz kodem** i wklei link.
 5. Oboje musicie mieć uruchomiony Chill. Host musi być online, żeby jego serwer działał.
 
 Serwer działa na komputerze właściciela — nie ma centralnego serwera. Gdy host wyłączy aplikację, pozostali zobaczą stan „Serwer offline”, a po jego powrocie Chill połączy się ponownie automatycznie.
+
+### Kanały
+
+- Właściciel klika **+** obok listy kanałów, wybiera typ **Do pisania** lub **Głosowy**, wpisuje nazwę i tworzy kanał.
+- Kanał można usunąć prawym przyciskiem myszy → **Usuń kanał**. Historia wiadomości tekstowych w tym kanale również zostanie usunięta.
+- Uprawnienia są sprawdzane także po stronie hosta — członek serwera nie może utworzyć ani usunąć kanału nawet przez bezpośrednie wywołanie protokołu.
+- Kanały głosowe są oznaczone ikoną głośnika i służą do organizowania rozmów. Ta wersja nie prowadzi transmisji audio — w kanale głosowym nie można wysyłać wiadomości tekstowych.
+- Po usunięciu wszystkich kanałów serwer pozostaje pusty; właściciel nadal może dodać nowy kanał. Ten stan jest zapisywany w `servers.json`.
 
 ## Znajomi i wiadomości prywatne
 
@@ -41,6 +50,14 @@ Serwer działa na komputerze właściciela — nie ma centralnego serwera. Gdy h
 Znajomi z serwera są zapisani dla Twojego konta lokalnie, a ich wiadomości prywatne przechodzą przez serwer hosta. Rozmowa działa, gdy host jest online; historia DM-ów serwerowych jest przechowywana w `servers.json` na komputerze hosta. Konto, które otrzyma wiadomość prywatną z serwera, automatycznie dodaje nadawcę do znajomych.
 
 Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach prywatnych** od razu — bez dodawania do znajomych.
+
+## Język interfejsu
+
+1. Otwórz **Ustawienia** → **Język**.
+2. Wybierz **Polski** albo **English**. Zmiana jest natychmiastowa i obejmuje cały interfejs, komunikaty oraz menu tray.
+3. Wybór jest zapamiętywany osobno dla każdego konta i jako język domyślny dla logowania.
+
+Domyślnym językiem jest polski. Język interfejsu jest przechowywany lokalnie (`language.json` oraz ustawienia konta w pamięci przeglądarki aplikacji).
 
 ### Sieć lokalna
 
@@ -66,7 +83,8 @@ Konta są **lokalne** — nie ma chmury ani zewnętrznego serwera uwierzytelnian
 - Dane trafiają do `%APPDATA%\Chill`:
   - `accounts.json` — konta i sesja,
   - `chat-data.json` — lokalne wiadomości prywatne,
-  - `servers.json` — hostowane i dołączone serwery, kanały, członkowie, historia kanałów i wiadomości prywatne serwera.
+  - `servers.json` — hostowane i dołączone serwery, kanały (typ tekstowy/głosowy), członkowie, historia kanałów i wiadomości prywatne serwera,
+  - `language.json` — język interfejsu używany przez okno i menu tray.
 - Odinstalowanie aplikacji usuwa także te dane.
 - Serwer nie ma centralnego systemu kont — dostęp reguluje kod zaproszenia. Link traktuj jak hasło.
 
@@ -107,9 +125,9 @@ Szczegóły wydawania nowej wersji: [GITHUB-UPDATER.md](GITHUB-UPDATER.md).
 
 ## Architektura
 
-- `main.js` — okno, tray, konta, hostowanie serwerów (HTTP/WebSocket), `servers.json`, aktualizacje.
+- `main.js` — okno, tray (także w języku interfejsu), konta, hostowanie serwerów (HTTP/WebSocket), walidacja uprawnień kanałów, `servers.json`, `language.json`, aktualizacje.
 - `preload.js` — bezpieczny most `window.chill` (context isolation).
-- `renderer.js` — logowanie, serwery, kanały, zaproszenia, profile i znajomi, DM-y, emoji, wzmianki `@`, motywy, ustawienia, powiadomienia.
+- `renderer.js` — logowanie, serwery, kanały tekstowe/głosowe, zaproszenia, profile i znajomi, DM-y, emoji, wzmianki `@`, motywy, ustawienia, tłumaczenia PL/EN, powiadomienia.
 - `index.html` / `style.css` — interfejs Chill.
 
 Czat serwerów działa przez wbudowany serwer WebSocket na porcie `47830`. Każdy hostowany serwer jest dostępny pod kodem zaproszenia; wiadomości, członkowie i DM-y serwerowe są zapisywani w `servers.json`.

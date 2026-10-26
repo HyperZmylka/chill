@@ -47,6 +47,29 @@ function dataDir() {
 const accountsPath = () => path.join(dataDir(), 'accounts.json');
 const chatDataPath = () => path.join(dataDir(), 'chat-data.json');
 const serversPath = () => path.join(dataDir(), 'servers.json');
+const languagePath = () => path.join(dataDir(), 'language.json');
+
+let appLanguage = null;
+
+function loadAppLanguage() {
+  if (appLanguage) return appLanguage;
+  try {
+    const saved = JSON.parse(fs.readFileSync(languagePath(), 'utf8'));
+    appLanguage = saved.lang === 'en' ? 'en' : 'pl';
+  } catch {
+    appLanguage = 'pl';
+  }
+  return appLanguage;
+}
+
+function saveAppLanguage(lang) {
+  appLanguage = lang === 'en' ? 'en' : 'pl';
+  try {
+    fs.writeFileSync(languagePath(), JSON.stringify({ lang: appLanguage }), 'utf8');
+  } catch (err) {
+    console.error('[chill] Nie udało się zapisać języka:', err.message);
+  }
+}
 
 // ---------- Konta ----------
 let accountStore = null;
@@ -239,9 +262,9 @@ function normalizeHostedServer(raw) {
     .map((channel) => ({
       id: String(channel.id),
       name: String(channel.name).trim().slice(0, 32) || 'kanał',
+      type: channel.type === 'voice' ? 'voice' : 'text',
       createdAt: Number(channel.createdAt) || Date.now(),
     }));
-  if (!server.channels.length) server.channels.push({ id: makeChannelId(), name: 'ogólny', createdAt: Date.now() });
   if (!Array.isArray(server.members)) server.members = [];
   server.members = server.members
     .filter((member) => member && member.id)
@@ -323,7 +346,7 @@ function hostedMembership(server, userId) {
     address: `127.0.0.1:${CHAT_PORT}`,
     invite: server.invite,
     shareLink: serverShareLink(server),
-    channels: server.channels.map((channel) => ({ id: channel.id, name: channel.name, createdAt: channel.createdAt })),
+    channels: server.channels.map((channel) => ({ id: channel.id, name: channel.name, type: channel.type, createdAt: channel.createdAt })),
     ownerKey: server.ownerKey,
     memberId: userId,
     createdAt: server.createdAt,
@@ -575,7 +598,7 @@ function handleJoinServer(ws, msg, send) {
       invite: server.invite,
       ownerId: server.ownerId,
       createdAt: server.createdAt,
-      channels: server.channels.map((channel) => ({ id: channel.id, name: channel.name, createdAt: channel.createdAt })),
+      channels: server.channels.map((channel) => ({ id: channel.id, name: channel.name, type: channel.type, createdAt: channel.createdAt })),
     },
     members: serverMembersPayload(server),
     messages,
@@ -689,6 +712,10 @@ function startChatServer(port = CHAT_PORT) {
             const channel = server.channels.find((item) => item.id === String(msg.channelId || ''));
             const text = String(msg.text || '').trim().slice(0, 4000);
             if (!channel || !text) return;
+            if (channel.type === 'voice') {
+              send({ type: 'server:error', code: 'voice-channel', message: 'Kanały głosowe nie obsługują wiadomości tekstowych.' });
+              return;
+            }
 
             const message = {
               id: `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
@@ -778,7 +805,7 @@ function startChatServer(port = CHAT_PORT) {
             const server = findHostedServer(session.serverId);
             if (!server) return;
             const channel = server.channels.find((item) => item.id === String(msg.channelId || ''));
-            if (!channel) return;
+            if (!channel || channel.type === 'voice') return;
             broadcastServer(server.id, {
               type: 'server:typing',
               channelId: channel.id,
@@ -794,11 +821,12 @@ function startChatServer(port = CHAT_PORT) {
             if (!session) return;
             const server = findHostedServer(session.serverId);
             if (!server) return;
-            if (!session.owner) {
+            if (!session.owner || server.ownerId !== session.memberId) {
               send({ type: 'server:error', code: 'forbidden', message: 'Tylko właściciel serwera może tworzyć kanały.' });
               return;
             }
             const name = String(msg.name || '').trim().replace(/\s+/g, '-').replace(/[^\p{L}\p{N}_.-]/gu, '').slice(0, 32);
+            const channelType = msg.channelType === 'voice' ? 'voice' : 'text';
             if (!name) {
               send({ type: 'server:error', code: 'invalid-channel', message: 'Podaj poprawną nazwę kanału.' });
               return;
@@ -807,12 +835,45 @@ function startChatServer(port = CHAT_PORT) {
               send({ type: 'server:error', code: 'channel-exists', message: 'Kanał o tej nazwie już istnieje.' });
               return;
             }
-            server.channels.push({ id: makeChannelId(), name, createdAt: Date.now() });
-            server.messages[server.channels[server.channels.length - 1].id] = [];
+            const channel = { id: makeChannelId(), name, type: channelType, createdAt: Date.now() };
+            server.channels.push(channel);
+            if (channelType === 'text') server.messages[channel.id] = [];
             scheduleServersSave();
             broadcastServer(server.id, {
               type: 'server:channels',
-              channels: server.channels.map((channel) => ({ id: channel.id, name: channel.name, createdAt: channel.createdAt })),
+              channels: server.channels.map((item) => ({ id: item.id, name: item.name, type: item.type, createdAt: item.createdAt })),
+            });
+            send({ type: 'server:channel:created', channel });
+            break;
+          }
+
+          case 'server:channel:delete': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const server = findHostedServer(session.serverId);
+            if (!server) return;
+            if (!session.owner || server.ownerId !== session.memberId) {
+              send({ type: 'server:error', code: 'forbidden', message: 'Tylko właściciel serwera może usuwać kanały.' });
+              return;
+            }
+            const channelId = String(msg.channelId || '');
+            const index = server.channels.findIndex((channel) => channel.id === channelId);
+            if (index < 0) {
+              send({ type: 'server:error', code: 'invalid-channel', message: 'Nie znaleziono kanału.' });
+              return;
+            }
+            const [removed] = server.channels.splice(index, 1);
+            delete server.messages[removed.id];
+            scheduleServersSave();
+            broadcastServer(server.id, {
+              type: 'server:channel:deleted',
+              channelId: removed.id,
+              name: removed.name,
+              actorId: session.memberId,
+            });
+            broadcastServer(server.id, {
+              type: 'server:channels',
+              channels: server.channels.map((item) => ({ id: item.id, name: item.name, type: item.type, createdAt: item.createdAt })),
             });
             break;
           }
@@ -934,8 +995,8 @@ function startChatServer(port = CHAT_PORT) {
             break;
           }
         }
-      } catch {
-        // niepoprawna ramka - ignorujemy
+      } catch (err) {
+        console.error('[chat] Błąd obsługi wiadomości:', err);
       }
     });
 
@@ -993,7 +1054,8 @@ function createWindow() {
 
   wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
     if (!isMainFrame || code === -3 || String(url).startsWith('data:')) return;
-    showLoadError('Nie można wczytać Chill', `${desc || 'Błąd ładowania'} (${code})`);
+    const en = loadAppLanguage() === 'en';
+    showLoadError(en ? 'Could not load Chill' : 'Nie można wczytać Chill', `${desc || (en ? 'Loading error' : 'Błąd ładowania')} (${code})`);
   });
 
   wc.setWindowOpenHandler(({ url }) => {
@@ -1040,34 +1102,45 @@ function show() {
 function showLoadError(title, detail) {
   if (!win || win.isDestroyed()) return;
   const esc = (t) => String(t).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+  const retry = loadAppLanguage() === 'en' ? 'Try again' : 'Spróbuj ponownie';
   const html = `<!doctype html><html><head><meta charset="utf-8"><title>Chill</title><style>
 html,body{margin:0;height:100%;background:#0a0f0d;color:#eaf5ef;font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}
 .card{max-width:420px}h1{font-size:22px;margin:0 0 8px;color:#fff}p{margin:0 0 20px;color:#93a89e}
 a.btn{display:inline-block;padding:10px 22px;border-radius:12px;background:#3ee0a3;color:#04231a;font-weight:700;text-decoration:none}
-</style></head><body><div class="card"><h1>${esc(title)}</h1><p>${esc(detail)}</p><a class="btn" href="javascript:location.reload()">Spróbuj ponownie</a></div></body></html>`;
+</style></head><body><div class="card"><h1>${esc(title)}</h1><p>${esc(detail)}</p><a class="btn" href="javascript:location.reload()">${esc(retry)}</a></div></body></html>`;
   win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`).catch(() => undefined);
   if (win.isVisible()) show();
 }
 
 // ---------- Tray ----------
-function createTray() {
-  const img = nativeImage.createFromPath(ICON).resize({ width: 18, height: 18 });
-  tray = new Tray(img);
-  tray.setToolTip('Chill');
-  tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Otwórz Chill', click: show },
+function trayTemplate() {
+  const en = loadAppLanguage() === 'en';
+  return [
+    { label: en ? 'Open Chill' : 'Otwórz Chill', click: show },
     { type: 'separator' },
-    { label: 'Sprawdź aktualizacje', click: () => { checkForUpdates().catch(() => {}); } },
+    { label: en ? 'Check for updates' : 'Sprawdź aktualizacje', click: () => { checkForUpdates().catch(() => {}); } },
     {
-      label: 'Uruchamiaj z Windows',
+      label: en ? 'Start with Windows' : 'Uruchamiaj z Windows',
       type: 'checkbox',
       checked: app.getLoginItemSettings().openAtLogin,
       visible: process.platform === 'win32',
       click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked, args: ['--hidden'] }),
     },
     { type: 'separator' },
-    { label: 'Wyjdź z Chill', click: () => { quitting = true; app.quit(); } },
-  ]));
+    { label: en ? 'Quit Chill' : 'Wyjdź z Chill', click: () => { quitting = true; app.quit(); } },
+  ];
+}
+
+function refreshTrayMenu() {
+  if (!tray) return;
+  tray.setToolTip('Chill');
+  tray.setContextMenu(Menu.buildFromTemplate(trayTemplate()));
+}
+
+function createTray() {
+  const img = nativeImage.createFromPath(ICON).resize({ width: 18, height: 18 });
+  tray = new Tray(img);
+  refreshTrayMenu();
   tray.on('click', show);
   tray.on('double-click', show);
 }
@@ -1323,7 +1396,7 @@ ipcMain.handle('chill:servers-create', (e, payload = {}) => {
     invite: uniqueInviteCode(),
     ownerKey: crypto.randomBytes(24).toString('hex'),
     createdAt: Date.now(),
-    channels: [{ id: makeChannelId(), name: channelName, createdAt: Date.now() }],
+    channels: [{ id: makeChannelId(), name: channelName, type: 'text', createdAt: Date.now() }],
     members: [],
     messages: {},
   };
@@ -1405,6 +1478,13 @@ ipcMain.handle('chill:servers-invite', (e, payload = {}) => {
 // ---------- IPC aplikacji ----------
 ipcMain.on('chill:app-packaged', (e) => { e.returnValue = app.isPackaged; });
 ipcMain.handle('chill:app-version', () => app.getVersion());
+
+ipcMain.on('chill:app-language', (e, lang) => {
+  const next = lang === 'en' ? 'en' : 'pl';
+  if (next === loadAppLanguage()) return;
+  saveAppLanguage(next);
+  refreshTrayMenu();
+});
 
 ipcMain.handle('chill:autostart-get', () => app.getLoginItemSettings().openAtLogin);
 ipcMain.handle('chill:autostart-set', (e, enabled) => {

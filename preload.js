@@ -19,6 +19,7 @@ contextBridge.exposeInMainWorld('chill', {
     version: () => ipcRenderer.invoke('chill:app-version'),
     autostartGet: () => ipcRenderer.invoke('chill:autostart-get'),
     autostartSet: (enabled) => ipcRenderer.invoke('chill:autostart-set', Boolean(enabled)),
+    setLanguage: (lang) => ipcRenderer.send('chill:app-language', String(lang || 'pl')),
     checkUpdates: () => ipcRenderer.invoke('chill:update-check'),
     installUpdate: () => ipcRenderer.invoke('chill:update-install'),
     openExternal: (url) => ipcRenderer.send('chill:shell-open-external', String(url)),

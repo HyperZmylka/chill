@@ -66,6 +66,10 @@ let autoUpdateVersion = '';
 let currentUpdateInfo = null;
 let audioCtx = null;
 let mentionState = { start: 0, end: 0, items: [], index: 0 };
+let channelType = 'text';
+let menuChannelId = null;
+let deleteChannelId = null;
+let pendingChannelDelete = false;
 
 const history = new Map();
 const unread = new Map();
@@ -80,24 +84,450 @@ const DEFAULT_PREFS = {
   mentionsOnly: false,
   gameDetect: true,
   status: 'online',
+  lang: 'pl',
 };
 let prefs = { ...DEFAULT_PREFS };
+let authMode = 'login';
+
+// ---------- Tłumaczenia / i18n ----------
+const I18N_EN = {
+  // Ekran logowania
+  'Twoja przestrzeń na spokojne rozmowy': 'Your space for calm conversations',
+  'Pogadajmy.<br><span>Bez pośpiechu.</span>': "Let's talk.<br><span>No rush.</span>",
+  'Własne serwery, kanały tematyczne i prywatne wiadomości — wszystko, co potrzebne, żeby po prostu pogadać, w jednym miejscu.': 'Your own servers, topic channels and private messages — everything you need to simply chat, all in one place.',
+  'Serwery i kanały tworzone przez Ciebie': 'Servers and channels made by you',
+  'Zaproszenia linkiem i rozmowy 1:1': 'Invite links and one-on-one chats',
+  'Emoji, statusy i historia, która zostaje': 'Emoji, statuses and history that stays',
+  'Konta przechowywane lokalnie • bez chmury': 'Accounts stored locally • no cloud',
+  'Zaloguj się': 'Log in',
+  'Utwórz konto': 'Create account',
+  'Witaj ponownie': 'Welcome back',
+  'Zacznij w Chill': 'Get started with Chill',
+  'Zaloguj się nazwą użytkownika lub e-mailem.': 'Log in with your username or email.',
+  'Utwórz konto — nazwa użytkownika i hasło wystarczą.': 'Create an account — a username and password are enough.',
+  'Nazwa użytkownika lub e-mail': 'Username or email',
+  'np. kasia lub ty@chill.app': 'e.g. kate or you@chill.app',
+  'Hasło': 'Password',
+  'Pokaż': 'Show',
+  'Ukryj': 'Hide',
+  'Pokaż hasło': 'Show password',
+  'Ukryj hasło': 'Hide password',
+  'Zapamiętaj mnie': 'Remember me',
+  'Caps Lock włączony': 'Caps Lock is on',
+  'Nie masz jeszcze konta?': "Don't have an account yet?",
+  'Utwórz je w 10 sekund': 'Create one in 10 seconds',
+  'Nazwa użytkownika': 'Username',
+  'np. kasia': 'e.g. kate',
+  'E-mail': 'Email',
+  'opcjonalnie': 'optional',
+  'np. ty@chill.app': 'e.g. you@chill.app',
+  'Nazwa wyświetlana': 'Display name',
+  'Jak mają Cię widzieć inni?': 'How should others see you?',
+  'Minimum 8 znaków': 'At least 8 characters',
+  'Kolor profilu': 'Profile color',
+  'Miętowy': 'Mint',
+  'Błękitny': 'Sky blue',
+  'Brzoskwiniowy': 'Peach',
+  'Różowy': 'Pink',
+  'Lawendowy': 'Lavender',
+  'Żółty': 'Yellow',
+  'Użyj co najmniej 8 znaków.': 'Use at least 8 characters.',
+  'Słabe hasło': 'Weak password',
+  'Średnie hasło': 'Medium password',
+  'Dobre hasło': 'Good password',
+  'Silne hasło': 'Strong password',
+  'Masz już konto?': 'Already have an account?',
+  'Konto i historia rozmów są zapisane tylko na tym komputerze. Hasło jest szyfrowane lokalnie (scrypt).': 'Your account and chat history are stored only on this computer. The password is encrypted locally (scrypt).',
+  'Podaj login i hasło.': 'Enter your username and password.',
+  'Nie udało się zalogować.': 'Could not log in.',
+  'Wystąpił błąd. Spróbuj ponownie.': 'Something went wrong. Try again.',
+  'Uzupełnij nazwę użytkownika i hasło.': 'Fill in your username and password.',
+  'Podaj poprawny adres e-mail albo zostaw pole puste.': 'Enter a valid email address or leave the field empty.',
+  'Podaj poprawny adres e-mail lub zostaw pole puste.': 'Enter a valid email address or leave the field empty.',
+  'Adres e-mail jest zbyt długi.': 'The email address is too long.',
+  'Nazwa wyświetlana musi mieć 2–32 znaki.': 'The display name must be 2–32 characters.',
+  'Hasło jest zbyt długie.': 'The password is too long.',
+  'Konto z tym adresem e-mail już istnieje.': 'An account with this email address already exists.',
+  'Ta nazwa użytkownika jest już zajęta.': 'This username is already taken.',
+  'Nieprawidłowy login lub hasło.': 'Incorrect username or password.',
+  'Konto nie istnieje.': 'The account does not exist.',
+  'Wybierz poprawny kolor.': 'Choose a valid color.',
+  'Obecne hasło jest nieprawidłowe.': 'The current password is incorrect.',
+  'Nowe hasło jest zbyt długie.': 'The new password is too long.',
+  'Nazwa użytkownika: 3–20 znaków (litery, cyfry, _ i .).': 'Username: 3–20 characters (letters, digits, _ and .).',
+  'Hasło musi mieć co najmniej 8 znaków.': 'The password must be at least 8 characters.',
+  'Nie udało się utworzyć konta.': 'Could not create the account.',
+  'Sesja wygasła. Zaloguj się ponownie.': 'Your session expired. Log in again.',
+
+  // Aplikacja / nawigacja
+  'Serwery': 'Servers',
+  'Wiadomości prywatne': 'Direct messages',
+  'Lista serwerów': 'Server list',
+  'Dodaj serwer': 'Add server',
+  'Kanały': 'Channels',
+  'Nowy kanał': 'New channel',
+  'właściciel': 'owner',
+  'Szukaj rozmowy': 'Search conversations',
+  'Szukaj kanału': 'Search channels',
+  'Ustawienia': 'Settings',
+  'Wyloguj': 'Log out',
+  'Edytuj profil': 'Edit profile',
+  'Wstecz': 'Back',
+  'Zaproś do serwera': 'Invite to server',
+  'Zaproś': 'Invite',
+  'Szukaj w wiadomościach': 'Search messages',
+  'Zamknij': 'Close',
+  'Pokaż członków': 'Show members',
+  'Emoji': 'Emoji',
+  'Szukaj emoji…': 'Search emoji…',
+  'Członkowie': 'Members',
+  'Napisz wiadomość…': 'Write a message…',
+  'Wyślij': 'Send',
+  'Nowa wersja': 'New version',
+  'Pobierz ręcznie': 'Download manually',
+
+  // Profil / ustawienia
+  'Dodaj do znajomych': 'Add friend',
+  'Napisz wiadomość': 'Send message',
+  'Profil': 'Profile',
+  'Wygląd': 'Appearance',
+  'Język': 'Language',
+  'Powiadomienia': 'Notifications',
+  'Aplikacja': 'App',
+  'Twój profil': 'Your profile',
+  'Tak widzą Cię inni na serwerach i wiadomościach prywatnych.': 'This is how others see you on servers and in direct messages.',
+  'Status': 'Status',
+  'Online': 'Online',
+  'Zaraz wracam': 'Away',
+  'Nie przeszkadzać': 'Do not disturb',
+  'Niewidoczny': 'Invisible',
+  'Offline': 'Offline',
+  'O mnie': 'About me',
+  'Krótko o sobie…': 'A few words about yourself…',
+  'Zapisz profil': 'Save profile',
+  'Bezpieczeństwo': 'Security',
+  'Obecne hasło': 'Current password',
+  'Nowe hasło': 'New password',
+  'Zmień hasło': 'Change password',
+  'Dopasuj Chill do siebie. Zmiany zapisują się od razu.': 'Make Chill yours. Changes save instantly.',
+  'Motyw': 'Theme',
+  'Systemowy': 'System',
+  'Czarny': 'Black',
+  'Biały': 'White',
+  'Gradient': 'Gradient',
+  'Kolor akcentu': 'Accent color',
+  'Kompaktowe wiadomości': 'Compact messages',
+  'Mniejszy odstęp między wiadomościami': 'Less spacing between messages',
+  'Wybierz język interfejsu Chill. Zmiana działa od razu.': 'Choose the Chill interface language. Changes apply instantly.',
+  'Język interfejsu': 'Interface language',
+  'Ustawienie języka jest zapisywane na tym koncie i nie zmienia historii rozmów.': 'The language setting is saved to this account and does not change your chat history.',
+  'Wybierz, kiedy Chill ma Ci przerywać.': 'Choose when Chill should interrupt you.',
+  'Powiadomienia systemowe': 'System notifications',
+  'Dymki, gdy okno jest w tle': 'Pop-ups while the window is in the background',
+  'Dźwięk nowej wiadomości': 'New message sound',
+  'Delikatny sygnał przy odbiorze': 'A subtle sound when a message arrives',
+  'Tylko wzmianki': 'Mentions only',
+  'Powiadamiaj wyłącznie o @nazwa': 'Notify only about @name',
+  'Ustawienia systemowe i aktualizacje.': 'System settings and updates.',
+  'Uruchamiaj z Windows': 'Launch with Windows',
+  'Chill startuje w tle po zalogowaniu': 'Chill starts in the background after you log in',
+  'Wykrywanie gier': 'Game detection',
+  'Pokazuj „Gra w …” na profilu': 'Show “Playing …” on your profile',
+  'Wersja Chill': 'Chill version',
+  'Sprawdź aktualizacje': 'Check for updates',
+  'Konta i historia są przechowywane lokalnie w folderze danych aplikacji. Odinstalowanie Chill usuwa także te dane.': 'Accounts and history are stored locally in the app data folder. Uninstalling Chill also removes this data.',
+
+  // Serwery / zaproszenia / kanały
+  'Utwórz własną przestrzeń albo dołącz kodem zaproszenia od znajomych.': 'Create your own space or join with an invite code from friends.',
+  'Utwórz serwer': 'Create server',
+  'Dołącz kodem': 'Join with code',
+  'Nazwa serwera': 'Server name',
+  'np. Ekipa z podwórka': 'e.g. The neighborhood crew',
+  'Kolor serwera': 'Server color',
+  'Link zaproszenia': 'Invite link',
+  'Poproś właściciela serwera o link. Działa w sieci lokalnej, a po przekierowaniu portu 47830 — także przez internet.': 'Ask the server owner for a link. It works on the local network, and through the internet after forwarding port 47830.',
+  'Dołącz do serwera': 'Join server',
+  'Kopiuj': 'Copy',
+  'Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie „Dołącz kodem”.': 'Send this link to a friend. They need Chill running and must enter it in the “Join with code” window.',
+  'Wybierz typ kanału i nadaj mu nazwę.': 'Choose the channel type and give it a name.',
+  'Typ kanału': 'Channel type',
+  'Do pisania': 'Text',
+  'Głosowy': 'Voice',
+  'Nazwa kanału': 'Channel name',
+  'np. ogólny': 'e.g. general',
+  'Anuluj': 'Cancel',
+  'Stwórz': 'Create',
+  'Usuń kanał': 'Delete channel',
+  'Usunąć kanał?': 'Delete channel?',
+  'Tej operacji nie można cofnąć. Historia wiadomości w kanale zostanie usunięta.': "This action cannot be undone. The channel's message history will be deleted.",
+
+  // Komunikaty dynamiczne
+  'Wylogowano': 'Logged out',
+  'Właściciel serwera': 'Server owner',
+  '(Ty)': '(You)',
+  'Gra w {game}': 'Playing {game}',
+  'Gra w {game} • {status}': 'Playing {game} • {status}',
+  'Brak kanałów': 'No channels',
+  'Łączę z serwerem…': 'Connecting to the server…',
+  'Serwer offline': 'Server offline',
+  'Spróbuj ponownie': 'Try again',
+  'Ten serwer nie ma jeszcze żadnego kanału.': 'This server does not have any channels yet.',
+  'Utwórz kanał': 'Create channel',
+  'Brak wyników': 'No results',
+  'Nie znaleziono wiadomości pasujących do „{query}”.': 'No messages matching “{query}” were found.',
+  'To początek tego kanału. Napisz pierwszą wiadomość!': 'This is the beginning of this channel. Write the first message!',
+  'To początek Waszej prywatnej rozmowy': 'This is the beginning of your private conversation',
+  ' przez serwer {name}': ' via the server {name}',
+  'Rozmowa': 'Conversation',
+  'Zacznij od serwera': 'Start with a server',
+  'Nie masz jeszcze żadnego serwera. Utwórz własny albo dołącz kodem zaproszenia od znajomego.': "You don't have a server yet. Create your own or join with an invite code from a friend.",
+  'Wybierz rozmowę z listy po lewej. Pisz do kont na tym komputerze i do znajomych dodanych z serwerów.': 'Choose a conversation from the list on the left. Message accounts on this computer and friends added from servers.',
+  'Wybierz rozmowę lub serwer': 'Choose a conversation or server',
+  'Utwórz lub dołącz do serwera': 'Create or join a server',
+  'Wybierz rozmowę lub kanał, aby napisać.': 'Choose a conversation or channel to write.',
+  'Łączę z serwerem — spróbuj za chwilę.': 'Connecting to the server — try again in a moment.',
+  'Ta rozmowa nie jest już dostępna.': 'This conversation is no longer available.',
+  'Serwer jest offline — spróbuj, gdy połączenie wróci.': 'The server is offline — try again when the connection returns.',
+  'Serwer jest offline — wiadomości wrócą po połączeniu': 'The server is offline — messages will return when connected',
+  'Napisz do {name}…': 'Message {name}…',
+  'Napisz na #{name}…': 'Message #{name}…',
+  'Wybierz kanał, aby napisać…': 'Choose a channel to write…',
+  '{name} pisze': '{name} is typing',
+  '{names} piszą': '{names} are typing',
+  ' i {count} inne': ' and {count} more',
+  '↑ ↓ wybierz • Enter wstaw • Esc zamknij': '↑ ↓ navigate • Enter insert • Esc close',
+  'Wzmianka od {name}': 'Mention from {name}',
+  'Wiadomość prywatna': 'Direct message',
+  'wiadomość prywatna': 'direct message',
+  'Wystąpił błąd serwera.': 'A server error occurred.',
+  'Nazwa kanału może mieć maksymalnie 32 znaki.': 'The channel name can be at most 32 characters.',
+  'Profil: {name}': 'Profile: {name}',
+  'Serwer': 'Server',
+  'Serwer:': 'Server:',
+  'serwerem': 'the server',
+  'rozmówcy': 'them',
+  'Rozmowa prywatna': 'Direct message',
+  'Rozmowa niedostępna': 'Conversation unavailable',
+  'Użytkownik': 'User',
+  'Gość': 'Guest',
+  'Znajomy': 'Friend',
+  'Nic nie znaleziono': 'Nothing found',
+  'Brak znajomych — kliknij osobę na liście członków': 'No friends — click someone in the member list',
+  'Brak członków': 'No members',
+  'Dodaj tę osobę do znajomych, aby zacząć prywatną rozmowę.': 'Add this person as a friend to start a private conversation.',
+  'Masz tę osobę w znajomych.': 'This person is in your friends list.',
+  'Konto lokalne — możesz napisać od razu.': 'Local account — you can message right away.',
+  'Ta osoba jest teraz online na serwerze.': 'This person is online on the server.',
+  'Ta osoba jest teraz offline.': 'This person is offline.',
+  'Brak opisu profilu.': 'No profile description.',
+  'Serwer: {name}': 'Server: {name}',
+  'połączenie offline': 'connection offline',
+  'Dodano {name} do znajomych': 'Added {name} as a friend',
+  'Nie udało się dodać do znajomych.': 'Could not add this person as a friend.',
+  'Kanał głosowy': 'Voice channel',
+  'Ten kanał jest przeznaczony na rozmowy głosowe.': 'This channel is for voice conversations.',
+  'Kanały głosowe nie obsługują wiadomości tekstowych.': 'Voice channels do not support text messages.',
+  'Tylko właściciel serwera może tworzyć kanały.': 'Only the server owner can create channels.',
+  'Tylko właściciel serwera może usuwać kanały.': 'Only the server owner can delete channels.',
+  'Podaj poprawną nazwę kanału.': 'Enter a valid channel name.',
+  'Kanał o tej nazwie już istnieje.': 'A channel with this name already exists.',
+  'Nie znaleziono kanału.': 'Channel not found.',
+  'Kanał „{name}” został usunięty.': 'Channel “{name}” was deleted.',
+  'Kanał „{name}” utworzony.': 'Channel “{name}” created.',
+  'Nie udało się utworzyć kanału.': 'Could not create the channel.',
+  'Nie udało się usunąć kanału.': 'Could not delete the channel.',
+  'Kanał „{name}” zostanie usunięty wraz z historią wiadomości.': 'Channel “{name}” will be deleted together with its message history.',
+  'Skopiowano': 'Copied',
+  'Nie udało się skopiować linku.': 'Could not copy the link.',
+  'Kliknij ponownie, aby usunąć': 'Click again to delete',
+  'Kliknij ponownie, aby opuścić': 'Click again to leave',
+  'Usuń serwer': 'Delete server',
+  'Opuść serwer': 'Leave server',
+  'Serwer został usunięty': 'Server deleted',
+  'Opuszczono serwer': 'Left the server',
+  'Nie udało się opuścić serwera.': 'Could not leave the server.',
+  'Serwer został usunięty przez właściciela.': 'The server was deleted by its owner.',
+  'Serwer „{name}” utworzony': 'Server “{name}” created',
+  'Dołączono do „{name}”': 'Joined “{name}”',
+  'Już należysz do tego serwera': 'You are already a member of this server',
+  'Nazwa serwera musi mieć 2–40 znaków.': 'The server name must be 2–40 characters.',
+  'Nie udało się utworzyć serwera.': 'Could not create the server.',
+  'Wystąpił błąd podczas tworzenia serwera.': 'An error occurred while creating the server.',
+  'Wklej pełny link, np. chill://192.168.1.5:47830/AB12CD.': 'Paste the full link, e.g. chill://192.168.1.5:47830/AB12CD.',
+  'Nie udało się dołączyć do serwera.': 'Could not join the server.',
+  'Nie udało się zapisać serwera.': 'Could not save the server.',
+  'Łączę…': 'Connecting…',
+  'Nie udało się wczytać serwerów.': 'Could not load servers.',
+  'Nieprawidłowy adres serwera.': 'Invalid server address.',
+  'Serwer nie odpowiada. Sprawdź adres i spróbuj ponownie.': 'The server is not responding. Check the address and try again.',
+  'Nie można połączyć się z serwerem.': 'Cannot connect to the server.',
+  'Serwer przerwał połączenie.': 'The server closed the connection.',
+  'Nie można połączyć się z {name}.': 'Cannot connect to {name}.',
+  'Nie znaleziono serwera o tym kodzie zaproszenia.': 'No server was found with this invite code.',
+  'Nieprawidłowy kod zaproszenia.': 'Invalid invite code.',
+  'Ta osoba nie jest już członkiem serwera.': 'This person is no longer a member of the server.',
+  'Nie wskazano serwera.': 'No server specified.',
+  'Nie należysz do tego serwera.': 'You are not a member of this server.',
+  'Nie znaleziono serwera.': 'Server not found.',
+  'Nieprawidłowy identyfikator serwera.': 'Invalid server identifier.',
+  'Serwer przesłał nieprawidłowy identyfikator.': 'The server sent an invalid identifier.',
+  'Kanał został usunięty przez właściciela.': 'The channel was deleted by the owner.',
+
+  // Profile / ustawienia — komunikaty
+  'Nazwa musi mieć 2–32 znaki.': 'The name must be 2–32 characters.',
+  'Opis może mieć maksymalnie 160 znaków.': 'The description can be at most 160 characters.',
+  'Nie udało się zapisać profilu.': 'Could not save the profile.',
+  'Zapisano': 'Saved',
+  'Profil zaktualizowany': 'Profile updated',
+  'Wystąpił błąd podczas zapisywania.': 'An error occurred while saving.',
+  'Wpisz obecne i nowe hasło.': 'Enter your current and new password.',
+  'Nowe hasło musi mieć co najmniej 8 znaków.': 'The new password must be at least 8 characters.',
+  'Nie udało się zmienić hasła.': 'Could not change the password.',
+  'Hasło zmienione': 'Password changed',
+  'Hasło zostało zmienione': 'Password changed',
+  'Wystąpił błąd.': 'Something went wrong.',
+  'Chill będzie uruchamiany z Windows': 'Chill will launch with Windows',
+  'Autostart wyłączony': 'Autostart disabled',
+  'Nie udało się zmienić autostartu': 'Could not change autostart',
+  'Sprawdzam…': 'Checking…',
+  'Dostępna wersja {version}.': 'Version {version} is available.',
+  'Masz najnowszą wersję Chill.': 'You have the latest version of Chill.',
+  'Nie udało się sprawdzić aktualizacji.': 'Could not check for updates.',
+
+  // Aktualizacje
+  'Aktualizacja pobiera się automatycznie…': 'The update is downloading automatically…',
+  'Dostępna jest nowsza wersja Chill.': 'A newer version of Chill is available.',
+  'Aktualizacja pobiera się i zainstaluje automatycznie…': 'The update is downloading and will install automatically…',
+  'Nie można uruchomić aktualizacji w tej wersji.': 'The update cannot be started in this version.',
+  'Pobieranie aktualizacji — {pct}%': 'Downloading update — {pct}%',
+  'Uruchamiam instalator — Chill za chwilę się zamknie.': 'Starting the installer — Chill will close in a moment.',
+  'Pobrano aktualizację — uruchamiam instalator': 'Update downloaded — starting the installer',
+  'Automatyczna aktualizacja nie powiodła się. Pobierz instalator ręcznie.': 'Automatic update failed. Download the installer manually.',
+  'Nie udało się pobrać aktualizacji. Spróbuj ponownie.': 'Could not download the update. Try again.',
+
+  // Daty / statusy
+  'Dzisiaj': 'Today',
+  'Wczoraj': 'Yesterday',
+  'łączenie…': 'connecting…',
+  'kanał': 'channel',
+};
+
+function t(text, vars = null) {
+  let out = prefs.lang === 'en' ? (I18N_EN[text] ?? text) : text;
+  if (vars) {
+    for (const [key, value] of Object.entries(vars)) {
+      out = out.replace(new RegExp(`\\{${key}\\}`, 'g'), String(value));
+    }
+  }
+  return out;
+}
+
+function translateError(message) {
+  const text = String(message ?? '');
+  if (prefs.lang === 'en') {
+    const attempts = text.match(/^Zbyt wiele prób\. Spróbuj ponownie za (\d+) s\.$/);
+    if (attempts) return `Too many attempts. Try again in ${attempts[1]} s.`;
+  }
+  return t(text);
+}
+
+function translateStaticDom() {
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    const value = el.dataset.i18n;
+    if (value) el.textContent = t(value);
+  });
+  document.querySelectorAll('[data-i18n-html]').forEach((el) => {
+    const value = el.dataset.i18nHtml;
+    if (value) el.innerHTML = t(value);
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach((el) => {
+    const value = el.dataset.i18nPlaceholder;
+    if (value) el.placeholder = t(value);
+  });
+  document.querySelectorAll('[data-i18n-title]').forEach((el) => {
+    const value = el.dataset.i18nTitle;
+    if (value) el.title = t(value);
+  });
+  document.querySelectorAll('[data-i18n-aria-label]').forEach((el) => {
+    const value = el.dataset.i18nAriaLabel;
+    if (value) el.setAttribute('aria-label', t(value));
+  });
+}
+
+function updateAuthCopy() {
+  const title = $('authTitle');
+  const subtitle = $('authSubtitle');
+  if (!title || !subtitle) return;
+  if (authMode === 'register') {
+    title.textContent = t('Zacznij w Chill');
+    subtitle.textContent = t('Utwórz konto — nazwa użytkownika i hasło wystarczą.');
+  } else {
+    title.textContent = t('Witaj ponownie');
+    subtitle.textContent = t('Zaloguj się nazwą użytkownika lub e-mailem.');
+  }
+}
+
+function refreshPasswordToggles() {
+  for (const [buttonId, inputId] of [['toggleLoginPassword', 'loginPassword'], ['toggleRegPassword', 'regPassword']]) {
+    const btn = $(buttonId);
+    const input = $(inputId);
+    if (!btn || !input) continue;
+    const show = input.type === 'password';
+    btn.textContent = t(show ? 'Pokaż' : 'Ukryj');
+    btn.setAttribute('aria-label', t(show ? 'Pokaż hasło' : 'Ukryj hasło'));
+  }
+}
+
+function applyLanguage(lang, persist = false) {
+  const next = lang === 'en' ? 'en' : 'pl';
+  prefs.lang = next;
+  document.documentElement.lang = next;
+  if (persist) {
+    try { localStorage.setItem('chill.lang', next); } catch { /* ignore */ }
+  }
+  CHILL.app?.setLanguage?.(next);
+  document.querySelectorAll('[data-language]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.language === next);
+  });
+  translateStaticDom();
+  updateAuthCopy();
+  refreshPasswordToggles();
+  if (!currentUser) return;
+  renderIdentity();
+  renderSidebar();
+  renderHeader();
+  renderMessages(false);
+  renderMembers();
+  updateComposer();
+  renderTyping();
+  updateBadges();
+  if (!$('userProfileOverlay').hidden) renderUserProfile();
+  if (!$('channelDeleteOverlay').hidden && deleteChannelId) updateChannelDeleteCopy();
+  const updateText = $('updateText');
+  if (updateText && currentUpdateInfo) {
+    if (downloadingUpdate) updateText.textContent = t('Pobieranie aktualizacji — {pct}%', { pct: 0 });
+    else if (CHILL.isPackaged) updateText.textContent = t('Aktualizacja pobiera się i zainstaluje automatycznie…');
+    else updateText.textContent = t('Dostępna jest nowsza wersja Chill.');
+  }
+  if (!$('settingsOverlay').hidden) fillProfileForm();
+}
+
 
 // ---------- Pomocnicze ----------
 const esc = (t) => String(t ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const initial = (name) => String(name || '?').trim().charAt(0).toUpperCase() || '?';
 const safeColor = (value, fallback = 'var(--accent)') => (/^#[0-9a-f]{6}$/i.test(String(value || '')) ? value : fallback);
-const statusLabel = (s) => ({ online: 'Online', away: 'Zaraz wracam', dnd: 'Nie przeszkadzać', invisible: 'Niewidoczny', offline: 'Offline' }[s] || 'Online');
-const formatTime = (at) => new Date(at || Date.now()).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
+const statusLabel = (s) => t({ online: 'Online', away: 'Zaraz wracam', dnd: 'Nie przeszkadzać', invisible: 'Niewidoczny', offline: 'Offline' }[s] || 'Online');
+const formatTime = (at) => new Date(at || Date.now()).toLocaleTimeString(prefs.lang === 'en' ? 'en-US' : 'pl-PL', { hour: '2-digit', minute: '2-digit' });
 const dayKey = (at) => new Date(at || Date.now()).toDateString();
 function dayLabel(at) {
   const d = new Date(at || Date.now());
   const now = new Date();
   const yesterday = new Date();
   yesterday.setDate(now.getDate() - 1);
-  if (d.toDateString() === now.toDateString()) return 'Dzisiaj';
-  if (d.toDateString() === yesterday.toDateString()) return 'Wczoraj';
-  return d.toLocaleDateString('pl-PL', { day: 'numeric', month: 'long', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+  if (d.toDateString() === now.toDateString()) return t('Dzisiaj');
+  if (d.toDateString() === yesterday.toDateString()) return t('Wczoraj');
+  return d.toLocaleDateString(prefs.lang === 'en' ? 'en-US' : 'pl-PL', { day: 'numeric', month: 'long', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
 }
 
 function prefsKey() { return `chill.prefs.${myId || 'guest'}`; }
@@ -113,11 +543,13 @@ function loadPrefs() {
   if (prefs.theme === 'dark') prefs.theme = 'gradient';
   else if (prefs.theme === 'light') prefs.theme = 'white';
   else if (!['system', 'black', 'white', 'gradient'].includes(prefs.theme)) prefs.theme = 'system';
+  if (prefs.lang !== 'en') prefs.lang = 'pl';
 }
 function savePrefs() {
   try { localStorage.setItem(prefsKey(), JSON.stringify(prefs)); } catch { /* ignore */ }
   localStorage.setItem('chill.theme', prefs.theme);
   localStorage.setItem('chill.accent', prefs.accent);
+  localStorage.setItem('chill.lang', prefs.lang);
 }
 
 const themeMedia = window.matchMedia('(prefers-color-scheme: light)');
@@ -179,8 +611,11 @@ function markColorSelection(container, color) {
 
 // ---------- Start ----------
 document.addEventListener('DOMContentLoaded', () => {
+  const savedLang = localStorage.getItem('chill.lang');
+  if (savedLang === 'en' || savedLang === 'pl') prefs.lang = savedLang;
   applyTheme(localStorage.getItem('chill.theme') || 'system');
   applyAccent(localStorage.getItem('chill.accent') || '#3ee0a3');
+  applyLanguage(prefs.lang);
   if (typeof themeMedia.addEventListener === 'function') themeMedia.addEventListener('change', syncSystemTheme);
   bindAuth();
   bindChat();
@@ -245,24 +680,22 @@ function bindPasswordToggle(buttonId, inputId) {
   btn.addEventListener('click', () => {
     const show = input.type === 'password';
     input.type = show ? 'text' : 'password';
-    btn.textContent = show ? 'Ukryj' : 'Pokaż';
-    btn.setAttribute('aria-label', show ? 'Ukryj hasło' : 'Pokaż hasło');
+    btn.textContent = t(show ? 'Ukryj' : 'Pokaż');
+    btn.setAttribute('aria-label', t(show ? 'Ukryj hasło' : 'Pokaż hasło'));
     input.focus();
   });
 }
 
 function switchAuthTab(mode) {
   const login = mode === 'login';
+  authMode = login ? 'login' : 'register';
   $('tabLogin').classList.toggle('active', login);
   $('tabRegister').classList.toggle('active', !login);
   $('tabLogin').setAttribute('aria-selected', String(login));
   $('tabRegister').setAttribute('aria-selected', String(!login));
   $('loginForm').style.display = login ? 'grid' : 'none';
   $('registerForm').style.display = login ? 'none' : 'grid';
-  $('authTitle').textContent = login ? 'Witaj ponownie' : 'Zacznij w Chill';
-  $('authSubtitle').textContent = login
-    ? 'Zaloguj się nazwą użytkownika lub e-mailem.'
-    : 'Utwórz konto — nazwa użytkownika i hasło wystarczą.';
+  updateAuthCopy();
   $('loginError').textContent = '';
   $('registerError').textContent = '';
   setTimeout(() => (login ? $('loginIdentifier') : $('regEmail')).focus(), 40);
@@ -290,7 +723,7 @@ async function handleLogin(e) {
   errorEl.textContent = '';
 
   if (!identifier || !password) {
-    errorEl.textContent = 'Podaj login i hasło.';
+    errorEl.textContent = t('Podaj login i hasło.');
     return;
   }
 
@@ -298,13 +731,13 @@ async function handleLogin(e) {
   try {
     const result = await CHILL.auth.login({ identifier, password, remember: $('rememberMe').checked });
     if (!result || !result.ok) {
-      errorEl.textContent = result?.error || 'Nie udało się zalogować.';
+      errorEl.textContent = result?.error ? translateError(result.error) : t('Nie udało się zalogować.');
       return;
     }
     $('loginPassword').value = '';
     enterApp(result.user);
   } catch {
-    errorEl.textContent = 'Wystąpił błąd. Spróbuj ponownie.';
+    errorEl.textContent = t('Wystąpił błąd. Spróbuj ponownie.');
   } finally {
     setAuthBusy('loginSubmit', false);
   }
@@ -324,19 +757,19 @@ async function handleRegister(e) {
   };
 
   if (!payload.username || !payload.password) {
-    errorEl.textContent = 'Uzupełnij nazwę użytkownika i hasło.';
+    errorEl.textContent = t('Uzupełnij nazwę użytkownika i hasło.');
     return;
   }
   if (payload.email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(payload.email)) {
-    errorEl.textContent = 'Podaj poprawny adres e-mail albo zostaw pole puste.';
+    errorEl.textContent = t('Podaj poprawny adres e-mail albo zostaw pole puste.');
     return;
   }
   if (!/^[a-zA-Z0-9_.]{3,20}$/.test(payload.username)) {
-    errorEl.textContent = 'Nazwa użytkownika: 3–20 znaków (litery, cyfry, _ i .).';
+    errorEl.textContent = t('Nazwa użytkownika: 3–20 znaków (litery, cyfry, _ i .).');
     return;
   }
   if (payload.password.length < 8) {
-    errorEl.textContent = 'Hasło musi mieć co najmniej 8 znaków.';
+    errorEl.textContent = t('Hasło musi mieć co najmniej 8 znaków.');
     return;
   }
 
@@ -344,13 +777,13 @@ async function handleRegister(e) {
   try {
     const result = await CHILL.auth.register(payload);
     if (!result || !result.ok) {
-      errorEl.textContent = result?.error || 'Nie udało się utworzyć konta.';
+      errorEl.textContent = result?.error ? translateError(result.error) : t('Nie udało się utworzyć konta.');
       return;
     }
     $('regPassword').value = '';
     enterApp(result.user);
   } catch {
-    errorEl.textContent = 'Wystąpił błąd. Spróbuj ponownie.';
+    errorEl.textContent = t('Wystąpił błąd. Spróbuj ponownie.');
   } finally {
     setAuthBusy('registerSubmit', false);
   }
@@ -377,7 +810,7 @@ function updateStrength() {
   ][value ? score : 0];
   bar.style.width = data.width;
   bar.style.background = data.color;
-  label.textContent = data.text;
+  label.textContent = t(data.text);
 }
 
 function enterApp(user) {
@@ -402,6 +835,7 @@ function enterApp(user) {
   loadPrefs();
   applyTheme(prefs.theme);
   applyAccent(prefs.accent);
+  applyLanguage(prefs.lang, true);
   loadFriends();
 
   $('loginScreen').style.display = 'none';
@@ -467,7 +901,7 @@ function logout() {
   if (CHILL.chat?.setBadge) CHILL.chat.setBadge(0);
 
   showAuth('login');
-  toast('Wylogowano');
+  toast(t('Wylogowano'));
 }
 
 function renderIdentity() {
@@ -502,7 +936,7 @@ function mentionCandidates() {
       .map((member) => ({
         handle: mentionHandle(member.name),
         name: member.name,
-        meta: member.owner ? 'Właściciel serwera' : member.online ? 'Online' : 'Offline',
+        meta: member.owner ? t('Właściciel serwera') : member.online ? t('Online') : t('Offline'),
         color: safeColor(member.color, '#3ee0a3'),
         online: Boolean(member.online),
       }))
@@ -514,7 +948,7 @@ function mentionCandidates() {
     .map((user) => ({
       handle: mentionHandle(user.username || user.name),
       name: user.name,
-      meta: user.online ? statusLabel(user.status) : 'Offline',
+      meta: user.online ? statusLabel(user.status) : t('Offline'),
       color: safeColor(user.color, '#3ee0a3'),
       online: Boolean(user.online),
     }))
@@ -558,7 +992,7 @@ function updateMentionPop() {
     .sort((a, b) => {
       const aStarts = a.name.toLowerCase().startsWith(query) || a.handle.toLowerCase().startsWith(query);
       const bStarts = b.name.toLowerCase().startsWith(query) || b.handle.toLowerCase().startsWith(query);
-      return Number(bStarts) - Number(aStarts) || Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'pl');
+      return Number(bStarts) - Number(aStarts) || Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, prefs.lang === 'en' ? 'en' : 'pl');
     })
     .slice(0, 8);
 
@@ -577,7 +1011,7 @@ function updateMentionPop() {
         <small>@${esc(item.handle)} • ${esc(item.meta)}</small>
       </span>
     </button>
-  `).join('')}<div class="mention-foot">↑ ↓ wybierz • Enter wstaw • Esc zamknij</div>`;
+  `).join('')}<div class="mention-foot">${t('↑ ↓ wybierz • Enter wstaw • Esc zamknij')}</div>`;
   pop.hidden = false;
 }
 
@@ -684,7 +1118,7 @@ function bindChat() {
     CHILL.chat.onUpdateProgress((pct) => {
       if (!downloadingUpdate) return;
       $('updateProgress').style.width = `${pct}%`;
-      $('updateText').textContent = `Pobieranie aktualizacji — ${pct}%`;
+      $('updateText').textContent = t('Pobieranie aktualizacji — {pct}%', { pct });
     });
   }
   $('updateBtn').addEventListener('click', () => startUpdateInstall(true));
@@ -778,7 +1212,7 @@ function handleMessage(msg) {
       }
       renderMembers();
       const user = allUsers.find((u) => u.id === other);
-      notifyIncoming(m, user?.name || 'Wiadomość prywatna', current.kind === 'dm' && current.id === other);
+      notifyIncoming(m, user?.name || t('Wiadomość prywatna'), current.kind === 'dm' && current.id === other);
       break;
     }
 
@@ -822,7 +1256,7 @@ function handleMessage(msg) {
     }
 
     case 'auth-error': {
-      toast(msg.message || 'Sesja wygasła. Zaloguj się ponownie.', 4000);
+      toast(msg.message ? translateError(msg.message) : t('Sesja wygasła. Zaloguj się ponownie.'), 4000);
       logout();
       break;
     }
@@ -876,7 +1310,7 @@ function connectServer(server) {
     socket = new WebSocket(`ws://${server.address}/chat`);
   } catch {
     state.status = 'offline';
-    state.error = 'Nieprawidłowy adres serwera.';
+    state.error = t('Nieprawidłowy adres serwera.');
     renderServers();
     return;
   }
@@ -945,7 +1379,10 @@ function handleServerFrame(serverId, msg) {
       state.error = '';
       state.attempts = 0;
       state.you = msg.you || null;
-      state.channels = Array.isArray(msg.server?.channels) ? msg.server.channels : [];
+      state.channels = (Array.isArray(msg.server?.channels) ? msg.server.channels : []).map((channel) => ({
+        ...channel,
+        type: channel.type === 'voice' ? 'voice' : 'text',
+      }));
       state.members = Array.isArray(msg.members) ? msg.members : [];
       if (msg.server) {
         state.server = {
@@ -1026,16 +1463,49 @@ function handleServerFrame(serverId, msg) {
     }
 
     case 'server:channels': {
-      state.channels = Array.isArray(msg.channels) ? msg.channels : [];
+      state.channels = (Array.isArray(msg.channels) ? msg.channels : []).map((channel) => ({
+        ...channel,
+        type: channel.type === 'voice' ? 'voice' : 'text',
+      }));
       if (activeServerId === serverId) {
         if (current.kind === 'server' && !state.channels.some((channel) => channel.id === current.id)) {
           current = { kind: 'server', serverId, id: state.channels[0]?.id || '' };
+          state.lastChannelId = current.id || null;
         }
+        if (menuChannelId && !state.channels.some((channel) => channel.id === menuChannelId)) closeChannelMenu();
         renderSidebar();
         renderHeader();
         renderMessages(false);
+        renderMembers();
         updateComposer();
       }
+      break;
+    }
+
+    case 'server:channel:created': {
+      const channel = msg.channel;
+      if (!channel?.id) break;
+      const normalized = { ...channel, type: channel.type === 'voice' ? 'voice' : 'text' };
+      if (!state.channels.some((item) => item.id === normalized.id)) state.channels.push(normalized);
+      closeChannelModal();
+      if (activeServerId === serverId) {
+        selectChannel(normalized.id);
+        toast(t('Kanał „{name}” utworzony.', { name: normalized.name }));
+      }
+      break;
+    }
+
+    case 'server:channel:deleted': {
+      if (msg.actorId === state.you?.memberId) {
+        toast(t('Kanał „{name}” został usunięty.', { name: msg.name || '' }));
+      }
+      if (deleteChannelId === msg.channelId) {
+        pendingChannelDelete = false;
+        deleteChannelId = null;
+        $('channelDeleteOverlay').hidden = true;
+        $('confirmDeleteChannel').disabled = false;
+      }
+      if (menuChannelId === msg.channelId) closeChannelMenu();
       break;
     }
 
@@ -1087,7 +1557,7 @@ function handleServerFrame(serverId, msg) {
         renderSidebar();
         updateBadges();
       }
-      notifyIncoming(message, `${state.server.name} • wiadomość prywatna`, active);
+      notifyIncoming(message, `${state.server.name} • ${t('wiadomość prywatna')}`, active);
       break;
     }
 
@@ -1098,7 +1568,7 @@ function handleServerFrame(serverId, msg) {
       if (current.kind !== 'dm' || current.id !== dmId) return;
       if (msg.typing) {
         clearTimeout(typingUsers.get(from)?._timer);
-        const entry = { name: msg.name || 'Znajomy', until: Date.now() + 1800 };
+        const entry = { name: msg.name || t('Znajomy'), until: Date.now() + 1800 };
         entry._timer = setTimeout(() => {
           typingUsers.delete(from);
           renderTyping();
@@ -1131,8 +1601,16 @@ function handleServerFrame(serverId, msg) {
     }
 
     case 'server:error': {
-      state.error = String(msg.message || 'Wystąpił błąd serwera.');
+      state.error = translateError(msg.message || 'Wystąpił błąd serwera.');
       toast(state.error);
+      if (!$('channelOverlay').hidden && ['invalid-channel', 'channel-exists', 'forbidden', 'voice-channel'].includes(msg.code)) {
+        $('channelError').textContent = state.error;
+        $('createChannelBtn').disabled = false;
+      }
+      if (!$('channelDeleteOverlay').hidden && ['invalid-channel', 'forbidden'].includes(msg.code)) {
+        pendingChannelDelete = false;
+        $('confirmDeleteChannel').disabled = false;
+      }
       if (msg.code === 'not-found' || msg.code === 'invalid-invite') {
         state.fatal = true;
         state.status = 'offline';
@@ -1156,7 +1634,7 @@ function handleServerFrame(serverId, msg) {
       const owned = Boolean(state.you?.owner);
       removeServerLocally(serverId);
       if (!state.fatal && !owned && CHILL.servers?.leave) CHILL.servers.leave({ id: serverId }).catch(() => {});
-      if (!owned) toast('Serwer został usunięty przez właściciela.');
+      if (!owned) toast(t('Serwer został usunięty przez właściciela.'));
       break;
     }
   }
@@ -1200,10 +1678,10 @@ async function probeServer(parsed, memberId) {
     try {
       socket = new WebSocket(`ws://${parsed.address}/chat`);
     } catch {
-      reject(new Error('Nieprawidłowy adres serwera.'));
+      reject(new Error(t('Nieprawidłowy adres serwera.')));
       return;
     }
-    timer = setTimeout(() => finish(reject, new Error('Serwer nie odpowiada. Sprawdź adres i spróbuj ponownie.')), 10_000);
+    timer = setTimeout(() => finish(reject, new Error(t('Serwer nie odpowiada. Sprawdź adres i spróbuj ponownie.'))), 10_000);
     socket.onopen = () => {
       socket.send(JSON.stringify({
         type: 'join-server',
@@ -1217,11 +1695,11 @@ async function probeServer(parsed, memberId) {
       try {
         const msg = JSON.parse(event.data);
         if (msg.type === 'server:joined') finish(resolve, msg);
-        else if (msg.type === 'server:error') finish(reject, new Error(msg.message || 'Nie udało się dołączyć do serwera.'));
+        else if (msg.type === 'server:error') finish(reject, new Error(translateError(msg.message || 'Nie udało się dołączyć do serwera.')));
       } catch { /* ignore */ }
     };
-    socket.onerror = () => finish(reject, new Error('Nie można połączyć się z serwerem.'));
-    socket.onclose = () => finish(reject, new Error('Serwer przerwał połączenie.'));
+    socket.onerror = () => finish(reject, new Error(t('Nie można połączyć się z serwerem.')));
+    socket.onclose = () => finish(reject, new Error(t('Serwer przerwał połączenie.')));
   });
 }
 
@@ -1267,24 +1745,167 @@ function bindServers() {
   });
   $('copyInviteBtn').addEventListener('click', () => {
     copyText($('inviteLink').textContent).then(() => {
-      $('inviteSaved').textContent = 'Skopiowano';
+      $('inviteSaved').textContent = t('Skopiowano');
       setTimeout(() => { $('inviteSaved').textContent = ''; }, 2500);
-    }).catch(() => toast('Nie udało się skopiować linku.'));
+    }).catch(() => toast(t('Nie udało się skopiować linku.')));
   });
   $('leaveServerBtn').addEventListener('click', leaveActiveServer);
 
-  $('addChannelBtn').addEventListener('click', () => {
-    const form = $('channelForm');
-    form.hidden = !form.hidden;
-    if (!form.hidden) $('channelName').focus();
+  // Kanały — tworzenie (tylko właściciel)
+  $('addChannelBtn').addEventListener('click', openChannelModal);
+  $('closeChannelModal').addEventListener('click', closeChannelModal);
+  $('cancelChannelBtn').addEventListener('click', closeChannelModal);
+  $('channelOverlay').addEventListener('click', (e) => {
+    if (e.target === $('channelOverlay')) closeChannelModal();
   });
-  $('channelForm').addEventListener('submit', createChannelFromForm);
-  $('channelName').addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') {
-      $('channelForm').hidden = true;
-      $('channelName').value = '';
+  $('channelTypeChoices').addEventListener('click', (e) => {
+    const button = e.target.closest('[data-channel-type]');
+    if (!button) return;
+    selectChannelType(button.dataset.channelType);
+  });
+  $('createChannelBtn').addEventListener('click', createChannelFromModal);
+  $('newChannelName').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      createChannelFromModal();
     }
   });
+
+  // Menu kontekstowe kanału
+  $('channelMenu').addEventListener('click', (e) => e.stopPropagation());
+  $('deleteChannelBtn').addEventListener('click', () => {
+    const state = serverState(activeServerId);
+    const channel = state?.channels.find((item) => item.id === menuChannelId);
+    closeChannelMenu();
+    if (!channel) return;
+    openChannelDelete(channel);
+  });
+  document.addEventListener('click', closeChannelMenu);
+  document.addEventListener('contextmenu', (e) => {
+    if (!e.target.closest('#channelMenu')) closeChannelMenu();
+  });
+  window.addEventListener('resize', closeChannelMenu);
+  document.addEventListener('scroll', closeChannelMenu, true);
+
+  // Potwierdzenie usunięcia kanału
+  $('closeChannelDelete').addEventListener('click', closeChannelDelete);
+  $('cancelDeleteChannel').addEventListener('click', closeChannelDelete);
+  $('channelDeleteOverlay').addEventListener('click', (e) => {
+    if (e.target === $('channelDeleteOverlay')) closeChannelDelete();
+  });
+  $('confirmDeleteChannel').addEventListener('click', confirmDeleteChannel);
+}
+
+function canManageChannels() {
+  const state = serverState(activeServerId);
+  return Boolean(state && state.status === 'online' && state.you?.owner && state.ws && state.ws.readyState === WebSocket.OPEN);
+}
+
+function openChannelModal() {
+  if (!canManageChannels()) return;
+  channelType = 'text';
+  selectChannelType(channelType);
+  $('newChannelName').value = '';
+  $('channelError').textContent = '';
+  $('createChannelBtn').disabled = false;
+  $('channelOverlay').hidden = false;
+  setTimeout(() => $('newChannelName').focus(), 40);
+}
+
+function closeChannelModal() {
+  $('channelOverlay').hidden = true;
+  $('newChannelName').value = '';
+  $('channelError').textContent = '';
+  $('createChannelBtn').disabled = false;
+}
+
+function selectChannelType(type) {
+  channelType = type === 'voice' ? 'voice' : 'text';
+  document.querySelectorAll('#channelTypeChoices [data-channel-type]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.channelType === channelType);
+  });
+}
+
+function createChannelFromModal() {
+  const state = serverState(activeServerId);
+  if (!state || !canManageChannels()) {
+    closeChannelModal();
+    return;
+  }
+  const name = $('newChannelName').value.trim();
+  const errorEl = $('channelError');
+  errorEl.textContent = '';
+  if (!name) {
+    errorEl.textContent = t('Podaj poprawną nazwę kanału.');
+    $('newChannelName').focus();
+    return;
+  }
+  if (name.length > 32) {
+    errorEl.textContent = t('Nazwa kanału może mieć maksymalnie 32 znaki.');
+    return;
+  }
+  $('createChannelBtn').disabled = true;
+  state.ws.send(JSON.stringify({ type: 'server:channel:create', name, channelType }));
+}
+
+function openChannelMenu(event, channel) {
+  const state = serverState(activeServerId);
+  if (!channel || !state?.you?.owner || state.status !== 'online') return;
+  event.preventDefault();
+  event.stopPropagation();
+  menuChannelId = channel.id;
+  const menu = $('channelMenu');
+  menu.hidden = false;
+  const rect = menu.getBoundingClientRect();
+  const x = Math.max(8, Math.min(event.clientX, window.innerWidth - rect.width - 8));
+  const y = Math.max(8, Math.min(event.clientY, window.innerHeight - rect.height - 8));
+  menu.style.left = `${x}px`;
+  menu.style.top = `${y}px`;
+  $('deleteChannelBtn').focus();
+}
+
+function closeChannelMenu() {
+  menuChannelId = null;
+  const menu = $('channelMenu');
+  if (menu) menu.hidden = true;
+}
+
+function updateChannelDeleteCopy() {
+  const channel = serverState(activeServerId)?.channels.find((item) => item.id === deleteChannelId);
+  $('channelDeleteText').textContent = channel
+    ? t('Kanał „{name}” zostanie usunięty wraz z historią wiadomości.', { name: channel.name })
+    : '';
+}
+
+function openChannelDelete(channel) {
+  const state = serverState(activeServerId);
+  if (!channel || !state?.you?.owner || state.status !== 'online') return;
+  deleteChannelId = channel.id;
+  pendingChannelDelete = false;
+  updateChannelDeleteCopy();
+  $('confirmDeleteChannel').disabled = false;
+  $('channelDeleteOverlay').hidden = false;
+}
+
+function closeChannelDelete() {
+  deleteChannelId = null;
+  pendingChannelDelete = false;
+  $('channelDeleteOverlay').hidden = true;
+  $('confirmDeleteChannel').disabled = false;
+}
+
+function confirmDeleteChannel() {
+  if (pendingChannelDelete) return;
+  const state = serverState(activeServerId);
+  const channel = state?.channels.find((item) => item.id === deleteChannelId);
+  if (!state || !channel || !canManageChannels()) {
+    toast(t('Nie udało się usunąć kanału.'));
+    closeChannelDelete();
+    return;
+  }
+  pendingChannelDelete = true;
+  $('confirmDeleteChannel').disabled = true;
+  state.ws.send(JSON.stringify({ type: 'server:channel:delete', channelId: channel.id }));
 }
 
 function openServerModal(tab = 'create') {
@@ -1321,14 +1942,14 @@ async function createServer() {
   const errorEl = $('createServerError');
   errorEl.textContent = '';
   if (name.length < 2 || name.length > 40) {
-    errorEl.textContent = 'Nazwa serwera musi mieć 2–40 znaków.';
+    errorEl.textContent = t('Nazwa serwera musi mieć 2–40 znaków.');
     return;
   }
   $('createServerBtn').disabled = true;
   try {
     const result = await CHILL.servers.create({ name, color: serverColor });
     if (!result || !result.ok) {
-      errorEl.textContent = result?.error || 'Nie udało się utworzyć serwera.';
+      errorEl.textContent = result?.error ? translateError(result.error) : t('Nie udało się utworzyć serwera.');
       return;
     }
     upsertServer(result.server);
@@ -1337,9 +1958,9 @@ async function createServer() {
     closeServerModal();
     selectServer(result.server.id);
     connectServer(result.server);
-    toast(`Serwer „${result.server.name}” utworzony`);
+    toast(t('Serwer „{name}” utworzony', { name: result.server.name }));
   } catch {
-    errorEl.textContent = 'Wystąpił błąd podczas tworzenia serwera.';
+    errorEl.textContent = t('Wystąpił błąd podczas tworzenia serwera.');
   } finally {
     $('createServerBtn').disabled = false;
   }
@@ -1351,18 +1972,18 @@ async function joinServer() {
   errorEl.textContent = '';
   const parsed = parseInvite(raw);
   if (!parsed) {
-    errorEl.textContent = 'Wklej pełny link, np. chill://192.168.1.5:47830/AB12CD.';
+    errorEl.textContent = t('Wklej pełny link, np. chill://192.168.1.5:47830/AB12CD.');
     return;
   }
   $('joinServerBtn').disabled = true;
-  errorEl.textContent = 'Łączę…';
+  errorEl.textContent = t('Łączę…');
   try {
     const known = servers.find((server) => server.invite === parsed.invite && (server.address === parsed.address || server.owner));
     if (known) {
       closeServerModal();
       selectServer(known.id);
       connectServer(known);
-      toast('Już należysz do tego serwera');
+      toast(t('Już należysz do tego serwera'));
       return;
     }
     const memberId = randomMemberId();
@@ -1373,16 +1994,16 @@ async function joinServer() {
       server: data.server,
       memberId,
     });
-    if (!result || !result.ok) throw new Error(result?.error || 'Nie udało się zapisać serwera.');
+    if (!result || !result.ok) throw new Error(result?.error ? translateError(result.error) : t('Nie udało się zapisać serwera.'));
     upsertServer(result.server);
     ensureServerState(result.server);
     closeServerModal();
     selectServer(result.server.id);
     connectServer(result.server);
-    toast(`Dołączono do „${result.server.name}”`);
+    toast(t('Dołączono do „{name}”', { name: result.server.name }));
     errorEl.textContent = '';
   } catch (err) {
-    errorEl.textContent = err.message || 'Nie udało się dołączyć do serwera.';
+    errorEl.textContent = err.message || t('Nie udało się dołączyć do serwera.');
   } finally {
     $('joinServerBtn').disabled = false;
     if (!errorEl.textContent) errorEl.textContent = '';
@@ -1391,13 +2012,6 @@ async function joinServer() {
 
 function createChannelFromForm(e) {
   e.preventDefault();
-  const state = serverState(activeServerId);
-  if (!state || state.status !== 'online' || !state.you?.owner || !state.ws || state.ws.readyState !== WebSocket.OPEN) return;
-  const name = $('channelName').value.trim();
-  if (!name) return;
-  state.ws.send(JSON.stringify({ type: 'server:channel:create', name }));
-  $('channelName').value = '';
-  $('channelForm').hidden = true;
 }
 
 async function openInviteModal() {
@@ -1406,7 +2020,7 @@ async function openInviteModal() {
   $('inviteOverlay').hidden = false;
   $('inviteServerName').textContent = state.server.name;
   $('inviteSaved').textContent = '';
-  $('leaveServerBtn').textContent = state.you?.owner ? 'Usuń serwer' : 'Opuść serwer';
+  $('leaveServerBtn').textContent = state.you?.owner ? t('Usuń serwer') : t('Opuść serwer');
   resetLeaveConfirm();
   $('inviteLink').textContent = state.server.shareLink || `chill://${state.server.address}/${state.server.invite}`;
   if (CHILL.servers?.invite) {
@@ -1445,7 +2059,7 @@ function resetLeaveConfirm() {
   leaveArmed = false;
   clearTimeout(leaveTimer);
   const state = serverState(activeServerId);
-  $('leaveServerBtn').textContent = state?.you?.owner ? 'Usuń serwer' : 'Opuść serwer';
+  $('leaveServerBtn').textContent = state?.you?.owner ? t('Usuń serwer') : t('Opuść serwer');
   $('leaveServerBtn').disabled = false;
 }
 
@@ -1454,7 +2068,7 @@ async function leaveActiveServer() {
   if (!state) return;
   if (!leaveArmed) {
     leaveArmed = true;
-    $('leaveServerBtn').textContent = state.you?.owner ? 'Kliknij ponownie, aby usunąć' : 'Kliknij ponownie, aby opuścić';
+    $('leaveServerBtn').textContent = state.you?.owner ? t('Kliknij ponownie, aby usunąć') : t('Kliknij ponownie, aby opuścić');
     clearTimeout(leaveTimer);
     leaveTimer = setTimeout(resetLeaveConfirm, 3500);
     return;
@@ -1470,15 +2084,15 @@ async function leaveActiveServer() {
   try {
     const result = await CHILL.servers.leave({ id });
     if (!result || !result.ok) {
-      toast(result?.error || 'Nie udało się opuścić serwera.');
+      toast(result?.error ? translateError(result.error) : t('Nie udało się opuścić serwera.'));
       resetLeaveConfirm();
       return;
     }
     $('inviteOverlay').hidden = true;
     removeServerLocally(id);
-    toast(deleted ? 'Serwer został usunięty' : 'Opuszczono serwer');
+    toast(deleted ? t('Serwer został usunięty') : t('Opuszczono serwer'));
   } catch {
-    toast('Wystąpił błąd. Spróbuj ponownie.');
+    toast(t('Wystąpił błąd. Spróbuj ponownie.'));
     resetLeaveConfirm();
   }
 }
@@ -1557,7 +2171,7 @@ async function loadServers() {
   try {
     const result = await CHILL.servers.list();
     if (!result || !result.ok) {
-      if (result?.error) toast(result.error);
+      if (result?.error) toast(translateError(result.error));
       return;
     }
     servers = Array.isArray(result.servers) ? result.servers : [];
@@ -1566,7 +2180,7 @@ async function loadServers() {
     if (activeServerId && !servers.some((server) => server.id === activeServerId)) selectHome();
     else renderSidebar();
   } catch {
-    toast('Nie udało się wczytać serwerów.');
+    toast(t('Nie udało się wczytać serwerów.'));
   }
 }
 
@@ -1592,7 +2206,6 @@ function selectHome() {
   $('conversationSearch').value = '';
   $('messageSearch').value = '';
   $('searchBar').hidden = true;
-  $('channelForm').hidden = true;
   $('messages').classList.remove('searching');
   renderSidebar();
   renderHeader();
@@ -1658,7 +2271,7 @@ function renderSidebar() {
   $('serverBanner').hidden = !state;
   $('channelsGroup').hidden = !state;
   $('dmGroup').hidden = Boolean(state);
-  $('conversationSearch').placeholder = state ? 'Szukaj kanału' : 'Szukaj rozmowy';
+  $('conversationSearch').placeholder = t(state ? 'Szukaj kanału' : 'Szukaj rozmowy');
   $('inviteBtn').hidden = !state;
   if (state) {
     $('serverBannerName').textContent = state.server.name;
@@ -1668,7 +2281,6 @@ function renderSidebar() {
     $('addChannelBtn').hidden = !(state.you?.owner && state.status === 'online');
     renderChannels();
   } else {
-    $('channelForm').hidden = true;
     renderDmList();
   }
   renderServers();
@@ -1686,7 +2298,7 @@ function renderServers() {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `server-btn${activeServerId === server.id ? ' active' : ''}${count ? ' unread' : ''}${state?.status === 'online' ? '' : ' offline'}`;
-    button.title = `${server.name}${state?.status === 'online' ? '' : state?.status === 'connecting' ? ' — łączenie…' : ' — offline'}`;
+    button.title = `${server.name}${state?.status === 'online' ? '' : state?.status === 'connecting' ? ` — ${t('łączenie…')}` : ` — ${t('Offline').toLowerCase()}`}`;
     button.innerHTML = `
       <span class="server-avatar" style="background:linear-gradient(145deg, ${esc(color)}, color-mix(in srgb, ${esc(color)} 55%, #7cc8ff))">${esc(server.icon || initial(server.name))}</span>
       ${count ? `<span class="server-badge">${count > 99 ? '99+' : count}</span>` : ''}
@@ -1718,7 +2330,7 @@ function renderChannels() {
   container.innerHTML = '';
 
   if (!list.length) {
-    container.innerHTML = `<div class="nav-empty">${state.status === 'online' ? 'Brak kanałów' : 'Łączę z serwerem…'}</div>`;
+    container.innerHTML = `<div class="nav-empty">${state.status === 'online' ? esc(t('Brak kanałów')) : esc(t('Łączę z serwerem…'))}</div>`;
     return;
   }
 
@@ -1726,15 +2338,21 @@ function renderChannels() {
     const key = `server:${state.server.id}:${channel.id}`;
     const isActive = current.kind === 'server' && current.serverId === state.server.id && current.id === channel.id;
     const count = isActive ? 0 : unread.get(key) || 0;
+    const voice = channel.type === 'voice';
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `nav-item${isActive ? ' active' : ''}${count ? ' unread' : ''}`;
+    button.className = `nav-item${voice ? ' voice-channel' : ''}${isActive ? ' active' : ''}${count ? ' unread' : ''}`;
+    button.title = voice ? t('Kanał głosowy') : `#${channel.name}`;
     button.innerHTML = `
-      <span class="nav-icon">#</span>
+      <span class="nav-icon${voice ? ' voice-icon' : ''}">${voice ? '🔊' : '#'}</span>
       <span class="nav-label">${esc(channel.name)}</span>
       ${count ? `<span class="nav-badge">${count > 99 ? '99+' : count}</span>` : ''}
     `;
     button.addEventListener('click', () => selectChannel(channel.id));
+    button.addEventListener('contextmenu', (e) => {
+      if (!state.you?.owner) return;
+      openChannelMenu(e, channel);
+    });
     container.appendChild(button);
   }
 }
@@ -1777,13 +2395,13 @@ function serverFriendDisplay(friend) {
   const member = state?.members.find((item) => item.id === friend.memberId);
   return {
     dmId: friend.dmId,
-    name: member?.name || friend.name || 'Znajomy',
+    name: member?.name || friend.name || t('Znajomy'),
     color: safeColor(member?.color || friend.color, '#3ee0a3'),
     online: Boolean(member?.online),
     owner: Boolean(member?.owner),
     serverId: friend.serverId,
     memberId: friend.memberId,
-    serverName: state?.server?.name || friend.serverName || 'Serwer',
+    serverName: state?.server?.name || friend.serverName || t('Serwer'),
     serverOnline: state?.status === 'online',
   };
 }
@@ -1822,7 +2440,7 @@ function upsertServerFriend(serverId, member) {
       dmId,
       serverId,
       memberId: member.id,
-      name: String(member.name || 'Znajomy').slice(0, 32),
+      name: String(member.name || t('Znajomy')).slice(0, 32),
       color: safeColor(member.color, '#3ee0a3'),
       serverName,
       addedAt: Date.now(),
@@ -1878,7 +2496,7 @@ function renderDmList() {
       color: user.color,
       online: Boolean(user.online),
       status,
-      sub: user.playing ? `Gra w ${user.playing}` : statusLabel(status),
+      sub: user.playing ? t('Gra w {game}', { game: user.playing }) : statusLabel(status),
       search: `${user.name} ${user.username || ''}`,
     });
   }
@@ -1891,18 +2509,18 @@ function renderDmList() {
       color: info.color,
       online: info.online,
       status: info.online ? 'online' : 'offline',
-      sub: `${info.serverName} • ${info.online ? 'Online' : 'Offline'}`,
+      sub: `${info.serverName} • ${info.online ? t('Online') : t('Offline')}`,
       search: `${info.name} ${info.serverName}`,
     });
   }
 
   const filtered = entries
     .filter((entry) => !query || entry.search.toLowerCase().includes(query))
-    .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'pl'));
+    .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, prefs.lang === 'en' ? 'en' : 'pl'));
 
   container.innerHTML = '';
   if (!filtered.length) {
-    container.innerHTML = '<div class="nav-empty">Brak znajomych — kliknij osobę na liście członków</div>';
+    container.innerHTML = `<div class="nav-empty">${esc(t('Brak znajomych — kliknij osobę na liście członków'))}</div>`;
     return;
   }
 
@@ -1932,18 +2550,18 @@ function renderMembers() {
   const state = activeServerId ? serverState(activeServerId) : null;
 
   if (state) {
-    const sorted = [...state.members].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'pl'));
+    const sorted = [...state.members].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, prefs.lang === 'en' ? 'en' : 'pl'));
     const online = sorted.filter((member) => member.online).length;
     $('onlineBadge').textContent = String(online);
     $('onlineBadge').classList.toggle('empty', online === 0);
     container.innerHTML = '';
     if (!sorted.length) {
-      container.innerHTML = '<div class="nav-empty">Brak członków</div>';
+      container.innerHTML = `<div class="nav-empty">${esc(t('Brak członków'))}</div>`;
       return;
     }
     for (const member of sorted) {
       const status = member.online ? 'online' : 'offline';
-      const sub = member.owner ? 'Właściciel serwera' : member.online ? 'Online' : 'Offline';
+      const sub = member.owner ? t('Właściciel serwera') : member.online ? t('Online') : t('Offline');
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'member';
@@ -1953,7 +2571,7 @@ function renderMembers() {
           <span class="status-dot ${esc(status)}"></span>
         </span>
         <span class="member-info">
-          <strong>${esc(member.name)}${member.id === state.you?.memberId ? ' (Ty)' : ''}</strong>
+          <strong>${esc(member.name)}${member.id === state.you?.memberId ? ` ${esc(t('(Ty)'))}` : ''}</strong>
           <small>${esc(sub)}</small>
         </span>
       `;
@@ -1968,11 +2586,11 @@ function renderMembers() {
   $('onlineBadge').textContent = String(online.length);
   $('onlineBadge').classList.toggle('empty', online.length === 0);
 
-  const sorted = [...allUsers].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'pl'));
+  const sorted = [...allUsers].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, prefs.lang === 'en' ? 'en' : 'pl'));
   container.innerHTML = '';
   for (const user of sorted) {
     const status = user.online ? user.status : 'offline';
-    const sub = user.playing ? `Gra w ${user.playing}` : statusLabel(status);
+    const sub = user.playing ? t('Gra w {game}', { game: user.playing }) : statusLabel(status);
     const item = document.createElement('button');
     item.type = 'button';
     item.className = 'member';
@@ -1982,7 +2600,7 @@ function renderMembers() {
         <span class="status-dot ${esc(status)}"></span>
       </span>
       <span class="member-info">
-        <strong>${esc(user.name)}${user.id === myId ? ' (Ty)' : ''}</strong>
+        <strong>${esc(user.name)}${user.id === myId ? ` ${esc(t('(Ty)'))}` : ''}</strong>
         <small>${esc(sub)}</small>
       </span>
     `;
@@ -2002,7 +2620,7 @@ function openLocalProfile(userId, fallback = {}) {
   }
   const user = allUsers.find((item) => item.id === userId) || {
     id: userId,
-    name: fallback.name || 'Użytkownik',
+    name: fallback.name || t('Użytkownik'),
     username: fallback.username || mentionHandle(fallback.name),
     color: fallback.color || '#3ee0a3',
     about: '',
@@ -2023,7 +2641,7 @@ function openServerProfile(serverId, memberId, fallback = {}) {
   }
   const member = state?.members.find((item) => item.id === memberId) || {
     id: memberId,
-    name: fallback.name || 'Gość',
+    name: fallback.name || t('Gość'),
     color: fallback.color || '#3ee0a3',
     owner: Boolean(fallback.owner),
     online: false,
@@ -2049,10 +2667,10 @@ function renderUserProfile() {
   const online = isServer ? Boolean(target.member.online) : Boolean(target.user.online);
   const friend = isServer ? friendByServerMember(target.serverId, target.member.id) : null;
   const serverStateEntry = isServer ? serverState(target.serverId) : null;
-  const serverName = serverStateEntry?.server?.name || 'Serwer';
+  const serverName = serverStateEntry?.server?.name || t('Serwer');
   const statusText = isServer
-    ? target.member.owner ? 'Właściciel serwera' : online ? 'Online' : 'Offline'
-    : online ? statusLabel(target.user.status) : 'Offline';
+    ? target.member.owner ? t('Właściciel serwera') : online ? t('Online') : t('Offline')
+    : online ? statusLabel(target.user.status) : t('Offline');
 
   $('userProfileAvatar').textContent = initial(name);
   $('userProfileAvatar').style.background = safeColor(color, '#3ee0a3');
@@ -2061,17 +2679,17 @@ function renderUserProfile() {
     ? `@${mentionHandle(name) || 'osoba'}`
     : `@${target.user.username || mentionHandle(name)}`;
   $('userProfileStatus').textContent = target.user?.playing && !isServer
-    ? `${statusText} • Gra w ${target.user.playing}`
+    ? `${statusText} • ${t('Gra w {game}', { game: target.user.playing })}`
     : statusText;
   $('userProfileStatus').classList.toggle('offline', !online);
   $('userProfileAbout').textContent = isServer
-    ? (online ? 'Ta osoba jest teraz online na serwerze.' : 'Ta osoba jest teraz offline.')
-    : (target.user.about || 'Brak opisu profilu.');
+    ? (online ? t('Ta osoba jest teraz online na serwerze.') : t('Ta osoba jest teraz offline.'))
+    : (target.user.about || t('Brak opisu profilu.'));
 
   const serverBox = $('userProfileServer');
   if (isServer) {
     serverBox.hidden = false;
-    serverBox.innerHTML = `Serwer: <strong>${esc(serverName)}</strong>${serverStateEntry?.status === 'online' ? '' : ' • połączenie offline'}`;
+    serverBox.innerHTML = `${esc(t('Serwer:'))} <strong>${esc(serverName)}</strong>${serverStateEntry?.status === 'online' ? '' : ` • ${esc(t('połączenie offline'))}`}`;
   } else {
     serverBox.hidden = true;
     serverBox.textContent = '';
@@ -2084,15 +2702,15 @@ function renderUserProfile() {
   dmBtn.hidden = isServer && !friend;
   dmBtn.disabled = false;
   addBtn.disabled = false;
-  addBtn.textContent = 'Dodaj do znajomych';
-  dmBtn.textContent = 'Napisz wiadomość';
+  addBtn.textContent = t('Dodaj do znajomych');
+  dmBtn.textContent = t('Napisz wiadomość');
 
   if (isServer && !friend) {
-    note.textContent = 'Dodaj tę osobę do znajomych, aby zacząć prywatną rozmowę.';
+    note.textContent = t('Dodaj tę osobę do znajomych, aby zacząć prywatną rozmowę.');
   } else if (isServer) {
-    note.textContent = 'Masz tę osobę w znajomych.';
+    note.textContent = t('Masz tę osobę w znajomych.');
   } else {
-    note.textContent = 'Konto lokalne — możesz napisać od razu.';
+    note.textContent = t('Konto lokalne — możesz napisać od razu.');
   }
 }
 
@@ -2103,13 +2721,13 @@ function addProfileFriend() {
   const member = state?.members.find((item) => item.id === target.member.id) || target.member;
   const friend = upsertServerFriend(target.serverId, member);
   if (!friend) {
-    $('userProfileError').textContent = 'Nie udało się dodać do znajomych.';
+    $('userProfileError').textContent = t('Nie udało się dodać do znajomych.');
     return;
   }
   renderDmList();
   renderUserProfile();
   renderMembers();
-  toast(`Dodano ${friend.name} do znajomych`);
+  toast(t('Dodano {name} do znajomych', { name: friend.name }));
 }
 
 function messageProfileFriend() {
@@ -2145,31 +2763,34 @@ function renderHeader() {
     $('chatEmoji').textContent = initial(entry?.name || '?');
     $('chatEmoji').style.background = safeColor(entry?.color, 'var(--panel-2)');
     $('chatEmoji').style.color = '#06251b';
-    $('chatName').textContent = entry?.name || 'Rozmowa prywatna';
+    $('chatName').textContent = entry?.name || t('Rozmowa prywatna');
     if (!entry) {
-      $('chatSub').textContent = 'Rozmowa niedostępna';
+      $('chatSub').textContent = t('Rozmowa niedostępna');
     } else if (entry.kind === 'server') {
-      $('chatSub').textContent = `${entry.serverName} • ${entry.online ? 'Online' : 'Offline'}`;
+      $('chatSub').textContent = `${entry.serverName} • ${entry.online ? t('Online') : t('Offline')}`;
     } else {
-      $('chatSub').textContent = entry.playing ? `Gra w ${entry.playing} • ${statusLabel(status)}` : statusLabel(status);
+      $('chatSub').textContent = entry.playing
+        ? t('Gra w {game} • {status}', { game: entry.playing, status: statusLabel(status) })
+        : statusLabel(status);
     }
   } else if (current.kind === 'server') {
     const state = serverState(current.serverId);
     const channel = state?.channels.find((item) => item.id === current.id);
     const online = state ? state.members.filter((member) => member.online).length : 0;
-    $('chatEmoji').textContent = '#';
+    const isVoice = channel?.type === 'voice';
+    $('chatEmoji').textContent = isVoice ? '🔊' : '#';
     $('chatEmoji').style.background = safeColor(state?.server.color, 'var(--panel-2)');
     $('chatEmoji').style.color = '#06251b';
-    $('chatName').textContent = channel?.name || state?.server.name || 'Serwer';
+    $('chatName').textContent = channel?.name || state?.server.name || t('Serwer');
     $('chatSub').textContent = state
-      ? `${state.server.name} • ${state.status === 'online' ? `${online} online` : state.status === 'connecting' ? 'łączenie…' : 'offline'}`
+      ? `${state.server.name} • ${isVoice ? t('Kanał głosowy') : state.status === 'online' ? `${online} ${t('Online').toLowerCase()}` : state.status === 'connecting' ? t('łączenie…') : t('Offline').toLowerCase()}`
       : '';
   } else {
     $('chatEmoji').textContent = 'C';
     $('chatEmoji').style.background = 'linear-gradient(140deg, var(--accent), var(--accent-2))';
     $('chatEmoji').style.color = '#05231a';
-    $('chatName').textContent = 'Wiadomości prywatne';
-    $('chatSub').textContent = servers.length ? 'Wybierz rozmowę lub serwer' : 'Utwórz lub dołącz do serwera';
+    $('chatName').textContent = t('Wiadomości prywatne');
+    $('chatSub').textContent = servers.length ? t('Wybierz rozmowę lub serwer') : t('Utwórz lub dołącz do serwera');
   }
   updateComposer();
 }
@@ -2180,23 +2801,24 @@ function updateComposer() {
   const channel = state?.channels.find((item) => item.id === current.id);
   const entry = current.kind === 'dm' ? dmEntry(current.id) : null;
   const dmServerOnline = entry?.kind === 'server' ? serverState(entry.serverId)?.status === 'online' : true;
+  const isVoice = channel?.type === 'voice';
   const enabled = current.kind === 'dm'
     ? Boolean(entry) && dmServerOnline
-    : current.kind === 'server' && state?.status === 'online' && Boolean(channel);
+    : current.kind === 'server' && state?.status === 'online' && Boolean(channel) && !isVoice;
   $('composer').hidden = !enabled;
   input.disabled = !enabled;
   if (current.kind === 'dm') {
     if (entry?.kind === 'server') {
       input.placeholder = enabled
-        ? `Napisz do ${entry.name}…`
-        : 'Serwer jest offline — wiadomości wrócą po połączeniu';
+        ? t('Napisz do {name}…', { name: entry.name })
+        : t('Serwer jest offline — wiadomości wrócą po połączeniu');
     } else {
-      input.placeholder = `Napisz do ${entry?.name || 'rozmówcy'}…`;
+      input.placeholder = t('Napisz do {name}…', { name: entry?.name || t('rozmówcy') });
     }
   } else if (current.kind === 'server' && channel) {
-    input.placeholder = `Napisz na #${channel.name}…`;
+    input.placeholder = isVoice ? t('Kanał głosowy') : t('Napisz na #{name}…', { name: channel.name });
   } else {
-    input.placeholder = 'Wybierz kanał, aby napisać…';
+    input.placeholder = t('Wybierz kanał, aby napisać…');
   }
   $('sendBtn').disabled = !enabled || !input.value.trim();
   $('typingBar').hidden = !enabled || typingUsers.size === 0;
@@ -2234,17 +2856,17 @@ function renderMessages(scroll = true) {
     if (!servers.length) {
       wrap.innerHTML = `
         <div class="empty-ico">C</div>
-        <h3>Zacznij od serwera</h3>
-        <p>Nie masz jeszcze żadnego serwera. Utwórz własny albo dołącz kodem zaproszenia od znajomego.</p>
+        <h3>${esc(t('Zacznij od serwera'))}</h3>
+        <p>${esc(t('Nie masz jeszcze żadnego serwera. Utwórz własny albo dołącz kodem zaproszenia od znajomego.'))}</p>
         <div class="empty-actions"></div>
       `;
-      addEmptyAction(wrap, 'Utwórz serwer', 'btn-primary', () => openServerModal('create'));
-      addEmptyAction(wrap, 'Dołącz kodem', 'btn-secondary', () => openServerModal('join'));
+      addEmptyAction(wrap, t('Utwórz serwer'), 'btn-primary', () => openServerModal('create'));
+      addEmptyAction(wrap, t('Dołącz kodem'), 'btn-secondary', () => openServerModal('join'));
     } else {
       wrap.innerHTML = `
         <div class="empty-ico">💬</div>
-        <h3>Wiadomości prywatne</h3>
-        <p>Wybierz rozmowę z listy po lewej. Pisz do kont na tym komputerze i do znajomych dodanych z serwerów.</p>
+        <h3>${esc(t('Wiadomości prywatne'))}</h3>
+        <p>${esc(t('Wybierz rozmowę z listy po lewej. Pisz do kont na tym komputerze i do znajomych dodanych z serwerów.'))}</p>
       `;
     }
     container.appendChild(wrap);
@@ -2258,16 +2880,16 @@ function renderMessages(scroll = true) {
       const wrap = document.createElement('div');
       wrap.className = 'empty-chat';
       if (state?.status === 'connecting') {
-        wrap.innerHTML = `<div class="empty-ico">◌</div><h3>Łączę z serwerem…</h3><p>${esc(state.server.name)}</p>`;
+        wrap.innerHTML = `<div class="empty-ico">◌</div><h3>${esc(t('Łączę z serwerem…'))}</h3><p>${esc(state.server.name)}</p>`;
       } else {
         wrap.innerHTML = `
           <div class="empty-ico">⚠</div>
-          <h3>Serwer offline</h3>
-          <p>${esc(state?.error || `Nie można połączyć się z ${state?.server.name || 'serwerem'}.`)}</p>
+          <h3>${esc(t('Serwer offline'))}</h3>
+          <p>${esc(state?.error || t('Nie można połączyć się z {name}.', { name: state?.server.name || t('serwerem') }))}</p>
           <div class="empty-actions"></div>
         `;
         if (state) {
-          addEmptyAction(wrap, 'Spróbuj ponownie', 'btn-secondary', () => {
+          addEmptyAction(wrap, t('Spróbuj ponownie'), 'btn-secondary', () => {
             state.fatal = false;
             state.attempts = 0;
             connectServer(state.server);
@@ -2281,13 +2903,23 @@ function renderMessages(scroll = true) {
     if (!current.id) {
       const wrap = document.createElement('div');
       wrap.className = 'empty-chat';
-      wrap.innerHTML = `<div class="empty-ico">#</div><h3>Brak kanałów</h3><p>Ten serwer nie ma jeszcze żadnego kanału.</p><div class="empty-actions"></div>`;
+      wrap.innerHTML = `<div class="empty-ico">#</div><h3>${esc(t('Brak kanałów'))}</h3><p>${esc(t('Ten serwer nie ma jeszcze żadnego kanału.'))}</p><div class="empty-actions"></div>`;
       if (state.you?.owner) {
-        addEmptyAction(wrap, 'Utwórz kanał', 'btn-primary', () => {
-          $('channelForm').hidden = false;
-          $('channelName').focus();
-        });
+        addEmptyAction(wrap, t('Utwórz kanał'), 'btn-primary', openChannelModal);
       }
+      container.appendChild(wrap);
+      updateComposer();
+      return;
+    }
+    const activeChannel = state.channels.find((item) => item.id === current.id);
+    if (activeChannel?.type === 'voice') {
+      const wrap = document.createElement('div');
+      wrap.className = 'empty-chat voice-empty';
+      wrap.innerHTML = `
+        <div class="empty-ico">🔊</div>
+        <h3>${esc(t('Kanał głosowy'))}</h3>
+        <p>${esc(t('Ten kanał jest przeznaczony na rozmowy głosowe.'))}</p>
+      `;
       container.appendChild(wrap);
       updateComposer();
       return;
@@ -2304,11 +2936,14 @@ function renderMessages(scroll = true) {
     const entry = current.kind === 'dm' ? dmEntry(current.id) : null;
     const wrap = document.createElement('div');
     wrap.className = 'empty-chat';
-    wrap.innerHTML = searchQuery
-      ? `<div class="empty-ico">⌕</div><h3>Brak wyników</h3><p>Nie znaleziono wiadomości pasujących do „${esc($('messageSearch').value.trim())}”.</p>`
-      : current.kind === 'server'
-        ? `<div class="empty-ico">#</div><h3>#${esc(channel?.name || 'kanał')}</h3><p>To początek tego kanału. Napisz pierwszą wiadomość!</p>`
-        : `<div class="empty-ico">${esc(initial(entry?.name || '?'))}</div><h3>${esc(entry?.name || 'Rozmowa')}</h3><p>To początek Waszej prywatnej rozmowy${entry?.kind === 'server' ? ` przez serwer ${esc(entry.serverName)}` : ''}.</p>`;
+    if (searchQuery) {
+      wrap.innerHTML = `<div class="empty-ico">⌕</div><h3>${esc(t('Brak wyników'))}</h3><p>${esc(t('Nie znaleziono wiadomości pasujących do „{query}”.', { query: $('messageSearch').value.trim() }))}</p>`;
+    } else if (current.kind === 'server') {
+      wrap.innerHTML = `<div class="empty-ico">#</div><h3>#${esc(channel?.name || t('kanał'))}</h3><p>${esc(t('To początek tego kanału. Napisz pierwszą wiadomość!'))}</p>`;
+    } else {
+      const via = entry?.kind === 'server' ? t(' przez serwer {name}', { name: entry.serverName }) : '';
+      wrap.innerHTML = `<div class="empty-ico">${esc(initial(entry?.name || '?'))}</div><h3>${esc(entry?.name || t('Rozmowa'))}</h3><p>${esc(t('To początek Waszej prywatnej rozmowy'))}${esc(via)}.</p>`;
+    }
     container.appendChild(wrap);
     if (scroll) scrollBottom();
     return;
@@ -2377,7 +3012,7 @@ function buildMessage(message, grouped) {
   avatar.textContent = initial(message.authorName);
   avatar.setAttribute('role', 'button');
   avatar.tabIndex = 0;
-  avatar.title = `Profil: ${message.authorName}`;
+  avatar.title = t('Profil: {name}', { name: message.authorName });
   avatar.addEventListener('click', openAuthor);
   avatar.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -2445,7 +3080,7 @@ function sendCurrentMessage(e) {
   const text = input.value.trim();
   if (!text) return;
   if (current.kind === 'home') {
-    toast('Wybierz rozmowę lub kanał, aby napisać.');
+    toast(t('Wybierz rozmowę lub kanał, aby napisać.'));
     return;
   }
 
@@ -2453,21 +3088,25 @@ function sendCurrentMessage(e) {
     const state = serverState(current.serverId);
     const channel = state?.channels.find((item) => item.id === current.id);
     if (!state || !state.ws || state.ws.readyState !== WebSocket.OPEN || !channel) {
-      toast('Łączę z serwerem — spróbuj za chwilę.');
+      toast(t('Łączę z serwerem — spróbuj za chwilę.'));
+      return;
+    }
+    if (channel.type === 'voice') {
+      toast(t('Kanały głosowe nie obsługują wiadomości tekstowych.'));
       return;
     }
     state.ws.send(JSON.stringify({ type: 'server:message', channelId: channel.id, text }));
   } else {
     const entry = dmEntry(current.id);
     if (!entry) {
-      toast('Ta rozmowa nie jest już dostępna.');
+      toast(t('Ta rozmowa nie jest już dostępna.'));
       return;
     }
 
     if (entry.kind === 'server') {
       const state = serverState(entry.serverId);
       if (!state || state.status !== 'online' || !state.ws || state.ws.readyState !== WebSocket.OPEN || !state.you) {
-        toast('Serwer jest offline — spróbuj, gdy połączenie wróci.');
+        toast(t('Serwer jest offline — spróbuj, gdy połączenie wróci.'));
         return;
       }
       const message = {
@@ -2483,7 +3122,7 @@ function sendCurrentMessage(e) {
       pushHistory(conversationKey(), message);
     } else {
       if (!wsReady()) {
-        toast('Łączę z serwerem — spróbuj za chwilę.');
+        toast(t('Łączę z serwerem — spróbuj za chwilę.'));
         connect();
         return;
       }
@@ -2532,6 +3171,8 @@ function typingTransport() {
   if (current.kind === 'server') {
     const state = serverState(current.serverId);
     if (!state || state.status !== 'online' || !state.ws || state.ws.readyState !== WebSocket.OPEN) return null;
+    const channel = state.channels.find((item) => item.id === current.id);
+    if (!channel || channel.type === 'voice') return null;
     return { socket: state.ws, payload: { type: 'server:typing', channelId: current.id } };
   }
   return null;
@@ -2565,9 +3206,14 @@ function renderTyping() {
     el.innerHTML = '';
     return;
   }
-  const label = names.length === 1
-    ? `${esc(names[0])} pisze`
-    : `${esc(names.slice(0, 2).join(', '))}${names.length > 2 ? ` i ${names.length - 2} inne` : ''} piszą`;
+  const safeNames = names.map((name) => esc(name));
+  let label;
+  if (safeNames.length === 1) {
+    label = t('{name} pisze', { name: safeNames[0] });
+  } else {
+    label = t('{names} piszą', { names: safeNames.slice(0, 2).join(', ') });
+    if (names.length > 2) label += t(' i {count} inne', { count: names.length - 2 });
+  }
   el.hidden = false;
   el.innerHTML = `<span>${label}</span><span class="typing-dots"><span></span><span></span><span></span></span>`;
 }
@@ -2600,7 +3246,8 @@ function isMention(text) {
   return (handle && lower.includes(`@${handle}`))
     || (myHandle && lower.includes(`@${myHandle}`))
     || (rawName && lower.includes(`@${rawName}`))
-    || lower.includes('@wszyscy');
+    || lower.includes('@wszyscy')
+    || lower.includes('@everyone');
 }
 
 function notifyIncoming(message, where, isCurrent) {
@@ -2612,7 +3259,7 @@ function notifyIncoming(message, where, isCurrent) {
 
   if (prefs.notify && CHILL.chat?.notify) {
     CHILL.chat.notify({
-      title: mention ? `Wzmianka od ${message.authorName}` : `${message.authorName} • ${where}`,
+      title: mention ? t('Wzmianka od {name}', { name: message.authorName }) : `${message.authorName} • ${where}`,
       body: String(message.text).slice(0, 160),
     });
   }
@@ -2669,7 +3316,7 @@ function renderEmoji(query) {
   const list = q ? EMOJIS.filter((item) => item.keys.includes(q) || item.char.includes(q)) : EMOJIS;
   grid.innerHTML = '';
   if (!list.length) {
-    grid.innerHTML = '<div class="emoji-empty">Nic nie znaleziono</div>';
+    grid.innerHTML = `<div class="emoji-empty">${esc(t('Nic nie znaleziono'))}</div>`;
     return;
   }
   for (const item of list) {
@@ -2754,6 +3401,13 @@ function bindSettings() {
     savePrefs();
   });
 
+  $('languageChoices').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-language]');
+    if (!btn) return;
+    applyLanguage(btn.dataset.language, true);
+    savePrefs();
+  });
+
   $('accentColors').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-accent]');
     if (!btn) return;
@@ -2795,24 +3449,24 @@ function bindSettings() {
     try {
       const actual = await CHILL.app.autostartSet(wanted);
       $('autostartToggle').checked = Boolean(actual);
-      toast(actual ? 'Chill będzie uruchamiany z Windows' : 'Autostart wyłączony');
+      toast(actual ? t('Chill będzie uruchamiany z Windows') : t('Autostart wyłączony'));
     } catch {
       $('autostartToggle').checked = !wanted;
-      toast('Nie udało się zmienić autostartu');
+      toast(t('Nie udało się zmienić autostartu'));
     }
   });
 
   $('checkUpdatesBtn').addEventListener('click', async () => {
     const status = $('updateStatus');
-    status.textContent = 'Sprawdzam…';
+    status.textContent = t('Sprawdzam…');
     $('checkUpdatesBtn').disabled = true;
     try {
       const info = await CHILL.app.checkUpdates();
       status.textContent = info && info.version
-        ? `Dostępna wersja ${info.version}.`
-        : 'Masz najnowszą wersję Chill.';
+        ? t('Dostępna wersja {version}.', { version: info.version })
+        : t('Masz najnowszą wersję Chill.');
     } catch {
-      status.textContent = 'Nie udało się sprawdzić aktualizacji.';
+      status.textContent = t('Nie udało się sprawdzić aktualizacji.');
     } finally {
       $('checkUpdatesBtn').disabled = false;
     }
@@ -2837,6 +3491,9 @@ function openSettings(tab = 'profile') {
   $('soundToggle').checked = prefs.sound;
   $('mentionsToggle').checked = prefs.mentionsOnly;
   $('gameDetectToggle').checked = prefs.gameDetect;
+  document.querySelectorAll('[data-language]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.language === prefs.lang);
+  });
   $('profileError').textContent = '';
   $('profileSaved').textContent = '';
   $('passwordError').textContent = '';
@@ -2896,11 +3553,11 @@ async function saveProfile() {
   errorEl.textContent = '';
 
   if (displayName.length < 2 || displayName.length > 32) {
-    errorEl.textContent = 'Nazwa musi mieć 2–32 znaki.';
+    errorEl.textContent = t('Nazwa musi mieć 2–32 znaki.');
     return;
   }
   if (about.length > 160) {
-    errorEl.textContent = 'Opis może mieć maksymalnie 160 znaków.';
+    errorEl.textContent = t('Opis może mieć maksymalnie 160 znaków.');
     return;
   }
 
@@ -2908,7 +3565,7 @@ async function saveProfile() {
   try {
     const result = await CHILL.auth.updateProfile({ displayName, about, color: profileColor });
     if (!result || !result.ok) {
-      errorEl.textContent = result?.error || 'Nie udało się zapisać profilu.';
+      errorEl.textContent = result?.error ? translateError(result.error) : t('Nie udało się zapisać profilu.');
       return;
     }
     currentUser = { ...currentUser, ...result.user };
@@ -2917,8 +3574,8 @@ async function saveProfile() {
     myAbout = currentUser.about;
     renderIdentity();
     fillProfileForm();
-    $('profileSaved').textContent = 'Zapisano';
-    toast('Profil zaktualizowany');
+    $('profileSaved').textContent = t('Zapisano');
+    toast(t('Profil zaktualizowany'));
     if (wsReady()) ws.send(JSON.stringify({ type: 'profile', displayName: myName, color: myColor, about: myAbout }));
     for (const state of serverStates.values()) {
       if (state.ws && state.ws.readyState === WebSocket.OPEN) {
@@ -2926,7 +3583,7 @@ async function saveProfile() {
       }
     }
   } catch {
-    errorEl.textContent = 'Wystąpił błąd podczas zapisywania.';
+    errorEl.textContent = t('Wystąpił błąd podczas zapisywania.');
   } finally {
     $('saveProfile').disabled = false;
   }
@@ -2941,11 +3598,11 @@ async function changePassword() {
   savedEl.textContent = '';
 
   if (!currentPassword || !newPassword) {
-    errorEl.textContent = 'Wpisz obecne i nowe hasło.';
+    errorEl.textContent = t('Wpisz obecne i nowe hasło.');
     return;
   }
   if (newPassword.length < 8) {
-    errorEl.textContent = 'Nowe hasło musi mieć co najmniej 8 znaków.';
+    errorEl.textContent = t('Nowe hasło musi mieć co najmniej 8 znaków.');
     return;
   }
 
@@ -2953,15 +3610,15 @@ async function changePassword() {
   try {
     const result = await CHILL.auth.changePassword({ currentPassword, newPassword });
     if (!result || !result.ok) {
-      errorEl.textContent = result?.error || 'Nie udało się zmienić hasła.';
+      errorEl.textContent = result?.error ? translateError(result.error) : t('Nie udało się zmienić hasła.');
       return;
     }
     $('currentPassword').value = '';
     $('newPassword').value = '';
-    savedEl.textContent = 'Hasło zmienione';
-    toast('Hasło zostało zmienione');
+    savedEl.textContent = t('Hasło zmienione');
+    toast(t('Hasło zostało zmienione'));
   } catch {
-    errorEl.textContent = 'Wystąpił błąd.';
+    errorEl.textContent = t('Wystąpił błąd.');
   } finally {
     $('changePasswordBtn').disabled = false;
   }
@@ -2986,15 +3643,15 @@ function showUpdate(info) {
   $('updateProgress').style.width = '0%';
 
   if (!CHILL.isPackaged) {
-    $('updateText').textContent = 'Dostępna jest nowsza wersja Chill.';
+    $('updateText').textContent = t('Dostępna jest nowsza wersja Chill.');
     $('updateBtn').hidden = false;
     $('updateBtn').disabled = false;
-    $('updateBtn').textContent = 'Pobierz ręcznie';
+    $('updateBtn').textContent = t('Pobierz ręcznie');
     return;
   }
 
   $('updateBtn').hidden = true;
-  $('updateText').textContent = 'Aktualizacja pobiera się i zainstaluje automatycznie…';
+  $('updateText').textContent = t('Aktualizacja pobiera się i zainstaluje automatycznie…');
   if (autoUpdateVersion === info.version) return;
   autoUpdateVersion = info.version;
   setTimeout(() => startUpdateInstall(false), 900);
@@ -3003,7 +3660,7 @@ function showUpdate(info) {
 async function startUpdateInstall(manual) {
   if (downloadingUpdate) return;
   if (!CHILL.app?.installUpdate) {
-    $('updateText').textContent = 'Nie można uruchomić aktualizacji w tej wersji.';
+    $('updateText').textContent = t('Nie można uruchomić aktualizacji w tej wersji.');
     return;
   }
 
@@ -3011,26 +3668,26 @@ async function startUpdateInstall(manual) {
   $('updateBtn').disabled = true;
   $('updateBtn').hidden = true;
   $('updateProgress').style.width = '0%';
-  $('updateText').textContent = 'Pobieranie aktualizacji — 0%';
+  $('updateText').textContent = t('Pobieranie aktualizacji — {pct}%', { pct: 0 });
 
   try {
     const started = await CHILL.app.installUpdate();
     if (started) {
-      $('updateText').textContent = 'Uruchamiam instalator — Chill za chwilę się zamknie.';
+      $('updateText').textContent = t('Uruchamiam instalator — Chill za chwilę się zamknie.');
       $('updateProgress').style.width = '100%';
-      toast('Pobrano aktualizację — uruchamiam instalator', 4000);
+      toast(t('Pobrano aktualizację — uruchamiam instalator'), 4000);
     } else {
-      $('updateText').textContent = 'Automatyczna aktualizacja nie powiodła się. Pobierz instalator ręcznie.';
+      $('updateText').textContent = t('Automatyczna aktualizacja nie powiodła się. Pobierz instalator ręcznie.');
       $('updateBtn').hidden = false;
       $('updateBtn').disabled = false;
-      $('updateBtn').textContent = 'Pobierz ręcznie';
+      $('updateBtn').textContent = t('Pobierz ręcznie');
       if (manual && currentUpdateInfo?.url) CHILL.app.openExternal?.(currentUpdateInfo.url);
     }
   } catch {
-    $('updateText').textContent = 'Nie udało się pobrać aktualizacji. Spróbuj ponownie.';
+    $('updateText').textContent = t('Nie udało się pobrać aktualizacji. Spróbuj ponownie.');
     $('updateBtn').hidden = false;
     $('updateBtn').disabled = false;
-    $('updateBtn').textContent = 'Spróbuj ponownie';
+    $('updateBtn').textContent = t('Spróbuj ponownie');
   } finally {
     downloadingUpdate = false;
   }

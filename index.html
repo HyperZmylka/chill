@@ -30,25 +30,25 @@
     </header>
 
     <div class="showcase-copy">
-      <p class="eyebrow">Twoja przestrzeń na spokojne rozmowy</p>
-      <h1>Pogadajmy.<br><span>Bez pośpiechu.</span></h1>
-      <p class="showcase-lead">Własne serwery, kanały tematyczne i prywatne wiadomości — wszystko, co potrzebne, żeby po prostu pogadać, w jednym miejscu.</p>
+      <p class="eyebrow" data-i18n="Twoja przestrzeń na spokojne rozmowy">Twoja przestrzeń na spokojne rozmowy</p>
+      <h1 data-i18n-html="Pogadajmy.<br><span>Bez pośpiechu.</span>">Pogadajmy.<br><span>Bez pośpiechu.</span></h1>
+      <p class="showcase-lead" data-i18n="Własne serwery, kanały tematyczne i prywatne wiadomości — wszystko, co potrzebne, żeby po prostu pogadać, w jednym miejscu.">Własne serwery, kanały tematyczne i prywatne wiadomości — wszystko, co potrzebne, żeby po prostu pogadać, w jednym miejscu.</p>
 
       <ul class="showcase-points">
-        <li><span class="point-ico">◇</span> Serwery i kanały tworzone przez Ciebie</li>
-        <li><span class="point-ico">◇</span> Zaproszenia linkiem i rozmowy 1:1</li>
-        <li><span class="point-ico">◇</span> Emoji, statusy i historia, która zostaje</li>
+        <li><span class="point-ico">◇</span> <span data-i18n="Serwery i kanały tworzone przez Ciebie">Serwery i kanały tworzone przez Ciebie</span></li>
+        <li><span class="point-ico">◇</span> <span data-i18n="Zaproszenia linkiem i rozmowy 1:1">Zaproszenia linkiem i rozmowy 1:1</span></li>
+        <li><span class="point-ico">◇</span> <span data-i18n="Emoji, statusy i historia, która zostaje">Emoji, statusy i historia, która zostaje</span></li>
       </ul>
     </div>
 
-    <footer class="showcase-foot">Konta przechowywane lokalnie • bez chmury</footer>
+    <footer class="showcase-foot" data-i18n="Konta przechowywane lokalnie • bez chmury">Konta przechowywane lokalnie • bez chmury</footer>
   </section>
 
   <section class="auth-panel">
     <div class="auth-card">
       <div class="auth-tabs" role="tablist">
-        <button type="button" class="auth-tab active" id="tabLogin" role="tab" aria-selected="true">Zaloguj się</button>
-        <button type="button" class="auth-tab" id="tabRegister" role="tab" aria-selected="false">Utwórz konto</button>
+        <button type="button" class="auth-tab active" id="tabLogin" role="tab" aria-selected="true" data-i18n="Zaloguj się">Zaloguj się</button>
+        <button type="button" class="auth-tab" id="tabRegister" role="tab" aria-selected="false" data-i18n="Utwórz konto">Utwórz konto</button>
       </div>
 
       <div class="auth-heading">
@@ -58,15 +58,15 @@
 
       <form class="auth-form" id="loginForm" novalidate>
         <label class="field">
-          <span>Nazwa użytkownika lub e-mail</span>
-          <input type="text" id="loginIdentifier" autocomplete="username" placeholder="np. kasia lub ty@chill.app" spellcheck="false">
+          <span data-i18n="Nazwa użytkownika lub e-mail">Nazwa użytkownika lub e-mail</span>
+          <input type="text" id="loginIdentifier" autocomplete="username" placeholder="np. kasia lub ty@chill.app" data-i18n-placeholder="np. kasia lub ty@chill.app" spellcheck="false">
         </label>
 
         <label class="field">
-          <span>Hasło</span>
+          <span data-i18n="Hasło">Hasło</span>
           <div class="password-wrap">
             <input type="password" id="loginPassword" autocomplete="current-password" placeholder="••••••••">
-            <button type="button" class="ghost-eye" id="toggleLoginPassword" aria-label="Pokaż hasło">Pokaż</button>
+            <button type="button" class="ghost-eye" id="toggleLoginPassword" aria-label="Pokaż hasło" data-i18n-aria-label="Pokaż hasło" data-i18n="Pokaż">Pokaż</button>
           </div>
         </label>
 
@@ -74,85 +74,85 @@
           <label class="check">
             <input type="checkbox" id="rememberMe" checked>
             <span class="check-box"></span>
-            Zapamiętaj mnie
+            <span data-i18n="Zapamiętaj mnie">Zapamiętaj mnie</span>
           </label>
-          <span class="caps-hint" id="capsHint" hidden>Caps Lock włączony</span>
+          <span class="caps-hint" id="capsHint" hidden data-i18n="Caps Lock włączony">Caps Lock włączony</span>
         </div>
 
         <p class="form-error" id="loginError" role="alert"></p>
 
         <button type="submit" class="btn-primary btn-auth" id="loginSubmit">
-          <span class="btn-label">Zaloguj się</span>
+          <span class="btn-label" data-i18n="Zaloguj się">Zaloguj się</span>
           <span class="btn-spinner" aria-hidden="true"></span>
         </button>
 
-        <p class="auth-switch">Nie masz jeszcze konta? <button type="button" class="link" id="goRegister">Utwórz je w 10 sekund</button></p>
+        <p class="auth-switch"><span data-i18n="Nie masz jeszcze konta?">Nie masz jeszcze konta?</span> <button type="button" class="link" id="goRegister" data-i18n="Utwórz je w 10 sekund">Utwórz je w 10 sekund</button></p>
       </form>
 
       <form class="auth-form" id="registerForm" novalidate style="display:none">
         <div class="field-grid">
           <label class="field">
-            <span>Nazwa użytkownika</span>
-            <input type="text" id="regUsername" autocomplete="username" placeholder="np. kasia" maxlength="20" spellcheck="false">
+            <span data-i18n="Nazwa użytkownika">Nazwa użytkownika</span>
+            <input type="text" id="regUsername" autocomplete="username" placeholder="np. kasia" data-i18n-placeholder="np. kasia" maxlength="20" spellcheck="false">
           </label>
           <label class="field">
-            <span>E-mail <small>opcjonalnie</small></span>
-            <input type="email" id="regEmail" autocomplete="email" placeholder="np. ty@chill.app" spellcheck="false">
+            <span><span data-i18n="E-mail">E-mail</span> <small data-i18n="opcjonalnie">opcjonalnie</small></span>
+            <input type="email" id="regEmail" autocomplete="email" placeholder="np. ty@chill.app" data-i18n-placeholder="np. ty@chill.app" spellcheck="false">
           </label>
         </div>
 
         <label class="field">
-          <span>Nazwa wyświetlana</span>
-          <input type="text" id="regDisplayName" autocomplete="nickname" placeholder="Jak mają Cię widzieć inni?" maxlength="32">
+          <span data-i18n="Nazwa wyświetlana">Nazwa wyświetlana</span>
+          <input type="text" id="regDisplayName" autocomplete="nickname" placeholder="Jak mają Cię widzieć inni?" data-i18n-placeholder="Jak mają Cię widzieć inni?" maxlength="32">
         </label>
 
         <label class="field">
-          <span>Hasło</span>
+          <span data-i18n="Hasło">Hasło</span>
           <div class="password-wrap">
-            <input type="password" id="regPassword" autocomplete="new-password" placeholder="Minimum 8 znaków">
-            <button type="button" class="ghost-eye" id="toggleRegPassword" aria-label="Pokaż hasło">Pokaż</button>
+            <input type="password" id="regPassword" autocomplete="new-password" placeholder="Minimum 8 znaków" data-i18n-placeholder="Minimum 8 znaków">
+            <button type="button" class="ghost-eye" id="toggleRegPassword" aria-label="Pokaż hasło" data-i18n-aria-label="Pokaż hasło" data-i18n="Pokaż">Pokaż</button>
           </div>
           <div class="strength"><span id="regStrength"></span></div>
-          <small class="hint" id="regStrengthLabel">Użyj co najmniej 8 znaków.</small>
+          <small class="hint" id="regStrengthLabel" data-i18n="Użyj co najmniej 8 znaków.">Użyj co najmniej 8 znaków.</small>
         </label>
 
         <div class="field">
-          <span>Kolor profilu</span>
+          <span data-i18n="Kolor profilu">Kolor profilu</span>
           <div class="color-row" id="regColors">
-            <button type="button" class="color-dot selected" data-reg-color="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy"></button>
-            <button type="button" class="color-dot" data-reg-color="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny"></button>
-            <button type="button" class="color-dot" data-reg-color="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy"></button>
-            <button type="button" class="color-dot" data-reg-color="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy"></button>
-            <button type="button" class="color-dot" data-reg-color="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy"></button>
-            <button type="button" class="color-dot" data-reg-color="#ffd166" style="--dot:#ffd166" aria-label="Żółty"></button>
+            <button type="button" class="color-dot selected" data-reg-color="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy" data-i18n-aria-label="Miętowy"></button>
+            <button type="button" class="color-dot" data-reg-color="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny" data-i18n-aria-label="Błękitny"></button>
+            <button type="button" class="color-dot" data-reg-color="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy" data-i18n-aria-label="Brzoskwiniowy"></button>
+            <button type="button" class="color-dot" data-reg-color="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy" data-i18n-aria-label="Różowy"></button>
+            <button type="button" class="color-dot" data-reg-color="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy" data-i18n-aria-label="Lawendowy"></button>
+            <button type="button" class="color-dot" data-reg-color="#ffd166" style="--dot:#ffd166" aria-label="Żółty" data-i18n-aria-label="Żółty"></button>
           </div>
         </div>
 
         <p class="form-error" id="registerError" role="alert"></p>
 
         <button type="submit" class="btn-primary btn-auth" id="registerSubmit">
-          <span class="btn-label">Utwórz konto</span>
+          <span class="btn-label" data-i18n="Utwórz konto">Utwórz konto</span>
           <span class="btn-spinner" aria-hidden="true"></span>
         </button>
 
-        <p class="auth-switch">Masz już konto? <button type="button" class="link" id="goLogin">Zaloguj się</button></p>
+        <p class="auth-switch"><span data-i18n="Masz już konto?">Masz już konto?</span> <button type="button" class="link" id="goLogin" data-i18n="Zaloguj się">Zaloguj się</button></p>
       </form>
 
-      <p class="auth-foot">Konto i historia rozmów są zapisane tylko na tym komputerze. Hasło jest szyfrowane lokalnie (scrypt).</p>
+      <p class="auth-foot" data-i18n="Konto i historia rozmów są zapisane tylko na tym komputerze. Hasło jest szyfrowane lokalnie (scrypt).">Konto i historia rozmów są zapisane tylko na tym komputerze. Hasło jest szyfrowane lokalnie (scrypt).</p>
     </div>
   </section>
 </div>
 
 <!-- ========== APLIKACJA ========== -->
 <div class="app" id="chatApp" style="display:none">
-  <aside class="server-rail" id="serverRailPane" aria-label="Serwery">
-    <button type="button" class="rail-home active" id="homeBtn" title="Wiadomości prywatne">
+  <aside class="server-rail" id="serverRailPane" aria-label="Serwery" data-i18n-aria-label="Serwery">
+    <button type="button" class="rail-home active" id="homeBtn" title="Wiadomości prywatne" data-i18n-title="Wiadomości prywatne">
       <span class="rail-home-logo">C</span>
       <span class="server-badge" id="homeBadge" hidden>0</span>
     </button>
     <div class="rail-sep"></div>
-    <nav class="rail-servers" id="serverList" aria-label="Lista serwerów"></nav>
-    <button type="button" class="rail-add" id="addServerBtn" title="Dodaj serwer" aria-label="Dodaj serwer">+</button>
+    <nav class="rail-servers" id="serverList" aria-label="Lista serwerów" data-i18n-aria-label="Lista serwerów"></nav>
+    <button type="button" class="rail-add" id="addServerBtn" title="Dodaj serwer" aria-label="Dodaj serwer" data-i18n-title="Dodaj serwer" data-i18n-aria-label="Dodaj serwer">+</button>
   </aside>
 
   <aside class="sidebar" id="sidebar">
@@ -165,35 +165,31 @@
     <div class="server-banner" id="serverBanner" hidden>
       <span class="server-banner-avatar" id="serverBannerAvatar">#</span>
       <span class="server-banner-name" id="serverBannerName">Serwer</span>
-      <span class="owner-pill" id="serverOwnerPill" hidden>właściciel</span>
+      <span class="owner-pill" id="serverOwnerPill" hidden data-i18n="właściciel">właściciel</span>
     </div>
 
     <div class="conversation-search">
       <span class="search-ico" aria-hidden="true">⌕</span>
-      <input type="text" id="conversationSearch" placeholder="Szukaj rozmowy" spellcheck="false">
+      <input type="text" id="conversationSearch" placeholder="Szukaj rozmowy" data-i18n-placeholder="Szukaj rozmowy" spellcheck="false">
     </div>
 
     <div class="nav-group channels-group" id="channelsGroup" hidden>
       <div class="group-label">
-        Kanały
-        <button type="button" class="group-add" id="addChannelBtn" title="Nowy kanał" aria-label="Nowy kanał" hidden>+</button>
+        <span data-i18n="Kanały">Kanały</span>
+        <button type="button" class="group-add" id="addChannelBtn" title="Nowy kanał" aria-label="Nowy kanał" data-i18n-title="Nowy kanał" data-i18n-aria-label="Nowy kanał" hidden>+</button>
       </div>
-      <nav class="nav-list" id="channelList" aria-label="Kanały"></nav>
-      <form class="channel-form" id="channelForm" hidden>
-        <input type="text" id="channelName" maxlength="32" placeholder="nowy-kanał" spellcheck="false">
-        <button type="submit" class="mini-btn">Dodaj</button>
-      </form>
+      <nav class="nav-list" id="channelList" aria-label="Kanały" data-i18n-aria-label="Kanały"></nav>
     </div>
 
     <div class="nav-group dm-group" id="dmGroup">
-      <div class="group-label">Wiadomości prywatne <span class="pill" id="dmBadge">0</span></div>
-      <nav class="nav-list" id="dmList" aria-label="Wiadomości prywatne"></nav>
+      <div class="group-label"><span data-i18n="Wiadomości prywatne">Wiadomości prywatne</span> <span class="pill" id="dmBadge">0</span></div>
+      <nav class="nav-list" id="dmList" aria-label="Wiadomości prywatne" data-i18n-aria-label="Wiadomości prywatne"></nav>
     </div>
 
     <div class="sidebar-spacer"></div>
 
     <div class="me-panel">
-      <button type="button" class="me-card" id="myProfileBtn" title="Edytuj profil">
+      <button type="button" class="me-card" id="myProfileBtn" title="Edytuj profil" data-i18n-title="Edytuj profil">
         <span class="avatar" id="myAvatar">?</span>
         <span class="me-text">
           <strong id="myName">Ty</strong>
@@ -202,15 +198,15 @@
         <span class="me-edit" aria-hidden="true">✎</span>
       </button>
       <div class="me-actions">
-        <button type="button" class="ghost-btn" id="settingsBtn">Ustawienia</button>
-        <button type="button" class="ghost-btn danger" id="logoutBtn">Wyloguj</button>
+        <button type="button" class="ghost-btn" id="settingsBtn" data-i18n="Ustawienia">Ustawienia</button>
+        <button type="button" class="ghost-btn danger" id="logoutBtn" data-i18n="Wyloguj">Wyloguj</button>
       </div>
     </div>
   </aside>
 
   <main class="chat" id="main">
     <header class="chat-header">
-      <button type="button" class="icon-btn back-btn" id="backBtn" title="Wstecz" style="display:none">←</button>
+      <button type="button" class="icon-btn back-btn" id="backBtn" title="Wstecz" data-i18n-title="Wstecz" style="display:none">←</button>
       <div class="chat-ident">
         <span class="chat-emoji" id="chatEmoji">C</span>
         <div class="chat-title">
@@ -219,13 +215,13 @@
         </div>
       </div>
       <div class="header-tools">
-        <button type="button" class="invite-btn" id="inviteBtn" title="Zaproś do serwera" hidden>Zaproś</button>
+        <button type="button" class="invite-btn" id="inviteBtn" title="Zaproś do serwera" data-i18n-title="Zaproś do serwera" data-i18n="Zaproś" hidden>Zaproś</button>
         <div class="message-search" id="searchBar" hidden>
-          <input type="search" id="messageSearch" placeholder="Szukaj w wiadomościach" spellcheck="false">
-          <button type="button" class="icon-btn tiny" id="closeSearch" title="Zamknij">✕</button>
+          <input type="search" id="messageSearch" placeholder="Szukaj w wiadomościach" data-i18n-placeholder="Szukaj w wiadomościach" spellcheck="false">
+          <button type="button" class="icon-btn tiny" id="closeSearch" title="Zamknij" aria-label="Zamknij" data-i18n-title="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
         </div>
-        <button type="button" class="icon-btn" id="searchBtn" title="Szukaj w wiadomościach">⌕</button>
-        <button type="button" class="icon-btn members-toggle active" id="membersBtn" title="Pokaż członków">◫</button>
+        <button type="button" class="icon-btn" id="searchBtn" title="Szukaj w wiadomościach" data-i18n-title="Szukaj w wiadomościach">⌕</button>
+        <button type="button" class="icon-btn members-toggle active" id="membersBtn" title="Pokaż członków" data-i18n-title="Pokaż członków">◫</button>
       </div>
     </header>
 
@@ -236,20 +232,20 @@
 
     <form class="composer" id="composer" autocomplete="off">
       <div class="composer-field">
-        <textarea id="messageInput" rows="1" placeholder="Napisz wiadomość…" maxlength="4000" spellcheck="true"></textarea>
-        <button type="button" class="composer-btn" id="emojiBtn" title="Emoji" aria-label="Emoji">☺</button>
+        <textarea id="messageInput" rows="1" placeholder="Napisz wiadomość…" data-i18n-placeholder="Napisz wiadomość…" maxlength="4000" spellcheck="true"></textarea>
+        <button type="button" class="composer-btn" id="emojiBtn" title="Emoji" aria-label="Emoji" data-i18n-title="Emoji" data-i18n-aria-label="Emoji">☺</button>
         <div class="mention-pop" id="mentionPop" hidden></div>
       </div>
-      <button type="submit" class="send-btn" id="sendBtn" title="Wyślij" disabled>↑</button>
+      <button type="submit" class="send-btn" id="sendBtn" title="Wyślij" data-i18n-title="Wyślij" disabled>↑</button>
     </form>
 
     <!-- Emoji -->
     <div class="emoji-pop" id="emojiOverlay" hidden>
       <header class="emoji-head">
-        <strong>Emoji</strong>
-        <button type="button" class="icon-btn tiny" id="closeEmoji" aria-label="Zamknij">✕</button>
+        <strong data-i18n="Emoji">Emoji</strong>
+        <button type="button" class="icon-btn tiny" id="closeEmoji" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
       </header>
-      <input type="search" class="emoji-search" id="emojiSearch" placeholder="Szukaj emoji…" spellcheck="false">
+      <input type="search" class="emoji-search" id="emojiSearch" placeholder="Szukaj emoji…" data-i18n-placeholder="Szukaj emoji…" spellcheck="false">
       <div class="emoji-recent" id="emojiRecent"></div>
       <div class="emoji-grid" id="emojiGrid"></div>
     </div>
@@ -257,7 +253,7 @@
 
   <aside class="members" id="membersPanel">
     <div class="members-head">
-      <strong>Członkowie</strong>
+      <strong data-i18n="Członkowie">Członkowie</strong>
       <span class="pill" id="onlineBadge">0</span>
     </div>
     <div class="member-list" id="userList"></div>
@@ -268,17 +264,17 @@
   <div class="update-card" id="updateBanner" hidden>
     <div class="update-badge">↓</div>
     <div class="update-copy">
-      <strong>Nowa wersja <span id="updateVersion"></span></strong>
+      <strong><span data-i18n="Nowa wersja">Nowa wersja</span> <span id="updateVersion"></span></strong>
       <p id="updateText">Aktualizacja pobiera się automatycznie…</p>
       <div class="update-track"><span id="updateProgress"></span></div>
     </div>
-    <button type="button" class="btn-primary small" id="updateBtn" hidden>Pobierz ręcznie</button>
+    <button type="button" class="btn-primary small" id="updateBtn" hidden data-i18n="Pobierz ręcznie">Pobierz ręcznie</button>
   </div>
 
   <!-- Profil innej osoby -->
   <div class="modal" id="userProfileOverlay" hidden>
     <div class="modal-card user-card">
-      <button type="button" class="icon-btn modal-close" id="closeUserProfile" aria-label="Zamknij">✕</button>
+      <button type="button" class="icon-btn modal-close" id="closeUserProfile" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
       <div class="user-card-head">
         <span class="avatar large" id="userProfileAvatar">?</span>
         <div class="user-card-id">
@@ -292,8 +288,8 @@
       <p class="saved-note" id="userProfileNote"></p>
       <p class="form-error" id="userProfileError"></p>
       <div class="user-card-actions">
-        <button type="button" class="btn-secondary" id="addFriendBtn">Dodaj do znajomych</button>
-        <button type="button" class="btn-primary" id="dmFriendBtn">Napisz wiadomość</button>
+        <button type="button" class="btn-secondary" id="addFriendBtn" data-i18n="Dodaj do znajomych">Dodaj do znajomych</button>
+        <button type="button" class="btn-primary" id="dmFriendBtn" data-i18n="Napisz wiadomość">Napisz wiadomość</button>
       </div>
     </div>
   </div>
@@ -302,19 +298,20 @@
   <div class="modal" id="settingsOverlay" hidden>
     <div class="modal-card">
       <aside class="settings-nav">
-        <div class="settings-nav-title">Ustawienia</div>
-        <button type="button" class="settings-tab active" data-settings-tab="profile">Profil</button>
-        <button type="button" class="settings-tab" data-settings-tab="appearance">Wygląd</button>
-        <button type="button" class="settings-tab" data-settings-tab="notifications">Powiadomienia</button>
-        <button type="button" class="settings-tab" data-settings-tab="app">Aplikacja</button>
+        <div class="settings-nav-title" data-i18n="Ustawienia">Ustawienia</div>
+        <button type="button" class="settings-tab active" data-settings-tab="profile" data-i18n="Profil">Profil</button>
+        <button type="button" class="settings-tab" data-settings-tab="appearance" data-i18n="Wygląd">Wygląd</button>
+        <button type="button" class="settings-tab" data-settings-tab="language" data-i18n="Język">Język</button>
+        <button type="button" class="settings-tab" data-settings-tab="notifications" data-i18n="Powiadomienia">Powiadomienia</button>
+        <button type="button" class="settings-tab" data-settings-tab="app" data-i18n="Aplikacja">Aplikacja</button>
       </aside>
 
       <div class="settings-body">
-        <button type="button" class="icon-btn modal-close" id="closeSettings" aria-label="Zamknij">✕</button>
+        <button type="button" class="icon-btn modal-close" id="closeSettings" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
 
         <section class="settings-panel" data-settings-panel="profile">
-          <h2>Twój profil</h2>
-          <p class="settings-lead">Tak widzą Cię inni na serwerach i wiadomościach prywatnych.</p>
+          <h2 data-i18n="Twój profil">Twój profil</h2>
+          <p class="settings-lead" data-i18n="Tak widzą Cię inni na serwerach i wiadomościach prywatnych.">Tak widzą Cię inni na serwerach i wiadomościach prywatnych.</p>
 
           <div class="profile-preview">
             <span class="avatar large" id="settingsAvatar">?</span>
@@ -325,107 +322,123 @@
           </div>
 
           <div class="setting-block">
-            <span class="setting-label">Status</span>
+            <span class="setting-label" data-i18n="Status">Status</span>
             <div class="segmented" id="statusChoices">
-              <button type="button" data-status="online">Online</button>
-              <button type="button" data-status="away">Zaraz wracam</button>
-              <button type="button" data-status="dnd">Nie przeszkadzać</button>
-              <button type="button" data-status="invisible">Niewidoczny</button>
+              <button type="button" data-status="online" data-i18n="Online">Online</button>
+              <button type="button" data-status="away" data-i18n="Zaraz wracam">Zaraz wracam</button>
+              <button type="button" data-status="dnd" data-i18n="Nie przeszkadzać">Nie przeszkadzać</button>
+              <button type="button" data-status="invisible" data-i18n="Niewidoczny">Niewidoczny</button>
             </div>
           </div>
 
           <label class="field">
-            <span>Nazwa wyświetlana</span>
+            <span data-i18n="Nazwa wyświetlana">Nazwa wyświetlana</span>
             <input type="text" id="profileDisplayName" maxlength="32">
           </label>
 
           <label class="field">
-            <span>O mnie <small id="aboutCount">0/160</small></span>
-            <textarea id="profileAbout" maxlength="160" rows="3" placeholder="Krótko o sobie…"></textarea>
+            <span><span data-i18n="O mnie">O mnie</span> <small id="aboutCount">0/160</small></span>
+            <textarea id="profileAbout" maxlength="160" rows="3" placeholder="Krótko o sobie…" data-i18n-placeholder="Krótko o sobie…"></textarea>
           </label>
 
           <div class="field">
-            <span>Kolor profilu</span>
+            <span data-i18n="Kolor profilu">Kolor profilu</span>
             <div class="color-row" id="profileColors">
-              <button type="button" class="color-dot" data-color="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy"></button>
-              <button type="button" class="color-dot" data-color="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny"></button>
-              <button type="button" class="color-dot" data-color="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy"></button>
-              <button type="button" class="color-dot" data-color="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy"></button>
-              <button type="button" class="color-dot" data-color="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy"></button>
-              <button type="button" class="color-dot" data-color="#ffd166" style="--dot:#ffd166" aria-label="Żółty"></button>
+              <button type="button" class="color-dot" data-color="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy" data-i18n-aria-label="Miętowy"></button>
+              <button type="button" class="color-dot" data-color="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny" data-i18n-aria-label="Błękitny"></button>
+              <button type="button" class="color-dot" data-color="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy" data-i18n-aria-label="Brzoskwiniowy"></button>
+              <button type="button" class="color-dot" data-color="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy" data-i18n-aria-label="Różowy"></button>
+              <button type="button" class="color-dot" data-color="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy" data-i18n-aria-label="Lawendowy"></button>
+              <button type="button" class="color-dot" data-color="#ffd166" style="--dot:#ffd166" aria-label="Żółty" data-i18n-aria-label="Żółty"></button>
             </div>
           </div>
 
           <p class="form-error" id="profileError"></p>
           <div class="settings-actions">
             <span class="saved-note" id="profileSaved"></span>
-            <button type="button" class="btn-primary" id="saveProfile">Zapisz profil</button>
+            <button type="button" class="btn-primary" id="saveProfile" data-i18n="Zapisz profil">Zapisz profil</button>
           </div>
 
           <div class="divider"></div>
 
-          <h3>Bezpieczeństwo</h3>
+          <h3 data-i18n="Bezpieczeństwo">Bezpieczeństwo</h3>
           <div class="field-grid">
             <label class="field">
-              <span>Obecne hasło</span>
+              <span data-i18n="Obecne hasło">Obecne hasło</span>
               <input type="password" id="currentPassword" autocomplete="current-password">
             </label>
             <label class="field">
-              <span>Nowe hasło</span>
+              <span data-i18n="Nowe hasło">Nowe hasło</span>
               <input type="password" id="newPassword" autocomplete="new-password">
             </label>
           </div>
           <p class="form-error" id="passwordError"></p>
           <div class="settings-actions">
             <span class="saved-note" id="passwordSaved"></span>
-            <button type="button" class="btn-secondary" id="changePasswordBtn">Zmień hasło</button>
+            <button type="button" class="btn-secondary" id="changePasswordBtn" data-i18n="Zmień hasło">Zmień hasło</button>
           </div>
         </section>
 
         <section class="settings-panel" data-settings-panel="appearance" hidden>
-          <h2>Wygląd</h2>
-          <p class="settings-lead">Dopasuj Chill do siebie. Zmiany zapisują się od razu.</p>
+          <h2 data-i18n="Wygląd">Wygląd</h2>
+          <p class="settings-lead" data-i18n="Dopasuj Chill do siebie. Zmiany zapisują się od razu.">Dopasuj Chill do siebie. Zmiany zapisują się od razu.</p>
 
           <div class="setting-block">
-            <span class="setting-label">Motyw</span>
+            <span class="setting-label" data-i18n="Motyw">Motyw</span>
             <div class="segmented" id="themeChoices">
-              <button type="button" data-theme-choice="system">Systemowy</button>
-              <button type="button" data-theme-choice="black">Czarny</button>
-              <button type="button" data-theme-choice="white">Biały</button>
-              <button type="button" data-theme-choice="gradient">Gradient</button>
+              <button type="button" data-theme-choice="system" data-i18n="Systemowy">Systemowy</button>
+              <button type="button" data-theme-choice="black" data-i18n="Czarny">Czarny</button>
+              <button type="button" data-theme-choice="white" data-i18n="Biały">Biały</button>
+              <button type="button" data-theme-choice="gradient" data-i18n="Gradient">Gradient</button>
             </div>
           </div>
 
           <div class="setting-block">
-            <span class="setting-label">Kolor akcentu</span>
+            <span class="setting-label" data-i18n="Kolor akcentu">Kolor akcentu</span>
             <div class="color-row" id="accentColors">
-              <button type="button" class="color-dot" data-accent="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy"></button>
-              <button type="button" class="color-dot" data-accent="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny"></button>
-              <button type="button" class="color-dot" data-accent="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy"></button>
-              <button type="button" class="color-dot" data-accent="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy"></button>
-              <button type="button" class="color-dot" data-accent="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy"></button>
-              <button type="button" class="color-dot" data-accent="#ffd166" style="--dot:#ffd166" aria-label="Żółty"></button>
+              <button type="button" class="color-dot" data-accent="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy" data-i18n-aria-label="Miętowy"></button>
+              <button type="button" class="color-dot" data-accent="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny" data-i18n-aria-label="Błękitny"></button>
+              <button type="button" class="color-dot" data-accent="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy" data-i18n-aria-label="Brzoskwiniowy"></button>
+              <button type="button" class="color-dot" data-accent="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy" data-i18n-aria-label="Różowy"></button>
+              <button type="button" class="color-dot" data-accent="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy" data-i18n-aria-label="Lawendowy"></button>
+              <button type="button" class="color-dot" data-accent="#ffd166" style="--dot:#ffd166" aria-label="Żółty" data-i18n-aria-label="Żółty"></button>
             </div>
           </div>
 
           <label class="switch-row">
             <span>
-              <strong>Kompaktowe wiadomości</strong>
-              <small>Mniejszy odstęp między wiadomościami</small>
+              <strong data-i18n="Kompaktowe wiadomości">Kompaktowe wiadomości</strong>
+              <small data-i18n="Mniejszy odstęp między wiadomościami">Mniejszy odstęp między wiadomościami</small>
             </span>
             <input type="checkbox" id="compactToggle">
             <span class="switch"></span>
           </label>
         </section>
 
+        <section class="settings-panel" data-settings-panel="language" hidden>
+          <h2 data-i18n="Język">Język</h2>
+          <p class="settings-lead" data-i18n="Wybierz język interfejsu Chill. Zmiana działa od razu.">Wybierz język interfejsu Chill. Zmiana działa od razu.</p>
+
+          <div class="setting-block">
+            <span class="setting-label" data-i18n="Język interfejsu">Język interfejsu</span>
+            <div class="segmented language-tabs" id="languageChoices">
+              <button type="button" data-language="pl">Polski</button>
+              <button type="button" data-language="en">English</button>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+          <p class="settings-note" data-i18n="Ustawienie języka jest zapisywane na tym koncie i nie zmienia historii rozmów.">Ustawienie języka jest zapisywane na tym koncie i nie zmienia historii rozmów.</p>
+        </section>
+
         <section class="settings-panel" data-settings-panel="notifications" hidden>
-          <h2>Powiadomienia</h2>
-          <p class="settings-lead">Wybierz, kiedy Chill ma Ci przerywać.</p>
+          <h2 data-i18n="Powiadomienia">Powiadomienia</h2>
+          <p class="settings-lead" data-i18n="Wybierz, kiedy Chill ma Ci przerywać.">Wybierz, kiedy Chill ma Ci przerywać.</p>
 
           <label class="switch-row">
             <span>
-              <strong>Powiadomienia systemowe</strong>
-              <small>Dymki, gdy okno jest w tle</small>
+              <strong data-i18n="Powiadomienia systemowe">Powiadomienia systemowe</strong>
+              <small data-i18n="Dymki, gdy okno jest w tle">Dymki, gdy okno jest w tle</small>
             </span>
             <input type="checkbox" id="notifyToggle">
             <span class="switch"></span>
@@ -433,8 +446,8 @@
 
           <label class="switch-row">
             <span>
-              <strong>Dźwięk nowej wiadomości</strong>
-              <small>Delikatny sygnał przy odbiorze</small>
+              <strong data-i18n="Dźwięk nowej wiadomości">Dźwięk nowej wiadomości</strong>
+              <small data-i18n="Delikatny sygnał przy odbiorze">Delikatny sygnał przy odbiorze</small>
             </span>
             <input type="checkbox" id="soundToggle">
             <span class="switch"></span>
@@ -442,8 +455,8 @@
 
           <label class="switch-row">
             <span>
-              <strong>Tylko wzmianki</strong>
-              <small>Powiadamiaj wyłącznie o @nazwa</small>
+              <strong data-i18n="Tylko wzmianki">Tylko wzmianki</strong>
+              <small data-i18n="Powiadamiaj wyłącznie o @nazwa">Powiadamiaj wyłącznie o @nazwa</small>
             </span>
             <input type="checkbox" id="mentionsToggle">
             <span class="switch"></span>
@@ -451,13 +464,13 @@
         </section>
 
         <section class="settings-panel" data-settings-panel="app" hidden>
-          <h2>Aplikacja</h2>
-          <p class="settings-lead">Ustawienia systemowe i aktualizacje.</p>
+          <h2 data-i18n="Aplikacja">Aplikacja</h2>
+          <p class="settings-lead" data-i18n="Ustawienia systemowe i aktualizacje.">Ustawienia systemowe i aktualizacje.</p>
 
           <label class="switch-row">
             <span>
-              <strong>Uruchamiaj z Windows</strong>
-              <small>Chill startuje w tle po zalogowaniu</small>
+              <strong data-i18n="Uruchamiaj z Windows">Uruchamiaj z Windows</strong>
+              <small data-i18n="Chill startuje w tle po zalogowaniu">Chill startuje w tle po zalogowaniu</small>
             </span>
             <input type="checkbox" id="autostartToggle">
             <span class="switch"></span>
@@ -465,8 +478,8 @@
 
           <label class="switch-row">
             <span>
-              <strong>Wykrywanie gier</strong>
-              <small>Pokazuj „Gra w …” na profilu</small>
+              <strong data-i18n="Wykrywanie gier">Wykrywanie gier</strong>
+              <small data-i18n="Pokazuj „Gra w …” na profilu">Pokazuj „Gra w …” na profilu</small>
             </span>
             <input type="checkbox" id="gameDetectToggle">
             <span class="switch"></span>
@@ -474,15 +487,15 @@
 
           <div class="setting-block version-block">
             <div>
-              <span class="setting-label">Wersja Chill</span>
+              <span class="setting-label" data-i18n="Wersja Chill">Wersja Chill</span>
               <strong id="appVersion">—</strong>
             </div>
-            <button type="button" class="btn-secondary" id="checkUpdatesBtn">Sprawdź aktualizacje</button>
+            <button type="button" class="btn-secondary" id="checkUpdatesBtn" data-i18n="Sprawdź aktualizacje">Sprawdź aktualizacje</button>
           </div>
           <p class="saved-note" id="updateStatus"></p>
 
           <div class="divider"></div>
-          <p class="settings-note">Konta i historia są przechowywane lokalnie w folderze danych aplikacji. Odinstalowanie Chill usuwa także te dane.</p>
+          <p class="settings-note" data-i18n="Konta i historia są przechowywane lokalnie w folderze danych aplikacji. Odinstalowanie Chill usuwa także te dane.">Konta i historia są przechowywane lokalnie w folderze danych aplikacji. Odinstalowanie Chill usuwa także te dane.</p>
         </section>
       </div>
     </div>
@@ -491,48 +504,48 @@
   <!-- Dodawanie serwera -->
   <div class="modal" id="serverOverlay" hidden>
     <div class="modal-card server-card">
-      <button type="button" class="icon-btn modal-close" id="closeServerModal" aria-label="Zamknij">✕</button>
+      <button type="button" class="icon-btn modal-close" id="closeServerModal" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
       <div class="server-modal-head">
-        <h2>Dodaj serwer</h2>
-        <p>Utwórz własną przestrzeń albo dołącz kodem zaproszenia od znajomych.</p>
+        <h2 data-i18n="Dodaj serwer">Dodaj serwer</h2>
+        <p data-i18n="Utwórz własną przestrzeń albo dołącz kodem zaproszenia od znajomych.">Utwórz własną przestrzeń albo dołącz kodem zaproszenia od znajomych.</p>
       </div>
 
       <div class="segmented server-tabs" id="serverModalTabs">
-        <button type="button" class="active" data-server-tab="create">Utwórz serwer</button>
-        <button type="button" data-server-tab="join">Dołącz kodem</button>
+        <button type="button" class="active" data-server-tab="create" data-i18n="Utwórz serwer">Utwórz serwer</button>
+        <button type="button" data-server-tab="join" data-i18n="Dołącz kodem">Dołącz kodem</button>
       </div>
 
       <section class="server-panel" data-server-panel="create">
         <label class="field">
-          <span>Nazwa serwera</span>
-          <input type="text" id="serverName" maxlength="40" placeholder="np. Ekipa z podwórka" spellcheck="false">
+          <span data-i18n="Nazwa serwera">Nazwa serwera</span>
+          <input type="text" id="serverName" maxlength="40" placeholder="np. Ekipa z podwórka" data-i18n-placeholder="np. Ekipa z podwórka" spellcheck="false">
         </label>
         <div class="field">
-          <span>Kolor serwera</span>
+          <span data-i18n="Kolor serwera">Kolor serwera</span>
           <div class="color-row" id="serverColors">
-            <button type="button" class="color-dot selected" data-server-color="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy"></button>
-            <button type="button" class="color-dot" data-server-color="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny"></button>
-            <button type="button" class="color-dot" data-server-color="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy"></button>
-            <button type="button" class="color-dot" data-server-color="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy"></button>
-            <button type="button" class="color-dot" data-server-color="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy"></button>
-            <button type="button" class="color-dot" data-server-color="#ffd166" style="--dot:#ffd166" aria-label="Żółty"></button>
+            <button type="button" class="color-dot selected" data-server-color="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy" data-i18n-aria-label="Miętowy"></button>
+            <button type="button" class="color-dot" data-server-color="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny" data-i18n-aria-label="Błękitny"></button>
+            <button type="button" class="color-dot" data-server-color="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy" data-i18n-aria-label="Brzoskwiniowy"></button>
+            <button type="button" class="color-dot" data-server-color="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy" data-i18n-aria-label="Różowy"></button>
+            <button type="button" class="color-dot" data-server-color="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy" data-i18n-aria-label="Lawendowy"></button>
+            <button type="button" class="color-dot" data-server-color="#ffd166" style="--dot:#ffd166" aria-label="Żółty" data-i18n-aria-label="Żółty"></button>
           </div>
         </div>
         <p class="form-error" id="createServerError" role="alert"></p>
         <div class="settings-actions">
-          <button type="button" class="btn-primary" id="createServerBtn">Utwórz serwer</button>
+          <button type="button" class="btn-primary" id="createServerBtn" data-i18n="Utwórz serwer">Utwórz serwer</button>
         </div>
       </section>
 
       <section class="server-panel" data-server-panel="join" hidden>
         <label class="field">
-          <span>Link zaproszenia</span>
+          <span data-i18n="Link zaproszenia">Link zaproszenia</span>
           <input type="text" id="serverInvite" placeholder="chill://192.168.1.5:47830/AB12CD" spellcheck="false">
         </label>
-        <p class="server-hint">Poproś właściciela serwera o link. Działa w sieci lokalnej, a po przekierowaniu portu 47830 — także przez internet.</p>
+        <p class="server-hint" data-i18n="Poproś właściciela serwera o link. Działa w sieci lokalnej, a po przekierowaniu portu 47830 — także przez internet.">Poproś właściciela serwera o link. Działa w sieci lokalnej, a po przekierowaniu portu 47830 — także przez internet.</p>
         <p class="form-error" id="joinServerError" role="alert"></p>
         <div class="settings-actions">
-          <button type="button" class="btn-primary" id="joinServerBtn">Dołącz do serwera</button>
+          <button type="button" class="btn-primary" id="joinServerBtn" data-i18n="Dołącz do serwera">Dołącz do serwera</button>
         </div>
       </section>
     </div>
@@ -541,18 +554,76 @@
   <!-- Zaproszenie / zarządzanie serwerem -->
   <div class="modal" id="inviteOverlay" hidden>
     <div class="modal-card invite-card">
-      <button type="button" class="icon-btn modal-close" id="closeInviteModal" aria-label="Zamknij">✕</button>
-      <h2>Zaproś do serwera</h2>
+      <button type="button" class="icon-btn modal-close" id="closeInviteModal" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      <h2 data-i18n="Zaproś do serwera">Zaproś do serwera</h2>
       <p class="settings-lead" id="inviteServerName">Serwer</p>
       <div class="invite-box">
         <code id="inviteLink">chill://…</code>
-        <button type="button" class="btn-secondary" id="copyInviteBtn">Kopiuj</button>
+        <button type="button" class="btn-secondary" id="copyInviteBtn" data-i18n="Kopiuj">Kopiuj</button>
       </div>
-      <p class="server-hint">Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie „Dołącz kodem”.</p>
+      <p class="server-hint" data-i18n="Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie „Dołącz kodem”.">Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie „Dołącz kodem”.</p>
       <div class="divider"></div>
       <div class="settings-actions invite-actions">
         <span class="saved-note" id="inviteSaved"></span>
         <button type="button" class="btn-secondary danger" id="leaveServerBtn">Opuść serwer</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nowy kanał -->
+  <div class="modal" id="channelOverlay" hidden>
+    <div class="modal-card server-card channel-card">
+      <button type="button" class="icon-btn modal-close" id="closeChannelModal" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      <div class="server-modal-head">
+        <h2 data-i18n="Nowy kanał">Nowy kanał</h2>
+        <p data-i18n="Wybierz typ kanału i nadaj mu nazwę.">Wybierz typ kanału i nadaj mu nazwę.</p>
+      </div>
+
+      <div class="field channel-type-field">
+        <span data-i18n="Typ kanału">Typ kanału</span>
+        <div class="segmented channel-type-tabs" id="channelTypeChoices">
+          <button type="button" class="active" data-channel-type="text">
+            <span class="channel-type-icon">#</span>
+            <span data-i18n="Do pisania">Do pisania</span>
+          </button>
+          <button type="button" data-channel-type="voice">
+            <span class="channel-type-icon">🔊</span>
+            <span data-i18n="Głosowy">Głosowy</span>
+          </button>
+        </div>
+      </div>
+
+      <label class="field">
+        <span data-i18n="Nazwa kanału">Nazwa kanału</span>
+        <input type="text" id="newChannelName" maxlength="32" placeholder="np. ogólny" data-i18n-placeholder="np. ogólny" spellcheck="false">
+      </label>
+
+      <p class="form-error" id="channelError" role="alert"></p>
+      <div class="settings-actions">
+        <button type="button" class="btn-secondary" id="cancelChannelBtn" data-i18n="Anuluj">Anuluj</button>
+        <button type="button" class="btn-primary" id="createChannelBtn" data-i18n="Stwórz">Stwórz</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Menu kontekstowe kanału -->
+  <div class="context-menu" id="channelMenu" hidden role="menu">
+    <button type="button" class="context-item danger" id="deleteChannelBtn" role="menuitem">
+      <span class="context-icon" aria-hidden="true">🗑</span>
+      <span data-i18n="Usuń kanał">Usuń kanał</span>
+    </button>
+  </div>
+
+  <!-- Potwierdzenie usunięcia kanału -->
+  <div class="modal" id="channelDeleteOverlay" hidden>
+    <div class="modal-card delete-card">
+      <button type="button" class="icon-btn modal-close" id="closeChannelDelete" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      <h2 data-i18n="Usunąć kanał?">Usunąć kanał?</h2>
+      <p class="settings-lead" id="channelDeleteText"></p>
+      <p class="settings-note" data-i18n="Tej operacji nie można cofnąć. Historia wiadomości w kanale zostanie usunięta.">Tej operacji nie można cofnąć. Historia wiadomości w kanale zostanie usunięta.</p>
+      <div class="settings-actions">
+        <button type="button" class="btn-secondary" id="cancelDeleteChannel" data-i18n="Anuluj">Anuluj</button>
+        <button type="button" class="btn-secondary danger" id="confirmDeleteChannel" data-i18n="Usuń kanał">Usuń kanał</button>
       </div>
     </div>
   </div>
