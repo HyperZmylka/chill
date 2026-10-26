@@ -13,6 +13,7 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 - **Znajomi** — kliknij profil innego członka serwera, dodaj go do znajomych i pisz bezpośrednio.
 - **Trwała historia** — wiadomości serwera zapisują się u osoby, która go hostuje; DM-y lokalne w `chat-data.json`, a DM-y serwerowe u hosta w `servers.json`.
 - **Emoji** — picker z wyszukiwarką i listą ostatnio używanych.
+- **GIF-y** — przycisk obok emoji, kategorie i wyszukiwarka; wybrany GIF pojawia się bezpośrednio w rozmowie.
 - **Wzmianki `@`** — podpowiedzi członków serwera i znajomych, wstawianie nicku z klawiatury i wyróżnienie w wiadomości.
 - **Statusy** — online, zaraz wracam, nie przeszkadzać, niewidoczny.
 - **Wykrywanie gier** — „Gra w …” na profilu i liście członków.
@@ -50,6 +51,15 @@ Serwer działa na komputerze właściciela — nie ma centralnego serwera. Gdy h
 Znajomi z serwera są zapisani dla Twojego konta lokalnie, a ich wiadomości prywatne przechodzą przez serwer hosta. Rozmowa działa, gdy host jest online; historia DM-ów serwerowych jest przechowywana w `servers.json` na komputerze hosta. Konto, które otrzyma wiadomość prywatną z serwera, automatycznie dodaje nadawcę do znajomych.
 
 Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach prywatnych** od razu — bez dodawania do znajomych.
+
+## GIF-y
+
+- Przycisk **GIF** znajduje się w polu pisania, obok emoji. Otwiera picker z kategoriami (`Popularne`, `Reakcje`, `Śmieszne`, `Zwierzęta`, `Jedzenie`, `Gry`) i wyszukiwarką.
+- Wyszukiwanie działa lokalnie, bez wysyłania zapytań do internetu. Ignoruje polskie znaki diakrytyczne i obsługuje proste synonimy, np. `kot`/`koty` oraz `serce`/`serca`.
+- Katalog jest wbudowany w aplikację (`gifs.js`, 96 pozycji, treści: GIPHY) — nie wymaga klucza API ani konta GIPHY.
+- Wybrany GIF jest wysyłany jako zwykły link `https://media.giphy.com/media/<id>/giphy.gif`, dzięki czemu działa w kanałach serwera i w DM-ach, a historia zapisuje się tak jak pozostałe wiadomości.
+- W rozmowie link GIF-a jest rozpoznawany i wyświetlany jako obrazek. Sama miniatura i obrazek są pobierane z `media.giphy.com`, więc do wyświetlania GIF-ów potrzebne jest połączenie z internetem.
+- W pickerze i pod wiadomościami znajduje się oznaczenie **Powered by GIPHY**.
 
 ## Język interfejsu
 
@@ -127,7 +137,8 @@ Szczegóły wydawania nowej wersji: [GITHUB-UPDATER.md](GITHUB-UPDATER.md).
 
 - `main.js` — okno, tray (także w języku interfejsu), konta, hostowanie serwerów (HTTP/WebSocket), walidacja uprawnień kanałów, `servers.json`, `language.json`, aktualizacje.
 - `preload.js` — bezpieczny most `window.chill` (context isolation).
-- `renderer.js` — logowanie, serwery, kanały tekstowe/głosowe, zaproszenia, profile i znajomi, DM-y, emoji, wzmianki `@`, motywy, ustawienia, tłumaczenia PL/EN, powiadomienia.
+- `renderer.js` — logowanie, serwery, kanały tekstowe/głosowe, zaproszenia, profile i znajomi, DM-y, emoji, GIF-y, wzmianki `@`, motywy, ustawienia, tłumaczenia PL/EN, powiadomienia.
+- `gifs.js` — statyczny katalog GIF-ów (treści: GIPHY, bez klucza API).
 - `index.html` / `style.css` — interfejs Chill.
 
 Czat serwerów działa przez wbudowany serwer WebSocket na porcie `47830`. Każdy hostowany serwer jest dostępny pod kodem zaproszenia; wiadomości, członkowie i DM-y serwerowe są zapisywani w `servers.json`.

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws: wss: http: https:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://*.giphy.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws: wss: http: https:;">
 <title>Chill</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -234,6 +234,7 @@
       <div class="composer-field">
         <textarea id="messageInput" rows="1" placeholder="Napisz wiadomość…" data-i18n-placeholder="Napisz wiadomość…" maxlength="4000" spellcheck="true"></textarea>
         <button type="button" class="composer-btn" id="emojiBtn" title="Emoji" aria-label="Emoji" data-i18n-title="Emoji" data-i18n-aria-label="Emoji">☺</button>
+        <button type="button" class="composer-btn gif-btn" id="gifBtn" title="GIF" aria-label="GIF" aria-controls="gifOverlay" aria-expanded="false">GIF</button>
         <div class="mention-pop" id="mentionPop" hidden></div>
       </div>
       <button type="submit" class="send-btn" id="sendBtn" title="Wyślij" data-i18n-title="Wyślij" disabled>↑</button>
@@ -248,6 +249,20 @@
       <input type="search" class="emoji-search" id="emojiSearch" placeholder="Szukaj emoji…" data-i18n-placeholder="Szukaj emoji…" spellcheck="false">
       <div class="emoji-recent" id="emojiRecent"></div>
       <div class="emoji-grid" id="emojiGrid"></div>
+    </div>
+
+    <!-- GIF -->
+    <div class="gif-pop" id="gifOverlay" hidden>
+      <header class="gif-head">
+        <strong>GIF</strong>
+        <button type="button" class="icon-btn tiny" id="closeGif" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      </header>
+      <input type="search" class="gif-search" id="gifSearch" placeholder="Szukaj GIF-ów…" data-i18n-placeholder="Szukaj GIF-ów…" spellcheck="false">
+      <div class="gif-categories" id="gifCategories"></div>
+      <div class="gif-grid" id="gifGrid"></div>
+      <footer class="gif-foot">
+        <button type="button" class="gif-attribution" id="giphyLink" title="GIPHY">Powered by GIPHY</button>
+      </footer>
     </div>
   </main>
 
@@ -629,6 +644,7 @@
   </div>
 </div>
 
+<script src="gifs.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>

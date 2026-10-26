@@ -5,6 +5,33 @@ const CHILL = window.chill || {};
 const WS_URL = `ws://127.0.0.1:${CHILL.chatPort || 47830}/chat`;
 const $ = (id) => document.getElementById(id);
 
+// ---------- GIF-y (statyczny katalog GIPHY) ----------
+const GIFS = Array.isArray(window.CHILL_GIFS) ? window.CHILL_GIFS : [];
+const GIF_BASE = 'https://media.giphy.com/media';
+const GIF_ID_RE = /^[A-Za-z0-9]{5,40}$/;
+const GIF_MESSAGE_RE = /^https:\/\/media\.giphy\.com\/media\/([A-Za-z0-9]{5,40})\/giphy\.gif$/;
+const GIF_ALL_CATEGORIES = 'Wszystkie';
+const GIF_CATEGORY_QUERY = {
+  Popularne: 'popular trending',
+  Reakcje: 'reactions reaction reakcja',
+  Śmieszne: 'funny',
+  Zwierzęta: 'animals pets',
+  Jedzenie: 'food drink',
+  Gry: 'games gaming gra',
+};
+const GIF_QUERY_ALIASES = {
+  serce: ['serca'],
+  serca: ['serce'],
+  koty: ['kot'],
+  psy: ['pies'],
+  ciasta: ['ciasto'],
+  gry: ['gra'],
+  gra: ['gry'],
+  reakcja: ['reakcje'],
+  reakcje: ['reakcja'],
+};
+let gifState = { category: 'Popularne', query: '' };
+
 // ---------- Emoji ----------
 const EMOJI_GROUPS = [
   { name: 'Emocje', items: ['😀', '😁', '😂', '🤣', '😊', '😉', '😍', '🥰', '😘', '😋', '😎', '🤩', '🥳', '😏', '😢', '😭', '😤', '😡', '🤬', '😱', '😳', '🤔', '🤨', '😐', '🙄', '😴', '🤯', '🥺', '😬', '🤗', '🤭', '🤫', '😅', '😇', '🙃', '😜', '🤪'] },
@@ -180,6 +207,15 @@ const I18N_EN = {
   'Pokaż członków': 'Show members',
   'Emoji': 'Emoji',
   'Szukaj emoji…': 'Search emoji…',
+  'Szukaj GIF-ów…': 'Search GIFs…',
+  'Wszystkie': 'All',
+  'Popularne': 'Popular',
+  'Reakcje': 'Reactions',
+  'Śmieszne': 'Funny',
+  'Zwierzęta': 'Animals',
+  'Jedzenie': 'Food',
+  'Gry': 'Games',
+  'Otwórz GIF': 'Open GIF',
   'Członkowie': 'Members',
   'Napisz wiadomość…': 'Write a message…',
   'Wyślij': 'Send',
@@ -499,6 +535,10 @@ function applyLanguage(lang, persist = false) {
   renderMessages(false);
   renderMembers();
   updateComposer();
+  if ($('gifOverlay') && !$('gifOverlay').hidden) {
+    renderGifCategories();
+    renderGifs();
+  }
   renderTyping();
   updateBadges();
   if (!$('userProfileOverlay').hidden) renderUserProfile();
@@ -621,6 +661,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindChat();
   bindServers();
   bindEmoji();
+  bindGif();
   bindSettings();
   bindUserProfile();
   bindShortcuts();
@@ -897,6 +938,8 @@ function logout() {
   $('userList').innerHTML = '';
   $('loginPassword').value = '';
   $('loginError').textContent = '';
+  closeEmojiPicker();
+  closeGifPicker();
   document.title = 'Chill';
   if (CHILL.chat?.setBadge) CHILL.chat.setBadge(0);
 
@@ -2822,6 +2865,10 @@ function updateComposer() {
   }
   $('sendBtn').disabled = !enabled || !input.value.trim();
   $('typingBar').hidden = !enabled || typingUsers.size === 0;
+  if (!enabled) {
+    closeEmojiPicker();
+    closeGifPicker();
+  }
 }
 
 function conversationKey() {
@@ -3031,7 +3078,32 @@ function buildMessage(message, grouped) {
 
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
-  bubble.innerHTML = formatMessageText(message.text);
+  const gifId = gifMessageId(message.text);
+  if (gifId) {
+    bubble.classList.add('bubble-gif');
+    const img = document.createElement('img');
+    img.className = 'chat-gif';
+    img.src = gifThumbUrl(gifId);
+    img.alt = 'GIF';
+    img.title = 'GIF • GIPHY';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.draggable = false;
+    img.referrerPolicy = 'no-referrer';
+    img.addEventListener('error', () => {
+      img.remove();
+      const fallback = document.createElement('button');
+      fallback.type = 'button';
+      fallback.className = 'chat-gif-fallback';
+      fallback.textContent = t('Otwórz GIF');
+      fallback.title = gifFullUrl(gifId);
+      fallback.addEventListener('click', () => CHILL.app?.openExternal?.(gifFullUrl(gifId)));
+      bubble.appendChild(fallback);
+    });
+    bubble.appendChild(img);
+  } else {
+    bubble.innerHTML = formatMessageText(message.text);
+  }
 
   main.appendChild(meta);
   main.appendChild(bubble);
@@ -3079,9 +3151,19 @@ function sendCurrentMessage(e) {
   const input = $('messageInput');
   const text = input.value.trim();
   if (!text) return;
+  if (!deliverMessage(text)) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+  $('sendBtn').disabled = true;
+  input.focus();
+  stopTyping();
+}
+
+function deliverMessage(text) {
   if (current.kind === 'home') {
     toast(t('Wybierz rozmowę lub kanał, aby napisać.'));
-    return;
+    return false;
   }
 
   if (current.kind === 'server') {
@@ -3089,25 +3171,25 @@ function sendCurrentMessage(e) {
     const channel = state?.channels.find((item) => item.id === current.id);
     if (!state || !state.ws || state.ws.readyState !== WebSocket.OPEN || !channel) {
       toast(t('Łączę z serwerem — spróbuj za chwilę.'));
-      return;
+      return false;
     }
     if (channel.type === 'voice') {
       toast(t('Kanały głosowe nie obsługują wiadomości tekstowych.'));
-      return;
+      return false;
     }
     state.ws.send(JSON.stringify({ type: 'server:message', channelId: channel.id, text }));
   } else {
     const entry = dmEntry(current.id);
     if (!entry) {
       toast(t('Ta rozmowa nie jest już dostępna.'));
-      return;
+      return false;
     }
 
     if (entry.kind === 'server') {
       const state = serverState(entry.serverId);
       if (!state || state.status !== 'online' || !state.ws || state.ws.readyState !== WebSocket.OPEN || !state.you) {
         toast(t('Serwer jest offline — spróbuj, gdy połączenie wróci.'));
-        return;
+        return false;
       }
       const message = {
         id: `sdm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -3124,7 +3206,7 @@ function sendCurrentMessage(e) {
       if (!wsReady()) {
         toast(t('Łączę z serwerem — spróbuj za chwilę.'));
         connect();
-        return;
+        return false;
       }
       const message = {
         id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -3146,12 +3228,7 @@ function sendCurrentMessage(e) {
     renderMessages(false);
   }
   scrollBottom();
-
-  input.value = '';
-  input.style.height = 'auto';
-  $('sendBtn').disabled = true;
-  input.focus();
-  stopTyping();
+  return true;
 }
 
 let typingSent = false;
@@ -3260,7 +3337,7 @@ function notifyIncoming(message, where, isCurrent) {
   if (prefs.notify && CHILL.chat?.notify) {
     CHILL.chat.notify({
       title: mention ? t('Wzmianka od {name}', { name: message.authorName }) : `${message.authorName} • ${where}`,
-      body: String(message.text).slice(0, 160),
+      body: gifMessageId(message.text) ? 'GIF' : String(message.text).slice(0, 160),
     });
   }
   if (prefs.sound) playSound(mention);
@@ -3293,21 +3370,31 @@ function bindEmoji() {
   const pop = $('emojiOverlay');
   $('emojiBtn').addEventListener('click', (e) => {
     e.stopPropagation();
+    const opening = pop.hidden;
     pop.hidden = !pop.hidden;
-    if (!pop.hidden) {
+    if (opening) {
+      closeGifPicker();
       $('emojiSearch').value = '';
       $('emojiSearch').focus();
       renderEmoji('');
       renderRecent();
     }
   });
-  $('closeEmoji').addEventListener('click', () => { pop.hidden = true; });
+  $('closeEmoji').addEventListener('click', closeEmojiPicker);
   pop.addEventListener('click', (e) => e.stopPropagation());
-  document.addEventListener('click', () => { pop.hidden = true; });
+  document.addEventListener('click', closeEmojiPicker);
   $('emojiSearch').addEventListener('input', () => renderEmoji($('emojiSearch').value));
   $('emojiSearch').addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') pop.hidden = true;
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      closeEmojiPicker();
+    }
   });
+}
+
+function closeEmojiPicker() {
+  const pop = $('emojiOverlay');
+  if (pop) pop.hidden = true;
 }
 
 function renderEmoji(query) {
@@ -3356,7 +3443,7 @@ function insertEmoji(char) {
   resizeInput();
   $('sendBtn').disabled = !input.value.trim();
   saveRecent(char);
-  $('emojiOverlay').hidden = true;
+  closeEmojiPicker();
 }
 
 function saveRecent(char) {
@@ -3364,6 +3451,170 @@ function saveRecent(char) {
   try { recent = JSON.parse(localStorage.getItem(recentKey()) || '[]'); } catch { recent = []; }
   recent = [char, ...recent.filter((c) => c !== char)].slice(0, 12);
   try { localStorage.setItem(recentKey(), JSON.stringify(recent)); } catch { /* ignore */ }
+}
+
+// ============================================================
+// GIF-Y
+// ============================================================
+function bindGif() {
+  const pop = $('gifOverlay');
+  const search = $('gifSearch');
+  $('gifBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const opening = pop.hidden;
+    pop.hidden = !pop.hidden;
+    $('gifBtn').setAttribute('aria-expanded', String(!pop.hidden));
+    if (opening) {
+      closeEmojiPicker();
+      gifState.query = '';
+      search.value = '';
+      renderGifCategories();
+      renderGifs();
+      search.focus();
+    }
+  });
+  $('closeGif').addEventListener('click', closeGifPicker);
+  pop.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', closeGifPicker);
+  search.addEventListener('input', () => {
+    const wasSearching = Boolean(gifState.query.trim());
+    gifState.query = search.value;
+    const isSearching = Boolean(gifState.query.trim());
+    if (wasSearching !== isSearching) renderGifCategories();
+    renderGifs();
+  });
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      closeGifPicker();
+    }
+  });
+  $('gifCategories').addEventListener('click', (e) => {
+    const button = e.target.closest('[data-gif-category]');
+    if (!button) return;
+    gifState.category = button.dataset.gifCategory;
+    gifState.query = '';
+    search.value = '';
+    renderGifCategories();
+    renderGifs();
+    search.focus();
+  });
+  $('giphyLink').addEventListener('click', () => {
+    CHILL.app?.openExternal?.('https://giphy.com');
+  });
+}
+
+function closeGifPicker() {
+  const pop = $('gifOverlay');
+  if (pop) pop.hidden = true;
+  const button = $('gifBtn');
+  if (button) button.setAttribute('aria-expanded', 'false');
+}
+
+function renderGifCategories() {
+  const container = $('gifCategories');
+  if (!container) return;
+  const categories = [GIF_ALL_CATEGORIES];
+  for (const gif of GIFS) {
+    if (gif?.category && !categories.includes(gif.category)) categories.push(gif.category);
+  }
+  const searching = Boolean(gifState.query.trim());
+  container.innerHTML = '';
+  for (const category of categories) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'gif-category';
+    button.dataset.gifCategory = category;
+    button.textContent = t(category);
+    const active = !searching && gifState.category === category;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+    container.appendChild(button);
+  }
+}
+
+function renderGifs() {
+  const grid = $('gifGrid');
+  if (!grid) return;
+  const query = foldGifText(gifState.query);
+  const terms = query.split(/\s+/).filter(Boolean);
+  const list = GIFS.filter((gif) => {
+    if (!gif || !GIF_ID_RE.test(String(gif.id || ''))) return false;
+    if (terms.length) {
+      const categorySearch = GIF_CATEGORY_QUERY[gif.category] || '';
+      const haystack = foldGifText(`${gif.title} ${gif.category} ${categorySearch} ${gif.tags}`);
+      return terms.every((term) => {
+        if (haystack.includes(term)) return true;
+        return (GIF_QUERY_ALIASES[term] || []).some((alias) => haystack.includes(alias));
+      });
+    }
+    return gifState.category === GIF_ALL_CATEGORIES || gif.category === gifState.category;
+  });
+  grid.innerHTML = '';
+  if (!list.length) {
+    grid.innerHTML = `<div class="gif-empty">${esc(t('Nic nie znaleziono'))}</div>`;
+    return;
+  }
+  for (const gif of list) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'gif-item';
+    button.title = gif.title || 'GIF';
+    button.setAttribute('aria-label', gif.title || 'GIF');
+    const img = document.createElement('img');
+    img.src = gifPreviewUrl(gif.id);
+    img.alt = gif.title || 'GIF';
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.draggable = false;
+    img.referrerPolicy = 'no-referrer';
+    img.addEventListener('error', () => {
+      if (img.dataset.fallback === '1') {
+        img.remove();
+        const label = document.createElement('span');
+        label.className = 'gif-missing-label';
+        label.textContent = 'GIF';
+        button.appendChild(label);
+        return;
+      }
+      img.dataset.fallback = '1';
+      img.src = gifThumbUrl(gif.id);
+    });
+    button.appendChild(img);
+    button.addEventListener('click', () => sendGif(gif));
+    grid.appendChild(button);
+  }
+}
+
+function sendGif(gif) {
+  const id = String(gif?.id || '');
+  if (!GIF_ID_RE.test(id) || $('composer').hidden) return;
+  hideMentionPop();
+  if (!deliverMessage(gifFullUrl(id))) return;
+  closeGifPicker();
+  stopTyping();
+  $('messageInput').focus();
+}
+
+function gifMessageId(text) {
+  const match = String(text ?? '').trim().match(GIF_MESSAGE_RE);
+  return match ? match[1] : null;
+}
+
+function gifUrl(id, file) {
+  return GIF_ID_RE.test(String(id ?? '')) ? `${GIF_BASE}/${id}/${file}` : '';
+}
+
+function gifFullUrl(id) { return gifUrl(id, 'giphy.gif'); }
+function gifThumbUrl(id) { return gifUrl(id, '200w.gif'); }
+function gifPreviewUrl(id) { return gifUrl(id, 'giphy-preview.gif'); }
+
+function foldGifText(value) {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/ł/g, 'l')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '');
 }
 
 // ============================================================
@@ -3700,7 +3951,8 @@ function bindShortcuts() {
       if (!$('serverOverlay').hidden) { closeServerModal(); return; }
       if (!$('inviteOverlay').hidden) { $('inviteOverlay').hidden = true; return; }
       if (!$('settingsOverlay').hidden) { closeSettings(); return; }
-      if (!$('emojiOverlay').hidden) { $('emojiOverlay').hidden = true; return; }
+      if (!$('gifOverlay').hidden) { closeGifPicker(); return; }
+      if (!$('emojiOverlay').hidden) { closeEmojiPicker(); return; }
       if (!$('searchBar').hidden) { setMessageSearch(false); return; }
     }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && currentUser) {
