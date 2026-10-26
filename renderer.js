@@ -969,8 +969,13 @@ function renderIdentity() {
   $('myAvatar').textContent = initial(myName);
   $('myAvatar').style.background = myColor;
   $('myName').textContent = myName;
-  const extra = playing ? ` • ${playing}` : '';
-  $('myStatus').textContent = statusLabel(prefs.status) + extra;
+  const handle = currentUser.username || mentionHandle(myName);
+  $('myHandle').textContent = handle ? `@${handle}` : '';
+  const status = prefs.status || 'online';
+  const statusText = statusLabel(status) + (playing ? ` • ${t('Gra w {game}', { game: playing })}` : '');
+  $('myStatusDot').className = `status-dot ${status}`;
+  $('myStatusDot').title = statusText;
+  $('myProfileBtn').setAttribute('aria-label', `${t('Edytuj profil')} • ${statusText}`);
   $('settingsAvatar').textContent = initial(myName);
   $('settingsAvatar').style.background = myColor;
   $('settingsName').textContent = myName;
