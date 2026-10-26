@@ -30,7 +30,7 @@ const GIF_QUERY_ALIASES = {
   reakcja: ['reakcje'],
   reakcje: ['reakcja'],
 };
-let gifState = { category: 'Popularne', query: '' };
+let gifState = { category: GIF_ALL_CATEGORIES, query: '' };
 
 // ---------- Emoji ----------
 const EMOJI_GROUPS = [
@@ -3551,11 +3551,17 @@ function renderGifs() {
     return gifState.category === GIF_ALL_CATEGORIES || gif.category === gifState.category;
   });
   grid.innerHTML = '';
+  grid.classList.toggle('is-empty', !list.length);
   if (!list.length) {
     grid.innerHTML = `<div class="gif-empty">${esc(t('Nic nie znaleziono'))}</div>`;
     return;
   }
-  for (const gif of list) {
+  const columns = [document.createElement('div'), document.createElement('div')];
+  for (const column of columns) {
+    column.className = 'gif-column';
+    grid.appendChild(column);
+  }
+  list.forEach((gif, index) => {
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'gif-item';
@@ -3582,8 +3588,8 @@ function renderGifs() {
     });
     button.appendChild(img);
     button.addEventListener('click', () => sendGif(gif));
-    grid.appendChild(button);
-  }
+    columns[index % 2].appendChild(button);
+  });
 }
 
 function sendGif(gif) {

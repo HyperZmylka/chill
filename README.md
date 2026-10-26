@@ -54,7 +54,8 @@ Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach p
 
 ## GIF-y
 
-- Przycisk **GIF** znajduje się w polu pisania, obok emoji. Otwiera picker z kategoriami (`Popularne`, `Reakcje`, `Śmieszne`, `Zwierzęta`, `Jedzenie`, `Gry`) i wyszukiwarką.
+- Przycisk **GIF** znajduje się w polu pisania, obok emoji. Otwiera picker z kategoriami (`Wszystkie`, `Popularne`, `Reakcje`, `Śmieszne`, `Zwierzęta`, `Jedzenie`, `Gry`) i wyszukiwarką.
+- Domyślnie widać cały katalog w dwóch kolumnach. Każdy GIF jest wyświetlany w całości, bez przycinania, a przewijanie prowadzi przez wszystkie pozycje aż do końca.
 - Wyszukiwanie działa lokalnie, bez wysyłania zapytań do internetu. Ignoruje polskie znaki diakrytyczne i obsługuje proste synonimy, np. `kot`/`koty` oraz `serce`/`serca`.
 - Katalog jest wbudowany w aplikację (`gifs.js`, 96 pozycji, treści: GIPHY) — nie wymaga klucza API ani konta GIPHY.
 - Wybrany GIF jest wysyłany jako zwykły link `https://media.giphy.com/media/<id>/giphy.gif`, dzięki czemu działa w kanałach serwera i w DM-ach, a historia zapisuje się tak jak pozostałe wiadomości.

@@ -1081,7 +1081,7 @@ body[data-theme="gradient"] .server-rail {
   overflow: hidden;
 }
 .emoji-pop { width: 344px; max-height: 430px; }
-.gif-pop { width: 380px; max-height: min(470px, calc(100vh - 170px)); }
+.gif-pop { width: 380px; max-height: min(600px, calc(100vh - 170px)); }
 @keyframes popIn { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }
 .emoji-head,
 .gif-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 14px 6px; }
@@ -1146,17 +1146,24 @@ body[data-theme="gradient"] .server-rail {
   border-color: transparent;
 }
 .gif-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-content: start;
+  display: flex;
+  align-items: flex-start;
   gap: 7px;
   padding: 2px 12px 10px;
   overflow-y: auto;
   min-height: 0;
 }
+.gif-grid.is-empty { display: block; }
+.gif-column {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
 .gif-item {
   position: relative;
-  aspect-ratio: 16 / 10;
+  width: 100%;
   border: 1px solid var(--line);
   border-radius: 11px;
   background: var(--panel-2);
@@ -1165,9 +1172,9 @@ body[data-theme="gradient"] .server-rail {
   transition: transform 0.12s ease, border-color 0.12s ease;
 }
 .gif-item:hover { transform: scale(1.015); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
-.gif-item img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.gif-missing-label { display: grid; place-items: center; width: 100%; height: 100%; color: var(--faint); font-size: 11px; font-weight: 800; letter-spacing: 0.08em; }
-.gif-empty { grid-column: 1 / -1; text-align: center; color: var(--faint); font-size: 12px; padding: 22px 0; }
+.gif-item img { display: block; width: 100%; height: auto; object-fit: contain; }
+.gif-missing-label { display: grid; place-items: center; width: 100%; min-height: 110px; color: var(--faint); font-size: 11px; font-weight: 800; letter-spacing: 0.08em; }
+.gif-empty { text-align: center; color: var(--faint); font-size: 12px; padding: 22px 0; }
 .gif-foot {
   display: flex; align-items: center; justify-content: flex-end;
   padding: 6px 12px;
