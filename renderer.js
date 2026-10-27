@@ -2,6 +2,7 @@
 'use strict';
 
 const CHILL = window.chill || {};
+const VOICE = window.CHILL_VOICE;
 const WS_URL = `ws://127.0.0.1:${CHILL.chatPort || 47830}/chat`;
 const $ = (id) => document.getElementById(id);
 
@@ -113,6 +114,11 @@ let friends = [];
 let profileTarget = null;
 let playing = null;
 let searchQuery = '';
+let localVoiceKey = '';
+let voiceSession = null;
+let voiceStarting = false;
+let voiceAudio = null;
+let voicePlayback = { messageId: '', url: '', duration: 0, playing: false };
 let current = { kind: 'home' };
 let profileColor = '#3ee0a3';
 let regColor = '#3ee0a3';
@@ -250,6 +256,28 @@ const I18N_EN = {
   'Naklejki': 'Stickers',
   'Naklejka': 'Sticker',
   'Szukaj naklejek…': 'Search stickers…',
+  'Wiadomość głosowa': 'Voice message',
+  'Głosówka': 'Voice message',
+  'Nagraj wiadomość głosową': 'Record a voice message',
+  'Nagrywanie…': 'Recording…',
+  'Wyślij nagranie': 'Send recording',
+  'Anuluj nagrywanie': 'Cancel recording',
+  'Wysyłanie…': 'Sending…',
+  'Odtwórz wiadomość głosową': 'Play voice message',
+  'Wstrzymaj wiadomość głosową': 'Pause voice message',
+  'Przewiń wiadomość głosową': 'Seek voice message',
+  'Nie udało się nagrać wiadomości głosowej.': 'Could not record the voice message.',
+  'Nie udało się włączyć mikrofonu. Sprawdź uprawnienia w systemie.': 'Could not access the microphone. Check system permissions.',
+  'Nagranie jest za krótkie.': 'The recording is too short.',
+  'Nie udało się wysłać wiadomości głosowej.': 'Could not send the voice message.',
+  'Sesja głosowa wygasła — połącz ponownie.': 'The voice session expired — reconnect.',
+  'Nagranie jest za duże.': 'The recording is too large.',
+  'Nieobsługiwany format nagrania.': 'Unsupported recording format.',
+  'Nie można teraz nagrywać — połącz z serwerem.': 'Cannot record right now — connect to the server.',
+  'Połącz z serwerem, aby odtworzyć głosówkę.': 'Connect to the server to play the voice message.',
+  'Nie można odtworzyć wiadomości głosowej.': 'Could not play the voice message.',
+  'Maksymalna długość nagrania to 120 sekund.': 'The maximum recording length is 120 seconds.',
+  'Nie wysłano nagrania — zmieniono rozmowę.': 'Recording not sent — the conversation changed.',
   'Wszystkie': 'All',
   'Popularne': 'Popular',
   'Reakcje': 'Reactions',
@@ -805,6 +833,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindEmoji();
   bindSticker();
   bindGif();
+  bindVoice();
   bindSettings();
   bindAudioControls();
   bindUserProfile();
@@ -999,12 +1028,14 @@ function updateStrength() {
 }
 
 function enterApp(user) {
+  resetVoiceSession();
   currentUser = user;
   myId = user.id;
   myName = user.displayName || user.username;
   myColor = user.color || '#3ee0a3';
   myAbout = user.about || '';
   playing = null;
+  localVoiceKey = '';
   current = { kind: 'home' };
   servers = [];
   activeServerId = null;
@@ -1047,6 +1078,8 @@ function enterApp(user) {
 }
 
 function logout() {
+  resetVoiceSession();
+  localVoiceKey = '';
   closeAudioMenus();
   if (reconnectTimer) clearTimeout(reconnectTimer);
   if (ws) {
@@ -1620,6 +1653,11 @@ function connect() {
   socket.onclose = () => {
     if (ws !== socket) return;
     ws = null;
+    localVoiceKey = '';
+    if (current.kind === 'dm' && !String(current.id).startsWith('srv:')) {
+      resetVoicePlayback();
+      if (voiceSession) cancelVoiceRecording(true);
+    }
     if (!currentUser) return;
     reconnectTimer = setTimeout(connect, 2500);
   };
@@ -1631,6 +1669,7 @@ function handleMessage(msg) {
   switch (msg.type) {
     case 'joined': {
       allUsers = Array.isArray(msg.users) ? msg.users : [];
+      localVoiceKey = String(msg.voiceKey || '');
       for (const key of [...history.keys()]) {
         if (key.startsWith('dm:') && !key.startsWith('dm:srv:')) history.delete(key);
       }
@@ -1794,6 +1833,11 @@ function connectServer(server) {
   socket.onclose = () => {
     if (state.ws !== socket) return;
     state.ws = null;
+    state.voiceKey = '';
+    if ((current.kind === 'server' && current.serverId === server.id)
+      || (current.kind === 'dm' && String(current.id).startsWith(`srv:${server.id}:`))) {
+      resetVoicePlayback();
+    }
     if (state.status === 'online' || state.status === 'connecting') state.status = 'offline';
     state.you = null;
     state.members = state.members.map((member) => ({ ...member, online: false }));
@@ -1834,6 +1878,7 @@ function handleServerFrame(serverId, msg) {
       state.error = '';
       state.attempts = 0;
       state.you = msg.you || null;
+      state.voiceKey = String(msg.voiceKey || '');
       state.channels = (Array.isArray(msg.server?.channels) ? msg.server.channels : []).map((channel) => ({
         ...channel,
         type: channel.type === 'voice' ? 'voice' : 'text',
@@ -2103,6 +2148,10 @@ function removeServerLocally(serverId) {
       state.ws.onclose = null;
       try { state.ws.close(); } catch { /* ignore */ }
     }
+  }
+  if ((current.kind === 'server' && current.serverId === serverId)
+    || (current.kind === 'dm' && String(current.id).startsWith(`srv:${serverId}:`))) {
+    resetVoiceSession();
   }
   serverStates.delete(serverId);
   servers = servers.filter((server) => server.id !== serverId);
@@ -3021,6 +3070,7 @@ function pushHistory(key, message) {
 }
 
 function selectConversation(kind, id) {
+  resetVoiceSession();
   activeServerId = null;
   current = { kind, id };
   hideMentionPop();
@@ -3056,6 +3106,7 @@ function ensureServerState(server) {
       channels: [],
       members: [],
       you: null,
+      voiceKey: '',
       error: '',
       reconnectTimer: null,
       attempts: 0,
@@ -3101,6 +3152,7 @@ function unreadCountFor(prefix) {
 }
 
 function selectHome() {
+  resetVoiceSession();
   activeServerId = null;
   current = { kind: 'home' };
   hideMentionPop();
@@ -3121,6 +3173,7 @@ function selectHome() {
 function selectServer(id) {
   const server = servers.find((item) => item.id === id);
   if (!server) return;
+  resetVoiceSession();
   hideMentionPop();
   const state = ensureServerState(server);
   activeServerId = id;
@@ -3148,6 +3201,7 @@ function selectServer(id) {
 function selectChannel(channelId) {
   const state = serverState(activeServerId);
   if (!state || !state.channels.some((channel) => channel.id === channelId)) return;
+  resetVoiceSession();
   hideMentionPop();
   state.lastChannelId = channelId;
   current = { kind: 'server', serverId: activeServerId, id: channelId };
@@ -3708,8 +3762,11 @@ function updateComposer() {
   const enabled = current.kind === 'dm'
     ? Boolean(entry) && dmServerOnline
     : current.kind === 'server' && state?.status === 'online' && Boolean(channel) && !isVoice;
+  const recording = Boolean(voiceSession);
+  if (!enabled && voiceSession) cancelVoiceRecording(true);
   $('composer').hidden = !enabled;
-  input.disabled = !enabled;
+  input.disabled = !enabled || recording;
+  $('voiceBtn').hidden = !enabled || recording;
   if (current.kind === 'dm') {
     if (entry?.kind === 'server') {
       input.placeholder = enabled
@@ -3723,8 +3780,8 @@ function updateComposer() {
   } else {
     input.placeholder = t('Wybierz kanał, aby napisać…');
   }
-  $('sendBtn').disabled = !enabled || !input.value.trim();
-  $('typingBar').hidden = !enabled || typingUsers.size === 0;
+  $('sendBtn').disabled = !enabled || recording || !input.value.trim();
+  $('typingBar').hidden = !enabled || recording || typingUsers.size === 0;
   if (!enabled) {
     closeEmojiPicker();
     closeStickerPicker();
@@ -3838,6 +3895,8 @@ function renderMessages(scroll = true) {
     list = list.filter((m) => {
       const sticker = stickerMessageDescriptor(m.text);
       if (sticker) return stickerSearchText(sticker).includes(searchQuery);
+      const voice = VOICE ? VOICE.parse(m.text) : null;
+      if (voice) return VOICE.searchText.includes(searchQuery);
       return String(m.text).toLowerCase().includes(searchQuery);
     });
   }
@@ -3877,6 +3936,7 @@ function renderMessages(scroll = true) {
     container.appendChild(buildMessage(message, grouped));
     prev = message;
   }
+  syncVoicePlayers();
 
   if (scroll) scrollBottom();
 }
@@ -3944,6 +4004,7 @@ function buildMessage(message, grouped) {
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
   const sticker = stickerMessageDescriptor(message.text);
+  const voice = VOICE ? VOICE.parse(message.text) : null;
   if (sticker) {
     bubble.classList.add('bubble-sticker');
     const img = document.createElement('img');
@@ -3955,6 +4016,9 @@ function buildMessage(message, grouped) {
     img.decoding = 'async';
     img.draggable = false;
     bubble.appendChild(img);
+  } else if (voice) {
+    bubble.classList.add('bubble-voice');
+    bubble.appendChild(buildVoicePlayer(message, voice));
   } else {
     const gif = gifMessageDescriptor(message.text);
     const chatUrl = gif ? gifChatSource(gif) : '';
@@ -4009,6 +4073,612 @@ function formatMessageText(text) {
   return esc(text)
     .replace(/@([\p{L}\p{N}_.-]{2,32})/gu, '<b>@$1</b>')
     .replace(/\n/g, '\n');
+}
+
+// ============================================================
+// WIADOMOŚCI GŁOSOWE
+// ============================================================
+const VOICE_PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.4v13.2c0 .8.9 1.3 1.5.8l9.8-6.6c.6-.4.6-1.2 0-1.6L9.5 4.6C8.9 4.1 8 4.6 8 5.4z" fill="currentColor"/></svg>';
+const VOICE_PAUSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2" fill="currentColor"/><rect x="13.5" y="5" width="4" height="14" rx="1.2" fill="currentColor"/></svg>';
+
+function voiceMessageDescriptor(text) {
+  return VOICE ? VOICE.parse(text) : null;
+}
+
+function voiceTransport() {
+  if (current.kind === 'server') {
+    const state = serverState(current.serverId);
+    const channel = state?.channels.find((item) => item.id === current.id);
+    if (!state || state.status !== 'online' || !state.ws || state.ws.readyState !== WebSocket.OPEN) return null;
+    if (!channel || channel.type === 'voice' || !state.voiceKey) return null;
+    const address = state.server.address || (state.server.owner ? `127.0.0.1:${CHILL.chatPort || 47830}` : '');
+    if (!address) return null;
+    return { address, key: state.voiceKey, conversationKey: conversationKey() };
+  }
+  if (current.kind === 'dm') {
+    const entry = dmEntry(current.id);
+    if (!entry) return null;
+    if (entry.kind === 'server') {
+      const state = serverState(entry.serverId);
+      if (!state || state.status !== 'online' || !state.ws || state.ws.readyState !== WebSocket.OPEN || !state.voiceKey) return null;
+      const address = state.server.address || (state.server.owner ? `127.0.0.1:${CHILL.chatPort || 47830}` : '');
+      if (!address) return null;
+      return { address, key: state.voiceKey, conversationKey: conversationKey() };
+    }
+    if (!wsReady() || !localVoiceKey) return null;
+    return { address: `127.0.0.1:${CHILL.chatPort || 47830}`, key: localVoiceKey, conversationKey: conversationKey() };
+  }
+  return null;
+}
+
+function voiceSourceUrl(voice) {
+  const transport = voiceTransport();
+  if (!transport || !voice || !voice.id) return '';
+  return `http://${transport.address}/voice/${voice.id}?key=${encodeURIComponent(transport.key)}`;
+}
+
+function ensureVoiceAudio() {
+  if (voiceAudio) return voiceAudio;
+  voiceAudio = new Audio();
+  voiceAudio.preload = 'metadata';
+  voiceAudio.addEventListener('timeupdate', () => updateVoicePlayerUi());
+  voiceAudio.addEventListener('loadedmetadata', () => {
+    if (voiceAudio.dataset.messageId === voicePlayback.messageId && Number.isFinite(voiceAudio.duration)) {
+      voicePlayback.duration = voiceAudio.duration;
+    }
+    updateVoicePlayerUi();
+  });
+  voiceAudio.addEventListener('play', () => {
+    voicePlayback.playing = true;
+    updateVoicePlayerUi();
+  });
+  voiceAudio.addEventListener('pause', () => {
+    if (voiceAudio.ended) return;
+    voicePlayback.playing = false;
+    updateVoicePlayerUi();
+  });
+  voiceAudio.addEventListener('ended', () => {
+    voicePlayback.playing = false;
+    try { voiceAudio.currentTime = 0; } catch { /* ignore */ }
+    updateVoicePlayerUi();
+  });
+  voiceAudio.addEventListener('error', () => {
+    if (!voicePlayback.messageId) return;
+    voicePlayback.playing = false;
+    updateVoicePlayerUi();
+    toast(t('Nie można odtworzyć wiadomości głosowej.'));
+  });
+  return voiceAudio;
+}
+
+function syncVoicePlayers() {
+  updateVoicePlayerUi();
+}
+
+function updateVoicePlayerUi() {
+  const audio = voiceAudio;
+  const activeId = voicePlayback.messageId;
+  document.querySelectorAll('.voice-player').forEach((player) => {
+    const playBtn = player.querySelector('.voice-play');
+    const fill = player.querySelector('.voice-track-fill');
+    const time = player.querySelector('.voice-time');
+    const stored = Number(player.dataset.duration) || 0;
+    const active = Boolean(activeId) && player.dataset.voiceId === activeId
+      && Boolean(audio) && audio.dataset.messageId === activeId;
+    const total = active && Number.isFinite(audio.duration) && audio.duration > 0
+      ? audio.duration
+      : stored;
+    if (!active) {
+      player.classList.remove('active');
+      if (playBtn) {
+        playBtn.innerHTML = VOICE_PLAY_ICON;
+        playBtn.setAttribute('aria-label', t('Odtwórz wiadomość głosową'));
+        playBtn.setAttribute('aria-pressed', 'false');
+        playBtn.title = t('Odtwórz wiadomość głosową');
+      }
+      if (fill) fill.style.width = '0%';
+      if (time) time.textContent = VOICE ? VOICE.formatDuration(total) : '0:00';
+      return;
+    }
+    player.classList.add('active');
+    const current = Math.max(0, Math.min(audio.currentTime || 0, total || 0));
+    const ratio = total > 0 ? current / total : 0;
+    if (playBtn) {
+      playBtn.innerHTML = voicePlayback.playing ? VOICE_PAUSE_ICON : VOICE_PLAY_ICON;
+      const label = voicePlayback.playing ? t('Wstrzymaj wiadomość głosową') : t('Odtwórz wiadomość głosową');
+      playBtn.setAttribute('aria-label', label);
+      playBtn.setAttribute('aria-pressed', String(voicePlayback.playing));
+      playBtn.title = label;
+    }
+    if (fill) fill.style.width = `${Math.max(0, Math.min(1, ratio)) * 100}%`;
+    if (time) {
+      time.textContent = total > 0
+        ? `${VOICE ? VOICE.formatDuration(current) : '0:00'} / ${VOICE ? VOICE.formatDuration(total) : '0:00'}`
+        : '0:00';
+    }
+  });
+}
+
+function toggleVoicePlayback(message, voice) {
+  if (!VOICE) return;
+  const url = voiceSourceUrl(voice);
+  if (!url) {
+    toast(t('Połącz z serwerem, aby odtworzyć głosówkę.'));
+    return;
+  }
+  const audio = ensureVoiceAudio();
+  if (voicePlayback.messageId === message.id && audio.dataset.url === url) {
+    if (audio.paused) {
+      voicePlayback.playing = true;
+      audio.play().catch(() => {
+        voicePlayback.playing = false;
+        updateVoicePlayerUi();
+        toast(t('Nie można odtworzyć wiadomości głosowej.'));
+      });
+    } else {
+      audio.pause();
+    }
+    updateVoicePlayerUi();
+    return;
+  }
+
+  try { audio.pause(); } catch { /* ignore */ }
+  voicePlayback = {
+    messageId: message.id,
+    url,
+    duration: voice.seconds || 0,
+    playing: true,
+  };
+  audio.dataset.messageId = message.id;
+  audio.dataset.url = url;
+  audio.src = url;
+  updateVoicePlayerUi();
+  audio.play().catch(() => {
+    if (voicePlayback.messageId !== message.id) return;
+    voicePlayback.playing = false;
+    updateVoicePlayerUi();
+    toast(t('Nie można odtworzyć wiadomości głosowej.'));
+  });
+}
+
+function seekVoicePlayback(message, voice, ratio) {
+  const audio = ensureVoiceAudio();
+  if (voicePlayback.messageId !== message.id || audio.dataset.url !== voiceSourceUrl(voice)) {
+    toggleVoicePlayback(message, voice);
+    return;
+  }
+  const total = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : (voice.seconds || 0);
+  if (!total) return;
+  const next = Math.max(0, Math.min(total, total * ratio));
+  try { audio.currentTime = next; } catch { /* ignore */ }
+  updateVoicePlayerUi();
+}
+
+function resetVoicePlayback() {
+  if (voiceAudio) {
+    try { voiceAudio.pause(); } catch { /* ignore */ }
+    voiceAudio.removeAttribute('src');
+    voiceAudio.dataset.messageId = '';
+    voiceAudio.dataset.url = '';
+    try { voiceAudio.load(); } catch { /* ignore */ }
+  }
+  voicePlayback = { messageId: '', url: '', duration: 0, playing: false };
+}
+
+function buildVoicePlayer(message, voice) {
+  const player = document.createElement('div');
+  player.className = 'voice-player';
+  player.dataset.voiceId = message.id;
+  player.dataset.duration = String(voice.seconds || 0);
+
+  const playBtn = document.createElement('button');
+  playBtn.type = 'button';
+  playBtn.className = 'voice-play';
+  playBtn.innerHTML = VOICE_PLAY_ICON;
+  playBtn.setAttribute('aria-label', t('Odtwórz wiadomość głosową'));
+  playBtn.setAttribute('aria-pressed', 'false');
+  playBtn.title = t('Odtwórz wiadomość głosową');
+  playBtn.addEventListener('click', () => toggleVoicePlayback(message, voice));
+
+  const track = document.createElement('button');
+  track.type = 'button';
+  track.className = 'voice-track';
+  track.setAttribute('aria-label', t('Przewiń wiadomość głosową'));
+  track.title = t('Przewiń wiadomość głosową');
+  const rail = document.createElement('span');
+  rail.className = 'voice-track-rail';
+  const fill = document.createElement('span');
+  fill.className = 'voice-track-fill';
+  rail.appendChild(fill);
+  track.appendChild(rail);
+  track.addEventListener('click', (event) => {
+    if (event.detail === 0) {
+      toggleVoicePlayback(message, voice);
+      return;
+    }
+    const rect = track.getBoundingClientRect();
+    if (!rect.width) return;
+    seekVoicePlayback(message, voice, (event.clientX - rect.left) / rect.width);
+  });
+  track.addEventListener('keydown', (event) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const active = voicePlayback.messageId === message.id
+      && Boolean(voiceAudio) && voiceAudio.dataset.url === voiceSourceUrl(voice);
+    if (!active) {
+      toggleVoicePlayback(message, voice);
+      return;
+    }
+    const total = Number.isFinite(voiceAudio.duration) && voiceAudio.duration > 0
+      ? voiceAudio.duration
+      : (voice.seconds || 0);
+    const ratio = total > 0 ? (voiceAudio.currentTime || 0) / total : 0;
+    let next = ratio;
+    if (event.key === 'ArrowRight') next = Math.min(1, ratio + 0.05);
+    else if (event.key === 'ArrowLeft') next = Math.max(0, ratio - 0.05);
+    else if (event.key === 'End') next = 1;
+    else next = 0;
+    seekVoicePlayback(message, voice, next);
+  });
+
+  const time = document.createElement('span');
+  time.className = 'voice-time';
+  time.textContent = VOICE ? VOICE.formatDuration(voice.seconds) : '0:00';
+
+  player.append(playBtn, track, time);
+  return player;
+}
+
+function pickVoiceMime() {
+  if (typeof MediaRecorder === 'undefined') return '';
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/ogg;codecs=opus',
+    'audio/webm',
+    'audio/ogg',
+    'audio/mp4',
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (MediaRecorder.isTypeSupported(candidate)) return candidate;
+    } catch { /* ignore */ }
+  }
+  return '';
+}
+
+async function requestMicrophone() {
+  const constraints = {
+    audio: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    },
+    video: false,
+  };
+  if (prefs.audioInput) constraints.audio.deviceId = { exact: prefs.audioInput };
+  try {
+    return await navigator.mediaDevices.getUserMedia(constraints);
+  } catch (err) {
+    if (prefs.audioInput && ['OverconstrainedError', 'NotFoundError', 'NotReadableError'].includes(err?.name)) {
+      return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    }
+    throw err;
+  }
+}
+
+function showVoiceRecordingUi() {
+  $('composer').classList.add('recording');
+  $('voiceRecording').hidden = false;
+  $('voiceRecording').classList.remove('sending');
+  $('voiceRecTime').textContent = '0:00';
+  $('voiceSendBtn').disabled = false;
+  $('voiceCancelBtn').disabled = false;
+  $('messageInput').disabled = true;
+  $('sendBtn').disabled = true;
+  $('voiceBtn').hidden = true;
+}
+
+function setVoiceSendingUi() {
+  $('voiceRecording').classList.add('sending');
+  $('voiceRecTime').textContent = t('Wysyłanie…');
+  $('voiceSendBtn').disabled = true;
+  $('voiceCancelBtn').disabled = true;
+}
+
+function formatRecordingClock(seconds) {
+  const total = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+async function startVoiceRecording() {
+  if (voiceSession || voiceStarting) return;
+  if (!VOICE || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+    toast(t('Nie udało się nagrać wiadomości głosowej.'));
+    return;
+  }
+  const transport = voiceTransport();
+  if (!transport) {
+    toast(t('Nie można teraz nagrywać — połącz z serwerem.'));
+    return;
+  }
+  voiceStarting = true;
+  try {
+    await beginVoiceRecording(transport);
+  } finally {
+    voiceStarting = false;
+  }
+}
+
+async function beginVoiceRecording(transport) {
+  const targetKey = transport.conversationKey;
+  closeEmojiPicker();
+  closeStickerPicker();
+  closeGifPicker();
+  hideMentionPop();
+  resetVoicePlayback();
+
+  let stream;
+  try {
+    stream = await requestMicrophone();
+  } catch {
+    toast(t('Nie udało się włączyć mikrofonu. Sprawdź uprawnienia w systemie.'), 4200);
+    return;
+  }
+  if (conversationKey() !== targetKey || !voiceTransport()) {
+    stream.getTracks().forEach((track) => track.stop());
+    return;
+  }
+
+  const mimeType = pickVoiceMime();
+  let recorder;
+  try {
+    recorder = mimeType
+      ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
+      : new MediaRecorder(stream, { audioBitsPerSecond: 32000 });
+  } catch {
+    try {
+      recorder = new MediaRecorder(stream);
+    } catch {
+      stream.getTracks().forEach((track) => track.stop());
+      toast(t('Nie udało się nagrać wiadomości głosowej.'));
+      return;
+    }
+  }
+
+  const session = {
+    recorder,
+    stream,
+    chunks: [],
+    startedAt: performance.now(),
+    duration: 0,
+    mode: 'send',
+    mimeType: recorder.mimeType || mimeType || 'audio/webm',
+    conversationKey: targetKey,
+    timer: null,
+    tick: null,
+    stopping: false,
+    finalized: false,
+    finished: false,
+    cancelled: false,
+    silent: false,
+  };
+  recorder.ondataavailable = (event) => {
+    if (event.data && event.data.size > 0) session.chunks.push(event.data);
+  };
+  recorder.onerror = () => {
+    if (session.stopping) return;
+    session.cancelled = true;
+    session.silent = true;
+    stopVoiceRecording('cancel');
+    toast(t('Nie udało się nagrać wiadomości głosowej.'));
+  };
+  recorder.onstop = () => { void finalizeVoiceRecording(session); };
+
+  try {
+    recorder.start(250);
+  } catch {
+    stream.getTracks().forEach((track) => track.stop());
+    toast(t('Nie udało się nagrać wiadomości głosowej.'));
+    return;
+  }
+
+  voiceSession = session;
+  showVoiceRecordingUi();
+  session.tick = setInterval(() => {
+    if (voiceSession !== session) return;
+    const elapsed = Math.min(VOICE.MAX_SECONDS, (performance.now() - session.startedAt) / 1000);
+    $('voiceRecTime').textContent = formatRecordingClock(elapsed);
+  }, 200);
+  session.timer = setTimeout(() => {
+    if (voiceSession !== session || session.stopping) return;
+    toast(t('Maksymalna długość nagrania to 120 sekund.'));
+    stopVoiceRecording('send');
+  }, VOICE.MAX_SECONDS * 1000);
+}
+
+function stopVoiceRecording(mode = 'send') {
+  const session = voiceSession;
+  if (!session || session.stopping || session.finalized) return;
+  session.mode = mode === 'cancel' ? 'cancel' : 'send';
+  session.duration = Math.min(VOICE.MAX_SECONDS, (performance.now() - session.startedAt) / 1000);
+  session.stopping = true;
+  if (session.mode === 'cancel') session.cancelled = true;
+  clearInterval(session.tick);
+  clearTimeout(session.timer);
+  session.tick = null;
+  session.timer = null;
+  if (session.mode === 'send') setVoiceSendingUi();
+  try {
+    if (session.recorder.state !== 'inactive') session.recorder.stop();
+    else void finalizeVoiceRecording(session);
+  } catch {
+    void finalizeVoiceRecording(session);
+  }
+}
+
+function cancelVoiceRecording(silent = false) {
+  const session = voiceSession;
+  if (!session) return;
+  session.cancelled = true;
+  session.silent = Boolean(silent);
+  session.mode = 'cancel';
+  if (session.finalized) {
+    finishVoiceSession(session);
+    return;
+  }
+  stopVoiceRecording('cancel');
+}
+
+async function finalizeVoiceRecording(session) {
+  if (session.finalized) return;
+  session.finalized = true;
+  clearInterval(session.tick);
+  clearTimeout(session.timer);
+  session.tick = null;
+  session.timer = null;
+  if (!session.duration) {
+    session.duration = Math.min(VOICE.MAX_SECONDS, (performance.now() - session.startedAt) / 1000);
+  }
+  try {
+    session.stream.getTracks().forEach((track) => track.stop());
+  } catch { /* ignore */ }
+
+  if (session.mode === 'cancel' || session.cancelled) {
+    finishVoiceSession(session);
+    return;
+  }
+  if (!session.chunks.length || session.duration < VOICE.MIN_SECONDS) {
+    finishVoiceSession(session);
+    if (!session.silent) toast(t('Nagranie jest za krótkie.'));
+    return;
+  }
+
+  const blob = new Blob(session.chunks, { type: session.mimeType || 'audio/webm' });
+  if (!blob.size) {
+    finishVoiceSession(session);
+    if (!session.silent) toast(t('Nie udało się nagrać wiadomości głosowej.'));
+    return;
+  }
+
+  try {
+    const uploaded = await uploadVoiceBlob(blob, session.duration);
+    if (session.cancelled || voiceSession !== session) {
+      void deleteVoiceUpload(uploaded);
+      return;
+    }
+    if (conversationKey() !== session.conversationKey) {
+      void deleteVoiceUpload(uploaded);
+      toast(t('Nie wysłano nagrania — zmieniono rozmowę.'));
+      return;
+    }
+    if (!deliverMessage(uploaded.token)) {
+      void deleteVoiceUpload(uploaded);
+      throw new Error(t('Nie udało się wysłać wiadomości głosowej.'));
+    }
+  } catch (err) {
+    if (!session.cancelled && !session.silent) {
+      toast(err?.message || t('Nie udało się wysłać wiadomości głosowej.'), 4200);
+    }
+  } finally {
+    finishVoiceSession(session);
+  }
+}
+
+function finishVoiceSession(session) {
+  if (session.finished) return;
+  session.finished = true;
+  if (voiceSession === session) voiceSession = null;
+  restoreVoiceComposer();
+}
+
+function restoreVoiceComposer() {
+  const composer = $('composer');
+  if (!composer) return;
+  composer.classList.remove('recording');
+  $('voiceRecording').hidden = true;
+  $('voiceRecording').classList.remove('sending');
+  $('voiceRecTime').textContent = '0:00';
+  $('voiceSendBtn').disabled = false;
+  $('voiceCancelBtn').disabled = false;
+  const enabled = !composer.hidden;
+  $('messageInput').disabled = !enabled;
+  $('voiceBtn').hidden = !enabled;
+  $('sendBtn').disabled = !enabled || !$('messageInput').value.trim();
+}
+
+async function uploadVoiceBlob(blob, seconds) {
+  if (!VOICE) throw new Error(t('Nie udało się wysłać wiadomości głosowej.'));
+  const transport = voiceTransport();
+  if (!transport) throw new Error(t('Sesja głosowa wygasła — połącz ponownie.'));
+  const url = `http://${transport.address}/voice?key=${encodeURIComponent(transport.key)}&d=${encodeURIComponent(VOICE.clampSeconds(seconds))}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  let response;
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': blob.type || 'audio/webm' },
+      body: blob,
+      signal: controller.signal,
+    });
+  } catch {
+    throw new Error(t('Nie udało się wysłać wiadomości głosowej.'));
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (!response.ok) {
+    let error = '';
+    try { error = (await response.json())?.error || ''; } catch { /* ignore */ }
+    if (response.status === 413 || error === 'too-large') throw new Error(t('Nagranie jest za duże.'));
+    if (response.status === 415 || error === 'unsupported-type') throw new Error(t('Nieobsługiwany format nagrania.'));
+    if (response.status === 401) throw new Error(t('Sesja głosowa wygasła — połącz ponownie.'));
+    throw new Error(t('Nie udało się wysłać wiadomości głosowej.'));
+  }
+
+  const data = await response.json().catch(() => null);
+  if (!data || !data.ok || !data.id) throw new Error(t('Nie udało się wysłać wiadomości głosowej.'));
+  return {
+    token: VOICE.token(data.id, data.duration || seconds),
+    id: data.id,
+    address: transport.address,
+    key: transport.key,
+  };
+}
+
+async function deleteVoiceUpload(uploaded) {
+  if (!uploaded || !uploaded.id || !uploaded.address || !uploaded.key) return;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    await fetch(`http://${uploaded.address}/voice/${uploaded.id}?key=${encodeURIComponent(uploaded.key)}`, {
+      method: 'DELETE',
+      signal: controller.signal,
+    });
+  } catch { /* nagranie usunie późniejsze sprzątanie */ } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function resetVoiceSession() {
+  if (voiceSession) cancelVoiceRecording(true);
+  resetVoicePlayback();
+}
+
+function bindVoice() {
+  if (!$('voiceBtn')) return;
+  $('voiceBtn').addEventListener('click', () => { void startVoiceRecording(); });
+  $('voiceCancelBtn').addEventListener('click', () => cancelVoiceRecording());
+  $('voiceSendBtn').addEventListener('click', () => stopVoiceRecording('send'));
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !voiceSession) return;
+    event.preventDefault();
+    event.stopPropagation();
+    cancelVoiceRecording();
+  }, true);
+  window.addEventListener('beforeunload', () => {
+    if (voiceSession) cancelVoiceRecording(true);
+  });
 }
 
 function isNearBottom() {
@@ -4227,13 +4897,16 @@ function notifyIncoming(message, where, isCurrent) {
   const mention = isMention(message.text);
   if (prefs.mentionsOnly && !mention) return;
   const sticker = stickerMessageDescriptor(message.text);
+  const voice = voiceMessageDescriptor(message.text);
 
   if (prefs.notify && CHILL.chat?.notify) {
     CHILL.chat.notify({
       title: mention ? t('Wzmianka od {name}', { name: message.authorName }) : `${message.authorName} • ${where}`,
       body: sticker
         ? `${t('Naklejka')} • ${stickerLabel(sticker)}`
-        : gifMessageDescriptor(message.text) ? 'GIF' : String(message.text).slice(0, 160),
+        : voice
+          ? `${t('Wiadomość głosowa')} • ${VOICE ? VOICE.formatDuration(voice.seconds) : ''}`
+          : gifMessageDescriptor(message.text) ? 'GIF' : String(message.text).slice(0, 160),
     });
   }
   if (prefs.sound) playSound(mention);

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://*.giphy.com https://*.klipy.com https://cdn.discordapp.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws: wss: http: https:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://*.giphy.com https://*.klipy.com https://cdn.discordapp.com; media-src 'self' blob: data: http: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws: wss: http: https:;">
 <title>Chill</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -308,6 +308,22 @@
           </svg>
         </button>
         <button type="button" class="composer-btn gif-btn" id="gifBtn" title="GIF" aria-label="GIF" aria-controls="gifOverlay" aria-expanded="false">GIF</button>
+        <button type="button" class="composer-btn voice-btn" id="voiceBtn" title="Nagraj wiadomość głosową" aria-label="Nagraj wiadomość głosową" data-i18n-title="Nagraj wiadomość głosową" data-i18n-aria-label="Nagraj wiadomość głosową">
+          <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="3" width="6" height="11" rx="3"/>
+            <path d="M5.5 11.5a6.5 6.5 0 0 0 13 0"/>
+            <path d="M12 18v3"/>
+            <path d="M8.5 21h7"/>
+          </svg>
+        </button>
+        <div class="voice-recording" id="voiceRecording" hidden role="status" aria-live="polite">
+          <span class="voice-rec-dot" aria-hidden="true"></span>
+          <span class="voice-rec-label" data-i18n="Nagrywanie…">Nagrywanie…</span>
+          <span class="voice-rec-bars" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+          <span class="voice-rec-time" id="voiceRecTime">0:00</span>
+          <button type="button" class="voice-rec-btn cancel" id="voiceCancelBtn" title="Anuluj nagrywanie" aria-label="Anuluj nagrywanie" data-i18n-title="Anuluj nagrywanie" data-i18n-aria-label="Anuluj nagrywanie">✕</button>
+          <button type="button" class="voice-rec-btn send" id="voiceSendBtn" title="Wyślij nagranie" aria-label="Wyślij nagranie" data-i18n-title="Wyślij nagranie" data-i18n-aria-label="Wyślij nagranie">✓</button>
+        </div>
         <div class="mention-pop" id="mentionPop" hidden></div>
       </div>
       <button type="submit" class="send-btn" id="sendBtn" title="Wyślij" data-i18n-title="Wyślij" disabled>↑</button>
@@ -820,6 +836,7 @@
 
 <script src="gifs.js"></script>
 <script src="stickers.js"></script>
+<script src="voice.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>

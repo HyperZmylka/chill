@@ -17,6 +17,7 @@ const {
   normalizeServerName,
   parseTemplateCode,
 } = require('./discord-import');
+const voiceMessages = require('./voice');
 
 app.setName('Chill');
 
@@ -57,6 +58,8 @@ const chatDataPath = () => path.join(dataDir(), 'chat-data.json');
 const serversPath = () => path.join(dataDir(), 'servers.json');
 const languagePath = () => path.join(dataDir(), 'language.json');
 const discordPath = () => path.join(dataDir(), 'discord.json');
+const voiceDir = () => path.join(dataDir(), 'voice');
+const voiceIndexPath = () => path.join(voiceDir(), 'index.json');
 
 let appLanguage = null;
 
@@ -337,6 +340,174 @@ function findHostedServer(id) {
   return loadServersStore().hosted.find((server) => server.id === id) || null;
 }
 
+// ---------- Wiadomości głosowe ----------
+let voiceStore = null;
+const voiceTokens = new Map();
+const VOICE_TOKEN_TTL = 7 * 24 * 60 * 60 * 1000;
+
+function loadVoiceStore() {
+  if (voiceStore) return voiceStore;
+  let raw = null;
+  try {
+    raw = JSON.parse(fs.readFileSync(voiceIndexPath(), 'utf8'));
+  } catch {
+    raw = null;
+  }
+  const items = {};
+  if (raw && typeof raw === 'object' && raw.items && typeof raw.items === 'object') {
+    for (const [id, item] of Object.entries(raw.items)) {
+      if (!voiceMessages.isValidId(id) || !item || typeof item !== 'object') continue;
+      const scope = String(item.scope || '');
+      if (scope !== 'local' && !/^server:[a-zA-Z0-9_-]{6,80}$/.test(scope)) continue;
+      const mime = voiceMessages.normalizeMime(item.mime);
+      const ext = voiceMessages.extensionForMime(mime);
+      const file = String(item.file || '');
+      if (!mime || file !== `${id}.${ext}`) continue;
+      items[id] = {
+        id,
+        scope,
+        ownerId: String(item.ownerId || '').slice(0, 64),
+        mime,
+        ext,
+        file,
+        size: Math.max(0, Number(item.size) || 0),
+        duration: voiceMessages.clampSeconds(item.duration),
+        at: Number(item.at) || Date.now(),
+      };
+    }
+  }
+  voiceStore = { items };
+  return voiceStore;
+}
+
+function saveVoiceStore() {
+  if (!voiceStore) return;
+  try {
+    fs.mkdirSync(voiceDir(), { recursive: true });
+    fs.writeFileSync(voiceIndexPath(), JSON.stringify(voiceStore), 'utf8');
+  } catch (err) {
+    console.error('[voice] Nie udało się zapisać indeksu nagrań:', err.message);
+  }
+}
+
+function voiceScopeAllowed(scope, memberId) {
+  if (scope === 'local') return Boolean(findUserById(memberId));
+  if (scope.startsWith('server:')) {
+    const server = findHostedServer(scope.slice(7));
+    return Boolean(server && server.members.some((member) => member.id === memberId));
+  }
+  return false;
+}
+
+function pruneVoiceTokens() {
+  const now = Date.now();
+  for (const [token, entry] of voiceTokens) {
+    if (!entry || entry.expiresAt <= now) voiceTokens.delete(token);
+  }
+}
+
+function issueVoiceToken(ws, scope, memberId) {
+  pruneVoiceTokens();
+  const token = crypto.randomBytes(24).toString('hex');
+  voiceTokens.set(token, {
+    scope,
+    memberId,
+    expiresAt: Date.now() + VOICE_TOKEN_TTL,
+  });
+  if (!ws._voiceTokens) ws._voiceTokens = new Set();
+  ws._voiceTokens.add(token);
+  return token;
+}
+
+function revokeVoiceTokens(ws, scopePrefix = '') {
+  if (!ws._voiceTokens) return;
+  for (const token of [...ws._voiceTokens]) {
+    const entry = voiceTokens.get(token);
+    if (!entry || !scopePrefix || entry.scope.startsWith(scopePrefix)) {
+      voiceTokens.delete(token);
+      ws._voiceTokens.delete(token);
+    }
+  }
+}
+
+function activeVoiceToken(value) {
+  const token = String(value || '');
+  if (!token) return null;
+  const entry = voiceTokens.get(token);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) {
+    voiceTokens.delete(token);
+    return null;
+  }
+  if (!voiceScopeAllowed(entry.scope, entry.memberId)) return null;
+  return entry;
+}
+
+function removeVoiceItem(id) {
+  if (!voiceMessages.isValidId(id)) return false;
+  const store = loadVoiceStore();
+  const item = store.items[id];
+  if (!item) return false;
+  delete store.items[id];
+  try {
+    fs.unlinkSync(path.join(voiceDir(), item.file));
+  } catch { /* plik mógł już zniknąć */ }
+  return true;
+}
+
+function removeVoiceFromMessages(messages) {
+  let changed = false;
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const parsed = voiceMessages.parse(message?.text);
+    if (parsed && removeVoiceItem(parsed.id)) changed = true;
+  }
+  return changed;
+}
+
+function removeVoiceForServer(server) {
+  if (!server || typeof server !== 'object') return false;
+  let changed = false;
+  for (const list of Object.values(server.messages || {})) {
+    if (removeVoiceFromMessages(list)) changed = true;
+  }
+  for (const list of Object.values(server.dms || {})) {
+    if (removeVoiceFromMessages(list)) changed = true;
+  }
+  return changed;
+}
+
+function pruneOrphanedVoices(maxAgeMs = 24 * 60 * 60 * 1000) {
+  const store = loadVoiceStore();
+  const ids = Object.keys(store.items);
+  if (!ids.length) return;
+  const referenced = new Set();
+  const collect = (messages) => {
+    for (const message of Array.isArray(messages) ? messages : []) {
+      const parsed = voiceMessages.parse(message?.text);
+      if (parsed) referenced.add(parsed.id);
+    }
+  };
+  for (const server of loadServersStore().hosted) {
+    for (const list of Object.values(server.messages || {})) collect(list);
+    for (const list of Object.values(server.dms || {})) collect(list);
+  }
+  for (const list of Object.values(loadChatStore().dms || {})) collect(list);
+
+  const cutoff = Date.now() - maxAgeMs;
+  let changed = false;
+  for (const id of ids) {
+    const item = store.items[id];
+    if (!item || referenced.has(id) || Number(item.at) > cutoff) continue;
+    delete store.items[id];
+    try {
+      fs.unlinkSync(path.join(voiceDir(), item.file));
+    } catch { /* plik mógł już zniknąć */ }
+    changed = true;
+  }
+  if (changed) saveVoiceStore();
+}
+
+
 function uniqueInviteCode() {
   const hosted = loadServersStore().hosted;
   let code = makeInviteCode();
@@ -543,6 +714,7 @@ function detachServerSession(ws) {
   const session = ws._serverSession;
   if (!session) return;
   ws._serverSession = null;
+  revokeVoiceTokens(ws, 'server:');
   const set = serverSessions.get(session.serverId);
   if (set) {
     set.delete(ws);
@@ -596,6 +768,7 @@ function handleJoinServer(ws, msg, send) {
 
   ws._serverSession = { serverId: server.id, memberId, name, color, owner };
   serverSockets(server.id).add(ws);
+  const voiceKey = issueVoiceToken(ws, `server:${server.id}`, memberId);
   scheduleServersSave();
 
   const messages = {};
@@ -617,14 +790,236 @@ function handleJoinServer(ws, msg, send) {
     messages,
     dms: serverDmsPayload(server, memberId),
     you: { memberId, owner },
+    voiceKey,
   });
   broadcastServerMembers(server);
 }
 
+function sendJson(res, status, payload) {
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(payload));
+}
+
+function readVoiceBody(req, limit) {
+  return new Promise((resolve, reject) => {
+    let size = 0;
+    let done = false;
+    const chunks = [];
+    const fail = (error) => {
+      if (done) return;
+      done = true;
+      reject(error);
+    };
+    req.on('data', (chunk) => {
+      if (done) return;
+      size += chunk.length;
+      if (size > limit) {
+        fail(Object.assign(new Error('too-large'), { code: 'too-large' }));
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (done) return;
+      done = true;
+      resolve(Buffer.concat(chunks));
+    });
+    req.on('error', (error) => fail(error));
+  });
+}
+
+function looksLikeVoiceData(buffer, mime) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false;
+  switch (mime) {
+    case 'audio/webm':
+      return buffer.readUInt32BE(0) === 0x1a45dfa3;
+    case 'audio/ogg':
+      return buffer.subarray(0, 4).toString('ascii') === 'OggS';
+    case 'audio/mp4':
+      return buffer.subarray(4, 8).toString('ascii') === 'ftyp';
+    case 'audio/wav':
+    case 'audio/x-wav':
+      return buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WAVE';
+    case 'audio/mpeg':
+      return buffer.subarray(0, 3).toString('ascii') === 'ID3'
+        || (buffer[0] === 0xff && (buffer[1] & 0xe0) === 0xe0);
+    default:
+      return false;
+  }
+}
+
+function parseByteRange(value, size) {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(String(value || '').trim());
+  if (!match) return null;
+  let start = match[1] === '' ? null : Number(match[1]);
+  let end = match[2] === '' ? null : Number(match[2]);
+  if (start === null && end === null) return null;
+  if (start === null) {
+    const suffix = Math.max(0, end);
+    if (!suffix) return null;
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    end = end === null ? size - 1 : Math.min(end, size - 1);
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start >= size || end < start) return null;
+  return { start, end };
+}
+
+async function handleVoiceUpload(req, res, searchParams) {
+  const auth = activeVoiceToken(searchParams.get('key'));
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+
+  const mime = voiceMessages.normalizeMime(req.headers['content-type']);
+  if (!mime) {
+    req.resume();
+    return sendJson(res, 415, { ok: false, error: 'unsupported-type' });
+  }
+
+  const declared = Number(req.headers['content-length']);
+  if (Number.isFinite(declared) && declared > voiceMessages.MAX_BYTES) {
+    req.resume();
+    return sendJson(res, 413, { ok: false, error: 'too-large' });
+  }
+
+  let body;
+  try {
+    body = await readVoiceBody(req, voiceMessages.MAX_BYTES);
+  } catch (err) {
+    if (err?.code === 'too-large') return sendJson(res, 413, { ok: false, error: 'too-large' });
+    return sendJson(res, 400, { ok: false, error: 'invalid-body' });
+  }
+
+  if (!looksLikeVoiceData(body, mime)) {
+    return sendJson(res, 415, { ok: false, error: 'unsupported-type' });
+  }
+
+  const duration = voiceMessages.clampSeconds(searchParams.get('d'));
+  if (duration < voiceMessages.MIN_SECONDS) {
+    return sendJson(res, 400, { ok: false, error: 'invalid-duration' });
+  }
+
+  const id = crypto.randomBytes(16).toString('hex');
+  const ext = voiceMessages.extensionForMime(mime);
+  const file = `${id}.${ext}`;
+  try {
+    fs.mkdirSync(voiceDir(), { recursive: true });
+    fs.writeFileSync(path.join(voiceDir(), file), body);
+  } catch (err) {
+    console.error('[voice] Nie udało się zapisać nagrania:', err.message);
+    return sendJson(res, 500, { ok: false, error: 'save-failed' });
+  }
+
+  const store = loadVoiceStore();
+  store.items[id] = {
+    id,
+    scope: auth.scope,
+    ownerId: auth.memberId,
+    mime,
+    ext,
+    file,
+    size: body.length,
+    duration,
+    at: Date.now(),
+  };
+  saveVoiceStore();
+  return sendJson(res, 200, { ok: true, id, duration });
+}
+
+function handleVoiceDownload(req, res, pathname, searchParams) {
+  const match = /^\/voice\/([a-f0-9]{32})$/.exec(pathname);
+  if (!match) return sendJson(res, 404, { ok: false, error: 'not-found' });
+
+  const auth = activeVoiceToken(searchParams.get('key'));
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+
+  const store = loadVoiceStore();
+  const item = store.items[match[1]];
+  if (!item || item.scope !== auth.scope) return sendJson(res, 404, { ok: false, error: 'not-found' });
+
+  const filePath = path.join(voiceDir(), item.file);
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    return sendJson(res, 404, { ok: false, error: 'not-found' });
+  }
+  if (!stat.isFile()) return sendJson(res, 404, { ok: false, error: 'not-found' });
+
+  res.setHeader('content-type', item.mime);
+  res.setHeader('cache-control', 'private, max-age=86400');
+  res.setHeader('accept-ranges', 'bytes');
+
+  if (req.method === 'HEAD') {
+    res.setHeader('content-length', stat.size);
+    res.writeHead(200);
+    return res.end();
+  }
+
+  const range = parseByteRange(req.headers.range, stat.size);
+  if (range) {
+    res.writeHead(206, {
+      'content-length': range.end - range.start + 1,
+      'content-range': `bytes ${range.start}-${range.end}/${stat.size}`,
+    });
+    return fs.createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+  }
+
+  res.writeHead(200, { 'content-length': stat.size });
+  return fs.createReadStream(filePath).pipe(res);
+}
+
+function handleVoiceDelete(req, res, pathname, searchParams) {
+  const match = /^\/voice\/([a-f0-9]{32})$/.exec(pathname);
+  if (!match) return sendJson(res, 404, { ok: false, error: 'not-found' });
+
+  const auth = activeVoiceToken(searchParams.get('key'));
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+
+  const store = loadVoiceStore();
+  const item = store.items[match[1]];
+  if (!item || item.scope !== auth.scope) return sendJson(res, 404, { ok: false, error: 'not-found' });
+  if (item.ownerId !== auth.memberId) return sendJson(res, 403, { ok: false, error: 'forbidden' });
+
+  if (removeVoiceItem(match[1])) saveVoiceStore();
+  return sendJson(res, 200, { ok: true });
+}
+
 function startChatServer(port = CHAT_PORT) {
   httpServer = http.createServer((req, res) => {
-    const { pathname } = new URL(req.url, `http://localhost:${port}`);
+    let url;
+    try {
+      url = new URL(req.url, `http://localhost:${port}`);
+    } catch {
+      res.writeHead(400);
+      return res.end();
+    }
+    const { pathname, searchParams } = url;
     res.setHeader('access-control-allow-origin', '*');
+    res.setHeader('access-control-allow-methods', 'GET, HEAD, POST, DELETE, OPTIONS');
+    res.setHeader('access-control-allow-headers', 'content-type, range');
+    res.setHeader('access-control-expose-headers', 'content-length, content-range, accept-ranges');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      return res.end();
+    }
+
+    if (pathname === '/voice' && req.method === 'POST') {
+      void handleVoiceUpload(req, res, searchParams);
+      return;
+    }
+
+    if (/^\/voice\/[a-f0-9]{32}$/.test(pathname) && (req.method === 'GET' || req.method === 'HEAD')) {
+      handleVoiceDownload(req, res, pathname, searchParams);
+      return;
+    }
+
+    if (/^\/voice\/[a-f0-9]{32}$/.test(pathname) && req.method === 'DELETE') {
+      handleVoiceDelete(req, res, pathname, searchParams);
+      return;
+    }
+
     res.setHeader('content-type', 'application/json');
 
     if (pathname === '/api/update-check') {
@@ -664,6 +1059,7 @@ function startChatServer(port = CHAT_PORT) {
               send({ type: 'auth-error', message: 'Sesja wygasła. Zaloguj się ponownie.' });
               return;
             }
+            revokeVoiceTokens(ws, 'local');
             if (currentUserId && currentUserId !== account.id) {
               const previous = users.get(currentUserId);
               if (previous) previous.status = 'offline';
@@ -691,7 +1087,7 @@ function startChatServer(port = CHAT_PORT) {
               if (a === currentUserId || b === currentUserId) dmHistory[key] = list.slice(-300);
             }
 
-            send({ type: 'joined', userId: currentUserId, users: usersPayload(), dmHistory });
+            send({ type: 'joined', userId: currentUserId, users: usersPayload(), dmHistory, voiceKey: issueVoiceToken(ws, 'local', currentUserId) });
             broadcastGlobal('user:update', { users: usersPayload() });
             break;
           }
@@ -741,7 +1137,10 @@ function startChatServer(port = CHAT_PORT) {
             };
             if (!Array.isArray(server.messages[channel.id])) server.messages[channel.id] = [];
             server.messages[channel.id].push(message);
-            if (server.messages[channel.id].length > 300) server.messages[channel.id].shift();
+            if (server.messages[channel.id].length > 300) {
+              const dropped = server.messages[channel.id].shift();
+              if (removeVoiceFromMessages([dropped])) saveVoiceStore();
+            }
             scheduleServersSave();
             broadcastServer(server.id, { type: 'server:message', message });
             break;
@@ -774,7 +1173,10 @@ function startChatServer(port = CHAT_PORT) {
             if (!server.dms || typeof server.dms !== 'object') server.dms = {};
             if (!Array.isArray(server.dms[key])) server.dms[key] = [];
             server.dms[key].push(message);
-            if (server.dms[key].length > 500) server.dms[key].shift();
+            if (server.dms[key].length > 500) {
+              const dropped = server.dms[key].shift();
+              if (removeVoiceFromMessages([dropped])) saveVoiceStore();
+            }
             scheduleServersSave();
 
             const payload = { type: 'server:dm', serverId: server.id, message };
@@ -876,7 +1278,9 @@ function startChatServer(port = CHAT_PORT) {
               return;
             }
             const [removed] = server.channels.splice(index, 1);
+            const removedVoice = removeVoiceFromMessages(server.messages[removed.id] || []);
             delete server.messages[removed.id];
+            if (removedVoice) saveVoiceStore();
             scheduleServersSave();
             broadcastServer(server.id, {
               type: 'server:channel:deleted',
@@ -935,7 +1339,10 @@ function startChatServer(port = CHAT_PORT) {
             const store = loadChatStore().dms;
             if (!Array.isArray(store[key])) store[key] = [];
             store[key].push(message);
-            if (store[key].length > 500) store[key].shift();
+            if (store[key].length > 500) {
+              const dropped = store[key].shift();
+              if (removeVoiceFromMessages([dropped])) saveVoiceStore();
+            }
             scheduleChatSave();
 
             const payload = { type: 'dm', message };
@@ -1015,6 +1422,7 @@ function startChatServer(port = CHAT_PORT) {
 
     ws.on('close', () => {
       detachServerSession(ws);
+      revokeVoiceTokens(ws);
       if (currentUserId) {
         const user = users.get(currentUserId);
         if (user) user.status = 'offline';
@@ -1465,6 +1873,8 @@ ipcMain.handle('chill:servers-leave', (e, payload = {}) => {
   const store = loadServersStore();
   const hostedIndex = store.hosted.findIndex((server) => server.id === id && server.ownerId === current.id);
   if (hostedIndex >= 0) {
+    const hosted = store.hosted[hostedIndex];
+    if (removeVoiceForServer(hosted)) saveVoiceStore();
     store.hosted.splice(hostedIndex, 1);
     store.joined = store.joined.filter((entry) => !(entry.userId === current.id && entry.id === id));
     saveServersStore();
@@ -2347,6 +2757,12 @@ if (!app.requestSingleInstanceLock()) {
     createTray();
     Menu.setApplicationMenu(null);
 
+    const sweepVoices = () => {
+      try { pruneOrphanedVoices(); } catch (err) { console.error('[voice] Sprzątanie nie powiodło się:', err.message); }
+    };
+    setTimeout(sweepVoices, 30_000).unref?.();
+    setInterval(sweepVoices, 6 * 60 * 60 * 1000).unref?.();
+
     scheduleUpdateCheck();
 
     setInterval(() => { pollGames().catch(() => {}); }, 20_000);
@@ -2361,6 +2777,10 @@ app.on('before-quit', () => {
   try {
     if (chatStore) fs.writeFileSync(chatDataPath(), JSON.stringify(chatStore), 'utf8');
     if (serversStore) fs.writeFileSync(serversPath(), JSON.stringify(serversStore), 'utf8');
+    if (voiceStore) {
+      fs.mkdirSync(voiceDir(), { recursive: true });
+      fs.writeFileSync(voiceIndexPath(), JSON.stringify(voiceStore), 'utf8');
+    }
   } catch { /* ignore */ }
 });
 app.on('will-quit', () => { setTimeout(() => app.exit(0), 8_000).unref?.(); });

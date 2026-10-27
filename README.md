@@ -14,6 +14,7 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 - **Trwała historia** — wiadomości serwera zapisują się u osoby, która go hostuje; DM-y lokalne w `chat-data.json`, a DM-y serwerowe u hosta w `servers.json`.
 - **Emoji** — picker z wyszukiwarką i listą ostatnio używanych.
 - **Naklejki** — wbudowany zestaw Chill Pack (24 grafiki SVG), kategorie i wyszukiwarka; wybrana naklejka pojawia się bezpośrednio w rozmowie.
+- **Wiadomości głosowe** — nagrywanie mikrofonem (do 120 s), odtwarzanie z pauzą i przewijaniem; działają w kanałach serwera oraz w DM-ach lokalnych i serwerowych.
 - **GIF-y** — przycisk obok emoji, kategorie i wyszukiwarka; wybrany GIF pojawia się bezpośrednio w rozmowie.
 - **Wzmianki `@`** — podpowiedzi członków serwera i znajomych, wstawianie nicku z klawiatury i wyróżnienie w wiadomości.
 - **Statusy** — online, zaraz wracam, nie przeszkadzać, niewidoczny.
@@ -73,6 +74,16 @@ Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach p
 - Kliknięcie miniatury od razu wysyła naklejkę. W rozmowie jest wyświetlana jako obrazek, a w historii zapisuje się jako `chill-sticker://<id>` — dzięki temu działa w kanałach serwera, DM-ach lokalnych i serwerowych oraz po ponownym uruchomieniu.
 - Wyszukiwarka wiadomości rozpoznaje nazwy naklejek, a powiadomienia pokazują `Naklejka • <nazwa>`.
 
+## Wiadomości głosowe
+
+- Przycisk mikrofonu w polu pisania nagrywa głosówkę. Podczas nagrywania widać czas i animację poziomu; **✕** anuluje, a **✓** wysyła nagranie. Maksymalna długość to 120 sekund, a nagrania krótsze niż 0,5 s są odrzucane.
+- Po wysłaniu wiadomość zmienia się w odtwarzacz z przyciskiem play/pauza, paskiem postępu i czasem. Można klikać w pasek, aby przewinąć. Odtwarzanie działa w kanałach tekstowych serwera oraz w DM-ach lokalnych i serwerowych, także po ponownym uruchomieniu aplikacji.
+- Historia przechowuje tylko lekki token `chill-voice://<id>?d=<sekundy>`; samo nagranie jest plikiem audio. Dzięki temu wiadomości pozostają tekstowe dla protokołu, a wyszukiwarka i powiadomienia rozpoznają je jako **Wiadomość głosowa** (np. `Wiadomość głosowa • 0:02`).
+- Pliki audio hostowanych serwerów i lokalnych DM-ów trafiają do `%APPDATA%\Chill\voice`, a metadane do `voice/index.json` na komputerze hosta. Plik jest usuwany razem z wiadomością, po skróceniu historii albo po usunięciu kanału/serwera; osierocone nagrania są czyszczone automatycznie.
+- Dostęp do pliku jest powiązany z aktywną sesją i członkostwem w serwerze. Token jest ważny przez 7 dni i jest unieważniany po rozłączeniu, więc odtwarzanie wymaga połączenia z serwerem, do którego należy rozmowa.
+- Do nagrywania potrzebny jest mikrofon. Jeśli w dolnym pasku wybrano konkretne urządzenie wejściowe, nagrywanie użyje właśnie jego (z bezpiecznym powrotem do domyślnego mikrofonu).
+- Wyszukiwarka wiadomości znajduje głosówki po słowach `głosówka`, `nagranie`, `audio`, `voice message` i pokrewnych, również bez polskich znaków diakrytycznych.
+
 ## Język interfejsu
 
 1. Otwórz **Ustawienia** → **Język**.
@@ -106,6 +117,7 @@ Konta są **lokalne** — nie ma chmury ani zewnętrznego serwera uwierzytelnian
   - `accounts.json` — konta i sesja,
   - `chat-data.json` — lokalne wiadomości prywatne,
   - `servers.json` — hostowane i dołączone serwery, kanały (typ tekstowy/głosowy), członkowie, historia kanałów i wiadomości prywatne serwera,
+  - `voice/` — pliki audio wiadomości głosowych hostowanych serwerów i lokalnych DM-ów oraz `voice/index.json` z metadanymi,
   - `language.json` — język interfejsu używany przez okno i menu tray.
 - Odinstalowanie aplikacji usuwa także te dane.
 - Serwer nie ma centralnego systemu kont — dostęp reguluje kod zaproszenia. Link traktuj jak hasło.
@@ -147,13 +159,15 @@ Szczegóły wydawania nowej wersji: [GITHUB-UPDATER.md](GITHUB-UPDATER.md).
 
 ## Architektura
 
-- `main.js` — okno, tray (także w języku interfejsu), konta, hostowanie serwerów (HTTP/WebSocket), walidacja uprawnień kanałów, `servers.json`, `language.json`, aktualizacje.
+- `main.js` — okno, tray (także w języku interfejsu), konta, hostowanie serwerów (HTTP/WebSocket), walidacja uprawnień kanałów, `servers.json`, `language.json`, przechowywanie i serwowanie nagrań głosowych, aktualizacje.
 - `preload.js` — bezpieczny most `window.chill` (context isolation).
-- `renderer.js` — logowanie, serwery, kanały tekstowe/głosowe, zaproszenia, profile i znajomi, DM-y, emoji, GIF-y, wzmianki `@`, motywy, ustawienia, tłumaczenia PL/EN, powiadomienia.
+- `renderer.js` — logowanie, serwery, kanały tekstowe/głosowe, zaproszenia, profile i znajomi, DM-y, emoji, GIF-y, naklejki, nagrywanie i odtwarzanie wiadomości głosowych, wzmianki `@`, motywy, ustawienia, tłumaczenia PL/EN, powiadomienia.
 - `gifs.js` — statyczny katalog GIF-ów (96 pozycji GIPHY + 40 KLIPY, bez klucza API).
+- `stickers.js` — wbudowany zestaw 24 naklejek SVG.
+- `voice.js` — wspólne helpery wiadomości głosowych: tokeny, czasy, typy MIME i tekst wyszukiwania.
 - `index.html` / `style.css` — interfejs Chill.
 
-Czat serwerów działa przez wbudowany serwer WebSocket na porcie `47830`. Każdy hostowany serwer jest dostępny pod kodem zaproszenia; wiadomości, członkowie i DM-y serwerowe są zapisywani w `servers.json`.
+Czat serwerów działa przez wbudowany serwer WebSocket na porcie `47830`. Każdy hostowany serwer jest dostępny pod kodem zaproszenia; wiadomości, członkowie i DM-y serwerowe są zapisywani w `servers.json`. Nagrania głosowe są przesyłane przez uwierzytelnione endpointy HTTP `/voice` i przechowywane w `voice/`.
 
 ## Zmienne środowiskowe (opcjonalne)
 
