@@ -14,12 +14,12 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 - **Trwała historia** — wiadomości serwera zapisują się u osoby, która go hostuje; DM-y lokalne w `chat-data.json`, a DM-y serwerowe u hosta w `servers.json`.
 - **Emoji** — picker z wyszukiwarką i listą ostatnio używanych.
 - **Naklejki** — wbudowany zestaw Chill Pack (24 grafiki SVG), kategorie i wyszukiwarka; wybrana naklejka pojawia się bezpośrednio w rozmowie.
-- **Wiadomości głosowe** — nagrywanie mikrofonem (do 120 s), odtwarzanie z pauzą i przewijaniem; działają w kanałach serwera oraz w DM-ach lokalnych i serwerowych.
+- **Wiadomości głosowe** — nagrywanie mikrofonem (do 120 s) w jakości 48 kHz / 64 kb/s, z redukcją szumów i wyrównaniem poziomu; odtwarzanie z pauzą i przewijaniem. Działają w kanałach serwera oraz w DM-ach lokalnych i serwerowych.
 - **GIF-y** — przycisk obok emoji, kategorie i wyszukiwarka; wybrany GIF pojawia się bezpośrednio w rozmowie.
 - **Wzmianki `@`** — podpowiedzi członków serwera i znajomych, wstawianie nicku z klawiatury i wyróżnienie w wiadomości.
 - **Statusy** — online, zaraz wracam, nie przeszkadzać, niewidoczny.
 - **Wykrywanie gier** — „Gra w …” na profilu i liście członków.
-- **Powiadomienia** — systemowe dymki, dźwięk, tryb „tylko wzmianki”, odznaki.
+- **Powiadomienia** — systemowe dymki, przyjemny dwudźwięk przy nowej wiadomości i trzytonowy sygnał przy wzmiance, tryb „tylko wzmianki”, odznaki.
 - **Wygląd** — motyw czarny, biały, dopasowany do systemu albo gradient; akcenty i kompaktowe wiadomości.
 - **Język interfejsu** — polski (domyślnie) albo angielski, przełączany w Ustawieniach → Język. Zmiana działa od razu, również w menu tray.
 - **Profil w rogu** — awatar, nazwa, ustawienia i wylogowanie są przypięte do lewego dolnego rogu.
@@ -77,6 +77,7 @@ Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach p
 ## Wiadomości głosowe
 
 - Przycisk mikrofonu w polu pisania nagrywa głosówkę. Podczas nagrywania widać czas i animację poziomu; **✕** anuluje, a **✓** wysyła nagranie. Maksymalna długość to 120 sekund, a nagrania krótsze niż 0,5 s są odrzucane.
+- Nagranie powstaje w formacie Opus 48 kHz, mono, 64 kb/s. Przed zapisem głos przechodzi przez delikatny filtr górnoprzepustowy i kompresor wyrównujący poziom, a redukcja szumów i automatyczna regulacja głośności są włączone po stronie przechwytywania dźwięku. Dzięki temu mowa jest czystsza i nie „ucieka” przy cichym mówieniu.
 - Po wysłaniu wiadomość zmienia się w odtwarzacz z przyciskiem play/pauza, paskiem postępu i czasem. Można klikać w pasek, aby przewinąć. Odtwarzanie działa w kanałach tekstowych serwera oraz w DM-ach lokalnych i serwerowych, także po ponownym uruchomieniu aplikacji.
 - Historia przechowuje tylko lekki token `chill-voice://<id>?d=<sekundy>`; samo nagranie jest plikiem audio. Dzięki temu wiadomości pozostają tekstowe dla protokołu, a wyszukiwarka i powiadomienia rozpoznają je jako **Wiadomość głosowa** (np. `Wiadomość głosowa • 0:02`).
 - Pliki audio hostowanych serwerów i lokalnych DM-ów trafiają do `%APPDATA%\Chill\voice`, a metadane do `voice/index.json` na komputerze hosta. Plik jest usuwany razem z wiadomością, po skróceniu historii albo po usunięciu kanału/serwera; osierocone nagrania są czyszczone automatycznie.

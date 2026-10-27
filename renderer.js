@@ -4080,6 +4080,7 @@ function formatMessageText(text) {
 // ============================================================
 const VOICE_PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.4v13.2c0 .8.9 1.3 1.5.8l9.8-6.6c.6-.4.6-1.2 0-1.6L9.5 4.6C8.9 4.1 8 4.6 8 5.4z" fill="currentColor"/></svg>';
 const VOICE_PAUSE_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="5" width="4" height="14" rx="1.2" fill="currentColor"/><rect x="13.5" y="5" width="4" height="14" rx="1.2" fill="currentColor"/></svg>';
+const VOICE_BITRATE = 64000;
 
 function voiceMessageDescriptor(text) {
   return VOICE ? VOICE.parse(text) : null;
@@ -4349,9 +4350,11 @@ function pickVoiceMime() {
 async function requestMicrophone() {
   const constraints = {
     audio: {
-      echoCancellation: true,
+      echoCancellation: false,
       noiseSuppression: true,
       autoGainControl: true,
+      channelCount: 1,
+      sampleRate: 48000,
     },
     video: false,
   };
@@ -4360,9 +4363,68 @@ async function requestMicrophone() {
     return await navigator.mediaDevices.getUserMedia(constraints);
   } catch (err) {
     if (prefs.audioInput && ['OverconstrainedError', 'NotFoundError', 'NotReadableError'].includes(err?.name)) {
+      const audio = { ...constraints.audio };
+      delete audio.deviceId;
+      try {
+        return await navigator.mediaDevices.getUserMedia({ audio, video: false });
+      } catch { /* poniżej ostatnia próba */ }
       return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
     }
     throw err;
+  }
+}
+
+function createVoiceProcessing(stream) {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return { stream, context: null };
+  try {
+    const context = new Ctx({ sampleRate: 48000 });
+    if (context.state === 'suspended') void context.resume().catch(() => {});
+    const source = context.createMediaStreamSource(stream);
+    const highpass = context.createBiquadFilter();
+    highpass.type = 'highpass';
+    highpass.frequency.value = 70;
+    highpass.Q.value = 0.7;
+    const compressor = context.createDynamicsCompressor();
+    compressor.threshold.value = -24;
+    compressor.knee.value = 18;
+    compressor.ratio.value = 2.5;
+    compressor.attack.value = 0.005;
+    compressor.release.value = 0.25;
+    const makeup = context.createGain();
+    makeup.gain.value = 1.15;
+    const destination = context.createMediaStreamDestination();
+    destination.channelCount = 1;
+    destination.channelCountMode = 'explicit';
+    destination.channelInterpretation = 'speakers';
+    source.connect(highpass);
+    highpass.connect(compressor);
+    compressor.connect(makeup);
+    makeup.connect(destination);
+    if (!destination.stream.getAudioTracks().length) {
+      void context.close().catch(() => {});
+      return { stream, context: null };
+    }
+    return { stream: destination.stream, context };
+  } catch {
+    return { stream, context: null };
+  }
+}
+
+function stopVoiceCapture(session) {
+  for (const source of [session?.stream, session?.recordStream]) {
+    if (!source) continue;
+    try { source.getTracks().forEach((track) => track.stop()); } catch { /* ignore */ }
+  }
+  try { session?.processing?.context?.close?.(); } catch { /* ignore */ }
+}
+
+function openVoiceRecorder(stream, mimeType) {
+  const options = { audioBitsPerSecond: VOICE_BITRATE };
+  try {
+    return new MediaRecorder(stream, mimeType ? { ...options, mimeType } : options);
+  } catch {
+    try { return new MediaRecorder(stream); } catch { return null; }
   }
 }
 
@@ -4430,24 +4492,26 @@ async function beginVoiceRecording(transport) {
   }
 
   const mimeType = pickVoiceMime();
-  let recorder;
-  try {
-    recorder = mimeType
-      ? new MediaRecorder(stream, { mimeType, audioBitsPerSecond: 32000 })
-      : new MediaRecorder(stream, { audioBitsPerSecond: 32000 });
-  } catch {
-    try {
-      recorder = new MediaRecorder(stream);
-    } catch {
-      stream.getTracks().forEach((track) => track.stop());
-      toast(t('Nie udało się nagrać wiadomości głosowej.'));
-      return;
-    }
+  const processing = createVoiceProcessing(stream);
+  let recordStream = processing.stream;
+  let recorder = openVoiceRecorder(recordStream, mimeType);
+  if (!recorder && recordStream !== stream) {
+    try { processing.context?.close?.(); } catch { /* ignore */ }
+    processing.context = null;
+    recordStream = stream;
+    recorder = openVoiceRecorder(recordStream, mimeType);
+  }
+  if (!recorder) {
+    stopVoiceCapture({ stream, recordStream, processing });
+    toast(t('Nie udało się nagrać wiadomości głosowej.'));
+    return;
   }
 
   const session = {
     recorder,
     stream,
+    recordStream,
+    processing,
     chunks: [],
     startedAt: performance.now(),
     duration: 0,
@@ -4477,7 +4541,7 @@ async function beginVoiceRecording(transport) {
   try {
     recorder.start(250);
   } catch {
-    stream.getTracks().forEach((track) => track.stop());
+    stopVoiceCapture(session);
     toast(t('Nie udało się nagrać wiadomości głosowej.'));
     return;
   }
@@ -4539,9 +4603,7 @@ async function finalizeVoiceRecording(session) {
   if (!session.duration) {
     session.duration = Math.min(VOICE.MAX_SECONDS, (performance.now() - session.startedAt) / 1000);
   }
-  try {
-    session.stream.getTracks().forEach((track) => track.stop());
-  } catch { /* ignore */ }
+  stopVoiceCapture(session);
 
   if (session.mode === 'cancel' || session.cancelled) {
     finishVoiceSession(session);
@@ -4915,20 +4977,37 @@ function notifyIncoming(message, where, isCurrent) {
 function playSound(mention = false) {
   if (!prefs.sound || prefs.deafened) return;
   try {
+    if (audioCtx?.state === 'closed') audioCtx = null;
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') void audioCtx.resume().catch(() => {});
     const now = audioCtx.currentTime;
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(mention ? 880 : 660, now);
-    osc.frequency.exponentialRampToValueAtTime(mention ? 1180 : 784, now + 0.09);
-    gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.055, now + 0.015);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
-    osc.start(now);
-    osc.stop(now + 0.24);
+    const master = audioCtx.createGain();
+    master.gain.value = 0.85;
+    master.connect(audioCtx.destination);
+    const notes = mention ? [659.25, 830.61, 987.77] : [783.99, 1046.5];
+    notes.forEach((frequency, index) => {
+      const start = now + index * 0.075;
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.0001, start);
+      gain.gain.exponentialRampToValueAtTime(mention ? 0.09 : 0.075, start + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.46);
+      const fundamental = audioCtx.createOscillator();
+      fundamental.type = 'sine';
+      fundamental.frequency.setValueAtTime(frequency, start);
+      const harmonic = audioCtx.createOscillator();
+      harmonic.type = 'sine';
+      harmonic.frequency.setValueAtTime(frequency * 2, start);
+      const harmonicGain = audioCtx.createGain();
+      harmonicGain.gain.value = 0.14;
+      fundamental.connect(gain);
+      harmonic.connect(harmonicGain);
+      harmonicGain.connect(gain);
+      gain.connect(master);
+      fundamental.start(start);
+      harmonic.start(start);
+      fundamental.stop(start + 0.5);
+      harmonic.stop(start + 0.5);
+    });
   } catch { /* ignore */ }
 }
 
