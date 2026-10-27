@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://*.giphy.com https://*.klipy.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws: wss: http: https:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://*.giphy.com https://*.klipy.com https://cdn.discordapp.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws: wss: http: https:;">
 <title>Chill</title>
 <link rel="stylesheet" href="style.css">
 </head>
@@ -606,6 +606,7 @@
       <div class="segmented server-tabs" id="serverModalTabs">
         <button type="button" class="active" data-server-tab="create" data-i18n="Utwórz serwer">Utwórz serwer</button>
         <button type="button" data-server-tab="join" data-i18n="Dołącz kodem">Dołącz kodem</button>
+        <button type="button" data-server-tab="discord" data-i18n="Z Discord">Z Discord</button>
       </div>
 
       <section class="server-panel" data-server-panel="create">
@@ -640,6 +641,81 @@
         <div class="settings-actions">
           <button type="button" class="btn-primary" id="joinServerBtn" data-i18n="Dołącz do serwera">Dołącz do serwera</button>
         </div>
+      </section>
+
+      <section class="server-panel discord-panel" data-server-panel="discord" hidden>
+        <div id="discordSetup" hidden>
+          <div class="discord-callout">
+            <strong data-i18n="Jednorazowa konfiguracja">Jednorazowa konfiguracja</strong>
+            <p data-i18n="Utwórz darmową aplikację Discord i skopiuj jej Application ID. Chill użyje jej tylko do sprawdzenia, które serwery sam stworzyłeś.">Utwórz darmową aplikację Discord i skopiuj jej Application ID. Chill użyje jej tylko do sprawdzenia, które serwery sam stworzyłeś.</p>
+            <ol class="discord-steps">
+              <li data-i18n="Wejdź na Discord Developer Portal i utwórz nową aplikację.">Wejdź na Discord Developer Portal i utwórz nową aplikację.</li>
+              <li>
+                <span data-i18n="W zakładce OAuth2 dodaj Redirect URI:">W zakładce OAuth2 dodaj Redirect URI:</span>
+                <code id="discordRedirectUri">http://localhost:47831/callback</code>
+              </li>
+              <li data-i18n="Włącz Public Client i skopiuj Application ID.">Włącz Public Client i skopiuj Application ID.</li>
+            </ol>
+            <div class="discord-inline-actions">
+              <button type="button" class="btn-secondary small" id="copyDiscordRedirect" data-i18n="Kopiuj Redirect URI">Kopiuj Redirect URI</button>
+              <button type="button" class="discord-link" id="openDiscordPortal" data-i18n="Otwórz Discord Developer Portal">Otwórz Discord Developer Portal</button>
+            </div>
+          </div>
+
+          <label class="field">
+            <span data-i18n="Client ID aplikacji Discord">Client ID aplikacji Discord</span>
+            <input type="text" id="discordClientId" inputmode="numeric" maxlength="21" placeholder="123456789012345678" spellcheck="false" autocomplete="off">
+          </label>
+          <p class="form-error" id="discordSetupError" role="alert"></p>
+          <div class="settings-actions">
+            <button type="button" class="btn-secondary" id="discordSetupCancel" data-i18n="Anuluj" hidden>Anuluj</button>
+            <button type="button" class="btn-primary" id="discordSaveConfigBtn" data-i18n="Zapisz i połącz">Zapisz i połącz</button>
+          </div>
+        </div>
+
+        <div id="discordMain" hidden>
+          <div class="discord-account" id="discordAccount" hidden>
+            <div class="discord-avatar" id="discordAvatar" aria-hidden="true">D</div>
+            <div class="discord-account-copy">
+              <strong id="discordAccountName">Discord</strong>
+              <small data-i18n="Konto połączone">Konto połączone</small>
+            </div>
+            <button type="button" class="discord-link" id="discordDisconnectBtn" data-i18n="Rozłącz">Rozłącz</button>
+          </div>
+
+          <div id="discordLogin" hidden>
+            <p class="server-hint" data-i18n="Połącz konto Discord, aby zobaczyć tylko serwery, które sam stworzyłeś. Serwery, do których tylko dołączyłeś, nie będą widoczne.">Połącz konto Discord, aby zobaczyć tylko serwery, które sam stworzyłeś. Serwery, do których tylko dołączyłeś, nie będą widoczne.</p>
+            <div class="settings-actions">
+              <button type="button" class="btn-primary" id="discordConnectBtn" data-i18n="Połącz z Discord">Połącz z Discord</button>
+            </div>
+          </div>
+
+          <div id="discordWizard" hidden>
+            <label class="field">
+              <span data-i18n="Wybierz swój serwer Discord">Wybierz swój serwer Discord</span>
+              <select id="discordGuildSelect"></select>
+            </label>
+            <p class="server-hint discord-owner-hint" data-i18n="Widzisz tylko serwery, które sam stworzyłeś.">Widzisz tylko serwery, które sam stworzyłeś.</p>
+
+            <label class="field">
+              <span data-i18n="Link szablonu serwera">Link szablonu serwera</span>
+              <input type="text" id="discordTemplate" placeholder="https://discord.new/AbCd1234" data-i18n-placeholder="np. https://discord.new/AbCd1234" spellcheck="false">
+            </label>
+            <p class="server-hint" data-i18n="W Discord otwórz Ustawienia serwera → Szablon serwera → Utwórz szablon i skopiuj link. Zaimportujemy kanały tekstowe i głosowe.">W Discord otwórz Ustawienia serwera → Szablon serwera → Utwórz szablon i skopiuj link. Zaimportujemy kanały tekstowe i głosowe.</p>
+
+            <div class="discord-preview" id="discordPreview" hidden></div>
+
+            <div class="settings-actions">
+              <button type="button" class="btn-secondary" id="discordPreviewBtn" data-i18n="Podejrzyj kanały">Podejrzyj kanały</button>
+              <button type="button" class="btn-primary" id="discordImportBtn" data-i18n="Importuj serwer" disabled>Importuj serwer</button>
+            </div>
+          </div>
+
+          <p class="form-error" id="discordImportError" role="alert"></p>
+          <p class="discord-status" id="discordStatus" role="status"></p>
+        </div>
+
+        <button type="button" class="discord-link discord-change" id="discordChangeConfig" data-i18n="Zmień Client ID" hidden>Zmień Client ID</button>
       </section>
     </div>
   </div>

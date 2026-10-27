@@ -9,6 +9,14 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
 const { WebSocketServer } = require('ws');
+const {
+  MAX_IMPORTED_CHANNELS,
+  buildAuthorizationUrl,
+  filterOwnedGuilds,
+  mapTemplateChannels,
+  normalizeServerName,
+  parseTemplateCode,
+} = require('./discord-import');
 
 app.setName('Chill');
 
@@ -48,6 +56,7 @@ const accountsPath = () => path.join(dataDir(), 'accounts.json');
 const chatDataPath = () => path.join(dataDir(), 'chat-data.json');
 const serversPath = () => path.join(dataDir(), 'servers.json');
 const languagePath = () => path.join(dataDir(), 'language.json');
+const discordPath = () => path.join(dataDir(), 'discord.json');
 
 let appLanguage = null;
 
@@ -307,9 +316,13 @@ function loadServersStore() {
   return serversStore;
 }
 
+function persistServersStore() {
+  fs.writeFileSync(serversPath(), JSON.stringify(serversStore, null, 2), 'utf8');
+}
+
 function saveServersStore() {
   try {
-    fs.writeFileSync(serversPath(), JSON.stringify(serversStore, null, 2), 'utf8');
+    persistServersStore();
   } catch (err) {
     console.error('[servers] Nie udało się zapisać serwerów:', err.message);
   }
@@ -1262,6 +1275,7 @@ ipcMain.handle('chill:auth-register', (e, payload = {}) => {
   };
   store.users.push(user);
   saveAccounts();
+  clearDiscordSession();
   const sessionUser = issueSession(user, true);
   return { ok: true, user: sessionUser };
 });
@@ -1290,6 +1304,7 @@ ipcMain.handle('chill:auth-login', (e, payload = {}) => {
     loadAccounts().session = null;
     saveAccounts();
   }
+  clearDiscordSession();
   const sessionUser = issueSession(user, remember);
   return { ok: true, user: sessionUser };
 });
@@ -1298,6 +1313,7 @@ ipcMain.handle('chill:auth-logout', () => {
   loadAccounts().session = null;
   saveAccounts();
   volatileSession = null;
+  clearDiscordSession();
   return { ok: true };
 });
 
@@ -1474,6 +1490,677 @@ ipcMain.handle('chill:servers-invite', (e, payload = {}) => {
   return { ok: true, shareLink: `chill://${entry.address}/${entry.invite}`, invite: entry.invite };
 });
 
+
+// ---------- Import z Discord (OAuth 2.0 + PKCE) ----------
+const DISCORD_API = 'https://discord.com/api';
+const DISCORD_REDIRECT_URI = 'http://localhost:47831/callback';
+const DISCORD_CALLBACK_PORT = 47831;
+const DISCORD_OAUTH_TIMEOUT = 5 * 60 * 1000;
+const DISCORD_USER_AGENT = 'Chill/4.3.3 (https://github.com/HyperZmylka/chill, 4.3.3)';
+const DISCORD_IMPORT_COLORS = ['#3ee0a3', '#7cc8ff', '#ffa46b', '#ff7aa2', '#b8a1ff', '#ffd166'];
+
+let discordConfig = null;
+let discordSession = null;
+let discordOAuth = null;
+
+function loadDiscordConfig() {
+  if (discordConfig) return discordConfig;
+  try {
+    const raw = JSON.parse(fs.readFileSync(discordPath(), 'utf8'));
+    discordConfig = { clientId: /^\d{15,21}$/.test(String(raw.clientId || '')) ? String(raw.clientId) : '' };
+  } catch {
+    discordConfig = { clientId: '' };
+  }
+  return discordConfig;
+}
+
+function writeDiscordConfig(clientId) {
+  fs.writeFileSync(discordPath(), JSON.stringify({ clientId }, null, 2), 'utf8');
+  discordConfig = { clientId };
+}
+
+function discordError(message, code) {
+  const error = new Error(message);
+  if (code) error.code = code;
+  return error;
+}
+
+function discordFailure(error) {
+  return {
+    ok: false,
+    code: error?.code || 'discord-error',
+    error: error?.message || 'Nie udało się połączyć z Discord.',
+  };
+}
+
+// Tryb deweloperski: pozwala sprawdzić cały interfejs bez prawdziwego konta Discord.
+// W spakowanej aplikacji jest zawsze wyłączony.
+function discordMockEnabled() {
+  return !app.isPackaged && process.env.CHILL_DISCORD_MOCK === '1';
+}
+
+const DISCORD_MOCK_GUILD_ID = '111111111111111111';
+const DISCORD_MOCK_TEMPLATE_CODE = 'hgM48av5Q69A';
+
+function discordMockGuilds() {
+  return [
+    { id: DISCORD_MOCK_GUILD_ID, name: 'Mockownia', owner: true, icon: null, approximate_member_count: 7 },
+    { id: '222222222222222222', name: 'Cudzy serwer', owner: false, icon: null, approximate_member_count: 42 },
+  ];
+}
+
+function discordMockTemplate(code) {
+  if (code !== DISCORD_MOCK_TEMPLATE_CODE) return null;
+  return {
+    code,
+    name: 'Mockownia',
+    source_guild_id: DISCORD_MOCK_GUILD_ID,
+    serialized_source_guild: {
+      name: 'Mockownia',
+      channels: [
+        { id: 1, type: 4, name: 'Tekstowe', position: 1, parent_id: null },
+        { id: 2, type: 0, name: 'ogólny', position: 1, parent_id: 1 },
+        { id: 3, type: 0, name: 'ogloszenia', position: 2, parent_id: 1 },
+        { id: 4, type: 2, name: 'Lounge', position: 1, parent_id: null },
+        { id: 5, type: 14, name: 'katalog', position: 2, parent_id: null },
+      ],
+    },
+  };
+}
+
+function base64Url(buffer) {
+  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[character]));
+}
+
+function sendOAuthPage(res, status, ok, message) {
+  if (!res || res.writableEnded || res.destroyed) return;
+  const en = loadAppLanguage() === 'en';
+  const title = ok
+    ? (en ? 'Discord connected' : 'Discord połączony')
+    : (en ? 'Could not connect Discord' : 'Nie udało się połączyć z Discord');
+  const hint = ok
+    ? (en ? 'You can close this tab and return to Chill.' : 'Możesz zamknąć tę kartę i wrócić do Chill.')
+    : (en ? 'Return to Chill and try again.' : 'Wróć do Chill i spróbuj ponownie.');
+  const html = `<!doctype html>
+<html lang="${en ? 'en' : 'pl'}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>${escapeHtml(title)} · Chill</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; background: #07130e; color: #eaf4ee; font: 15px/1.55 "Segoe UI", system-ui, sans-serif; }
+  main { width: min(460px, 100%); padding: 32px; border: 1px solid rgba(255,255,255,.1); border-radius: 22px; background: #0f1714; box-shadow: 0 24px 70px rgba(0,0,0,.45); text-align: center; }
+  .logo { width: 54px; height: 54px; margin: 0 auto 18px; display: grid; place-items: center; border-radius: 17px; background: linear-gradient(140deg, #3ee0a3, #7cc8ff); color: #05271c; font: 800 30px/1 "Segoe UI", sans-serif; }
+  h1 { margin: 0 0 10px; font-size: 23px; letter-spacing: -.02em; }
+  p { margin: 0; color: #b7c9bf; overflow-wrap: anywhere; }
+  .hint { margin-top: 18px; color: #8ea59a; font-size: 12.5px; }
+</style>
+</head>
+<body><main><div class="logo">C</div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p><p class="hint">${escapeHtml(hint)}</p></main></body>
+</html>`;
+  res.writeHead(status, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+    'Cache-Control': 'no-store',
+    'Connection': 'close',
+  });
+  res.end(html);
+}
+
+async function discordRequest(url, options = {}) {
+  let response;
+  try {
+    response = await fetch(url, {
+      ...options,
+      signal: AbortSignal.timeout(20000),
+    });
+  } catch {
+    throw discordError('Brak połączenia z Discord. Sprawdź internet i spróbuj ponownie.', 'network');
+  }
+
+  let data = null;
+  try { data = await response.json(); } catch { /* ignore */ }
+  if (response.ok) return data;
+
+  let message = `Nie udało się pobrać danych z Discord (${response.status}).`;
+  let code = 'discord-error';
+  if (response.status === 401) {
+    message = 'Sesja Discord wygasła. Połącz się ponownie.';
+    code = 'unauthorized';
+  } else if (response.status === 403) {
+    message = 'Discord nie udostępnił wymaganych danych. Połącz ponownie i zaakceptuj dostęp do serwerów.';
+    code = 'forbidden';
+  } else if (response.status === 429) {
+    message = 'Discord chwilowo ogranicza liczbę żądań. Spróbuj za chwilę.';
+    code = 'rate-limit';
+  }
+  const error = discordError(message, code);
+  error.status = response.status;
+  error.discordMessage = data?.message || data?.error_description || '';
+  throw error;
+}
+
+function storeDiscordToken(data) {
+  const accessToken = String(data?.access_token || '');
+  if (!accessToken) throw discordError('Discord nie zwrócił tokenu dostępu. Spróbuj ponownie.', 'oauth-failed');
+  discordSession = {
+    accessToken,
+    refreshToken: String(data?.refresh_token || ''),
+    expiresAt: Date.now() + Math.max(0, Number(data?.expires_in) || 0) * 1000,
+    user: discordSession?.user || null,
+    guilds: Array.isArray(discordSession?.guilds) ? discordSession.guilds : [],
+  };
+}
+
+async function exchangeDiscordCode({ clientId, code, verifier }) {
+  if (discordMockEnabled()) {
+    return { access_token: 'mock-access-token', refresh_token: 'mock-refresh-token', expires_in: 3600, token_type: 'Bearer', scope: 'identify guilds' };
+  }
+  const body = new URLSearchParams({
+    client_id: clientId,
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: DISCORD_REDIRECT_URI,
+    code_verifier: verifier,
+  });
+  try {
+    return await discordRequest(`${DISCORD_API}/oauth2/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'User-Agent': DISCORD_USER_AGENT },
+      body: body.toString(),
+    });
+  } catch (error) {
+    if (error.status === 400 || error.status === 401) {
+      throw discordError('Discord odrzucił logowanie. Spróbuj ponownie.', 'oauth-failed');
+    }
+    throw error;
+  }
+}
+
+function runDiscordOAuth(clientId) {
+  if (discordOAuth) {
+    return Promise.reject(discordError('Połączanie z Discord już trwa.', 'oauth-busy'));
+  }
+  if (discordMockEnabled()) {
+    return Promise.resolve({ access_token: 'mock-access-token', refresh_token: 'mock-refresh-token', expires_in: 3600, token_type: 'Bearer', scope: 'identify guilds' });
+  }
+
+  const state = base64Url(crypto.randomBytes(24));
+  const verifier = base64Url(crypto.randomBytes(48));
+  const challenge = base64Url(crypto.createHash('sha256').update(verifier).digest());
+  const authUrl = buildAuthorizationUrl({
+    clientId,
+    redirectUri: DISCORD_REDIRECT_URI,
+    state,
+    codeChallenge: challenge,
+  });
+
+  return new Promise((resolve, reject) => {
+    let server = null;
+    let timer = null;
+    let callbackRes = null;
+    let claimed = false;
+    let done = false;
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      if (server) {
+        try { server.close(); } catch { /* ignore */ }
+      }
+      if (discordOAuth?.state === state) discordOAuth = null;
+    };
+
+    const fail = (error) => {
+      if (done) return;
+      done = true;
+      cleanup();
+      reject(error);
+    };
+
+    server = http.createServer((req, res) => {
+      const remote = String(req.socket.remoteAddress || '');
+      if (!/^(?:::ffff:)?127\.0\.0\.1$|^::1$/.test(remote)) {
+        res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Forbidden');
+        return;
+      }
+
+      let url = null;
+      try { url = new URL(req.url, 'http://localhost'); } catch { /* ignore */ }
+      if (!url || url.pathname !== '/callback') {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Not found');
+        return;
+      }
+      if (claimed) {
+        sendOAuthPage(res, 409, false, 'To połączenie zostało już zakończone. Wróć do Chill.');
+        return;
+      }
+      if (url.searchParams.get('state') !== state) {
+        sendOAuthPage(res, 400, false, 'Nieprawidłowy stan połączenia. Spróbuj ponownie z Chill.');
+        return;
+      }
+
+      const oauthError = url.searchParams.get('error');
+      if (oauthError) {
+        const message = oauthError === 'access_denied'
+          ? 'Anulowano logowanie w Discord.'
+          : 'Discord odrzucił połączenie. Spróbuj ponownie.';
+        sendOAuthPage(res, 400, false, message);
+        fail(discordError(message, oauthError === 'access_denied' ? 'oauth-denied' : 'oauth-failed'));
+        return;
+      }
+
+      const code = url.searchParams.get('code');
+      if (!code) {
+        sendOAuthPage(res, 400, false, 'Discord nie zwrócił kodu autoryzacji. Spróbuj ponownie.');
+        fail(discordError('Discord nie zwrócił kodu autoryzacji. Spróbuj ponownie.', 'oauth-failed'));
+        return;
+      }
+
+      claimed = true;
+      done = true;
+      clearTimeout(timer);
+      callbackRes = res;
+      resolve({
+        code,
+        verifier,
+        clientId,
+        succeed: (message) => {
+          if (!callbackRes) return;
+          sendOAuthPage(callbackRes, 200, true, message);
+          callbackRes = null;
+        },
+        fail: (message) => {
+          if (!callbackRes) return;
+          sendOAuthPage(callbackRes, 400, false, message);
+          callbackRes = null;
+        },
+        cleanup,
+      });
+    });
+
+    server.on('error', (error) => {
+      const message = error.code === 'EADDRINUSE'
+        ? 'Port 47831 jest zajęty. Zamknij program, który go używa, i spróbuj ponownie.'
+        : 'Nie udało się uruchomić lokalnego połączenia z Discord. Spróbuj ponownie.';
+      fail(discordError(message, error.code === 'EADDRINUSE' ? 'port-busy' : 'oauth-server'));
+    });
+
+    discordOAuth = {
+      state,
+      cancel: () => {
+        if (!done) fail(discordError('Połączanie z Discord zostało anulowane.', 'cancelled'));
+      },
+    };
+
+    // Nasłuch na obu stosach (IPv4 i IPv6), bo przeglądarki różnie rozwiązują „localhost”.
+    // Adres zdalny jest ograniczony do pętli zwrotnej w obsłudze żądania.
+    server.listen(DISCORD_CALLBACK_PORT, () => {
+      shell.openExternal(authUrl).catch(() => {
+        fail(discordError('Nie udało się otworzyć przeglądarki. Spróbuj ponownie.', 'browser'));
+      });
+    });
+
+    timer = setTimeout(() => {
+      fail(discordError('Nie otrzymano odpowiedzi od Discord. Spróbuj ponownie.', 'timeout'));
+    }, DISCORD_OAUTH_TIMEOUT);
+  }).then(async (flow) => {
+    try {
+      const token = await exchangeDiscordCode(flow);
+      flow.succeed('Zalogowano do Discord. Możesz teraz wrócić do Chill.');
+      return token;
+    } catch (error) {
+      flow.fail(error.message);
+      throw error;
+    } finally {
+      flow.cleanup();
+    }
+  });
+}
+
+async function ensureDiscordAccessToken() {
+  if (!discordSession?.accessToken) {
+    throw discordError('Połącz się z Discord, aby zaimportować serwer.', 'needs-connect');
+  }
+  if (discordMockEnabled()) return discordSession.accessToken;
+  if (discordSession.expiresAt - Date.now() > 60000) return discordSession.accessToken;
+  if (!discordSession.refreshToken) {
+    discordSession = null;
+    throw discordError('Sesja Discord wygasła. Połącz się ponownie.', 'needs-connect');
+  }
+
+  const config = loadDiscordConfig();
+  if (!config.clientId) {
+    discordSession = null;
+    throw discordError('Najpierw podaj Client ID aplikacji Discord.', 'needs-setup');
+  }
+
+  const body = new URLSearchParams({
+    client_id: config.clientId,
+    grant_type: 'refresh_token',
+    refresh_token: discordSession.refreshToken,
+  });
+  try {
+    const data = await discordRequest(`${DISCORD_API}/oauth2/token`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json', 'User-Agent': DISCORD_USER_AGENT },
+      body: body.toString(),
+    });
+    storeDiscordToken(data);
+    return discordSession.accessToken;
+  } catch (error) {
+    if (error.status === 400 || error.status === 401) {
+      discordSession = null;
+      throw discordError('Sesja Discord wygasła. Połącz się ponownie.', 'needs-connect');
+    }
+    throw error;
+  }
+}
+
+async function fetchDiscordUser(token) {
+  if (discordMockEnabled()) {
+    return { id: '333333333333333333', username: 'mockowner', displayName: 'Mock Owner', avatarUrl: '' };
+  }
+  const data = await discordRequest(`${DISCORD_API}/users/@me`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'User-Agent': DISCORD_USER_AGENT },
+  });
+  const id = String(data?.id || '');
+  if (!/^\d{15,21}$/.test(id)) throw discordError('Nie udało się zweryfikować konta Discord. Spróbuj ponownie.', 'discord-error');
+  const avatarHash = String(data?.avatar || '');
+  return {
+    id,
+    username: String(data?.username || ''),
+    displayName: String(data?.global_name || data?.username || 'Discord').trim().slice(0, 100) || 'Discord',
+    avatarUrl: /^(?:a_)?[a-f0-9]{32}$/i.test(avatarHash)
+      ? `https://cdn.discordapp.com/avatars/${id}/${avatarHash}.png?size=64`
+      : '',
+  };
+}
+
+async function fetchOwnedGuilds(token) {
+  if (discordMockEnabled()) return filterOwnedGuilds(discordMockGuilds());
+  const data = await discordRequest(`${DISCORD_API}/users/@me/guilds?with_counts=true`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/json', 'User-Agent': DISCORD_USER_AGENT },
+  });
+  if (!Array.isArray(data)) throw discordError('Discord zwrócił nieprawidłową listę serwerów. Spróbuj ponownie.', 'discord-error');
+  return filterOwnedGuilds(data);
+}
+
+async function connectDiscordInternal() {
+  const config = loadDiscordConfig();
+  if (!config.clientId) {
+    throw discordError('Najpierw podaj Client ID aplikacji Discord.', 'needs-setup');
+  }
+
+  let token;
+  try {
+    token = await ensureDiscordAccessToken();
+  } catch (error) {
+    if (error.code !== 'needs-connect' && error.code !== 'unauthorized') throw error;
+    const data = await runDiscordOAuth(config.clientId);
+    storeDiscordToken(data);
+    token = discordSession.accessToken;
+  }
+
+  const [user, guilds] = await Promise.all([
+    fetchDiscordUser(token),
+    fetchOwnedGuilds(token),
+  ]);
+  if (discordSession) {
+    discordSession.user = user;
+    discordSession.guilds = guilds;
+  }
+  return { user, guilds };
+}
+
+async function fetchDiscordTemplate(code) {
+  if (discordMockEnabled()) {
+    const template = discordMockTemplate(code);
+    if (!template) throw discordError('Nie udało się pobrać szablonu Discord. Sprawdź link i spróbuj ponownie.', 'template-error');
+    return template;
+  }
+  try {
+    return await discordRequest(`${DISCORD_API}/guilds/templates/${encodeURIComponent(code)}`, {
+      headers: { Accept: 'application/json', 'User-Agent': DISCORD_USER_AGENT },
+    });
+  } catch (error) {
+    if (error.status === 400 || error.status === 404) {
+      throw discordError('Nie udało się pobrać szablonu Discord. Sprawdź link i spróbuj ponownie.', 'template-error');
+    }
+    throw error;
+  }
+}
+
+async function discordOwnedGuild(guildId) {
+  if (!/^\d{15,21}$/.test(String(guildId || ''))) {
+    throw discordError('Nie znaleziono wybranego serwera Discord na Twoim koncie.', 'guild-missing');
+  }
+  const token = await ensureDiscordAccessToken();
+  const guilds = await fetchOwnedGuilds(token);
+  if (discordSession) discordSession.guilds = guilds;
+  const guild = guilds.find((item) => item.id === guildId);
+  if (!guild) {
+    throw discordError('Nie jesteś właścicielem tego serwera Discord. Import dostępny jest tylko dla serwerów, które sam stworzyłeś.', 'not-owner');
+  }
+  return guild;
+}
+
+async function templateForGuild(guildId, templateInput) {
+  const code = parseTemplateCode(templateInput);
+  if (!code) {
+    throw discordError('Wklej poprawny link szablonu, np. https://discord.new/AbCd1234.', 'invalid-template');
+  }
+  const template = await fetchDiscordTemplate(code);
+  if (!template || typeof template !== 'object' || !template.serialized_source_guild) {
+    throw discordError('Nie udało się pobrać szablonu Discord. Sprawdź link i spróbuj ponownie.', 'template-error');
+  }
+  if (String(template.source_guild_id || '') !== guildId) {
+    throw discordError('Ten szablon należy do innego serwera Discord. Wybierz szablon swojego serwera.', 'template-mismatch');
+  }
+  return { code, template, mapped: mapTemplateChannels(template) };
+}
+
+function uniqueImportedChannelName(channels, base) {
+  let name = base;
+  let suffix = 2;
+  while (channels.some((channel) => channel.name.toLowerCase() === name.toLowerCase())) {
+    const tail = `-${suffix++}`;
+    name = `${base.slice(0, 32 - tail.length)}${tail}`;
+  }
+  return name;
+}
+
+function importedServerColor(guildId) {
+  let hash = 0;
+  for (const character of String(guildId)) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  return DISCORD_IMPORT_COLORS[hash % DISCORD_IMPORT_COLORS.length];
+}
+
+function cancelDiscordOAuth() {
+  if (!discordOAuth) return false;
+  discordOAuth.cancel();
+  return true;
+}
+
+function clearDiscordSession() {
+  cancelDiscordOAuth();
+  discordSession = null;
+}
+
+ipcMain.handle('chill:discord-config-get', () => {
+  const current = activeSession();
+  if (!current) return { ok: false, code: 'auth', error: 'Sesja wygasła. Zaloguj się ponownie.' };
+  const config = loadDiscordConfig();
+  return {
+    ok: true,
+    clientId: config.clientId,
+    redirectUri: DISCORD_REDIRECT_URI,
+    connected: Boolean(discordSession?.accessToken),
+    user: discordSession?.user || null,
+    guilds: Array.isArray(discordSession?.guilds) ? discordSession.guilds : [],
+  };
+});
+
+ipcMain.handle('chill:discord-config-set', (e, payload = {}) => {
+  const current = activeSession();
+  if (!current) return { ok: false, code: 'auth', error: 'Sesja wygasła. Zaloguj się ponownie.' };
+  const clientId = String(payload.clientId || '').trim();
+  if (!/^\d{15,21}$/.test(clientId)) {
+    return { ok: false, code: 'invalid-client-id', error: 'Client ID musi składać się z 15–21 cyfr. Skopiuj Application ID z Discord Developer Portal.' };
+  }
+  const previous = loadDiscordConfig().clientId;
+  try {
+    writeDiscordConfig(clientId);
+  } catch (error) {
+    console.error('[discord] Nie udało się zapisać konfiguracji:', error.message);
+    return { ok: false, code: 'config-save', error: 'Nie udało się zapisać konfiguracji Discord na dysku.' };
+  }
+  if (previous !== clientId) {
+    cancelDiscordOAuth();
+    discordSession = null;
+  }
+  return { ok: true, clientId, redirectUri: DISCORD_REDIRECT_URI };
+});
+
+ipcMain.handle('chill:discord-connect', async () => {
+  const current = activeSession();
+  if (!current) return { ok: false, code: 'auth', error: 'Sesja wygasła. Zaloguj się ponownie.' };
+  try {
+    const result = await connectDiscordInternal();
+    return { ok: true, ...result };
+  } catch (error) {
+    return discordFailure(error);
+  }
+});
+
+ipcMain.handle('chill:discord-disconnect', () => {
+  cancelDiscordOAuth();
+  discordSession = null;
+  return { ok: true };
+});
+
+ipcMain.handle('chill:discord-cancel', () => {
+  cancelDiscordOAuth();
+  return { ok: true };
+});
+
+ipcMain.handle('chill:discord-preview', async (e, payload = {}) => {
+  const current = activeSession();
+  if (!current) return { ok: false, code: 'auth', error: 'Sesja wygasła. Zaloguj się ponownie.' };
+  const guildId = String(payload.guildId || '');
+  try {
+    await discordOwnedGuild(guildId);
+    const info = await templateForGuild(guildId, payload.template);
+    return {
+      ok: true,
+      template: {
+        code: info.code,
+        name: normalizeServerName(info.template.name),
+        channels: info.mapped.channels,
+        total: info.mapped.total,
+        truncated: info.mapped.truncated,
+        skipped: info.mapped.skipped,
+      },
+    };
+  } catch (error) {
+    return discordFailure(error);
+  }
+});
+
+ipcMain.handle('chill:discord-import', async (e, payload = {}) => {
+  const current = activeSession();
+  if (!current) return { ok: false, code: 'auth', error: 'Sesja wygasła. Zaloguj się ponownie.' };
+  const guildId = String(payload.guildId || '');
+
+  try {
+    // Właściciela sprawdzamy ponownie bezpośrednio przed zapisem.
+    const guild = await discordOwnedGuild(guildId);
+
+    const store = loadServersStore();
+    const duplicate = store.hosted.find((server) => server.ownerId === current.id && String(server.discordGuildId || '') === guildId);
+    if (duplicate) {
+      return {
+        ok: false,
+        code: 'already-imported',
+        serverName: duplicate.name,
+        error: `Serwer „${duplicate.name}” został już zaimportowany.`,
+      };
+    }
+
+    const info = await templateForGuild(guildId, payload.template);
+    const now = Date.now();
+    const channels = info.mapped.channels.map((channel) => ({
+      id: makeChannelId(),
+      name: channel.name,
+      type: channel.type,
+      createdAt: now,
+    }));
+
+    // Chill potrzebuje kanału tekstowego jako punktu startowego.
+    if (!channels.some((channel) => channel.type === 'text')) {
+      if (channels.length >= MAX_IMPORTED_CHANNELS) channels.splice(MAX_IMPORTED_CHANNELS - 1);
+      channels.unshift({
+        id: makeChannelId(),
+        name: uniqueImportedChannelName(channels, 'ogólny'),
+        type: 'text',
+        createdAt: now,
+      });
+    }
+
+    const server = {
+      id: makeServerId(),
+      ownerId: current.id,
+      name: normalizeServerName(guild.name),
+      icon: '',
+      color: importedServerColor(guildId),
+      invite: uniqueInviteCode(),
+      ownerKey: crypto.randomBytes(24).toString('hex'),
+      createdAt: now,
+      channels,
+      members: [],
+      messages: Object.fromEntries(channels.map((channel) => [channel.id, []])),
+      discordGuildId: guildId,
+      discordTemplateCode: info.code,
+      discordImportedAt: now,
+    };
+
+    store.hosted.push(server);
+    try {
+      persistServersStore();
+    } catch (error) {
+      store.hosted.pop();
+      console.error('[discord] Nie udało się zapisać serwera:', error.message);
+      throw discordError('Nie udało się zapisać zaimportowanego serwera na dysku.', 'save-failed');
+    }
+
+    return {
+      ok: true,
+      server: hostedMembership(server, current.id),
+      imported: {
+        channels: channels.length,
+        total: info.mapped.total,
+        truncated: info.mapped.truncated,
+        skipped: info.mapped.skipped,
+      },
+    };
+  } catch (error) {
+    return discordFailure(error);
+  }
+});
 
 // ---------- IPC aplikacji ----------
 ipcMain.on('chill:app-packaged', (e) => { e.returnValue = app.isPackaged; });

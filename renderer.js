@@ -114,6 +114,12 @@ let channelType = 'text';
 let menuChannelId = null;
 let deleteChannelId = null;
 let pendingChannelDelete = false;
+let discordConfig = { clientId: '', redirectUri: 'http://localhost:47831/callback' };
+let discordUser = null;
+let discordGuilds = [];
+let discordPreviewData = null;
+let discordBusy = false;
+let discordEditingConfig = false;
 
 const history = new Map();
 const unread = new Map();
@@ -338,6 +344,74 @@ const I18N_EN = {
   'Usuń kanał': 'Delete channel',
   'Usunąć kanał?': 'Delete channel?',
   'Tej operacji nie można cofnąć. Historia wiadomości w kanale zostanie usunięta.': "This action cannot be undone. The channel's message history will be deleted.",
+
+  // Import z Discord
+  'Z Discord': 'From Discord',
+  'Jednorazowa konfiguracja': 'One-time setup',
+  'Utwórz darmową aplikację Discord i skopiuj jej Application ID. Chill użyje jej tylko do sprawdzenia, które serwery sam stworzyłeś.': 'Create a free Discord application and copy its Application ID. Chill uses it only to check which servers you created yourself.',
+  'Wejdź na Discord Developer Portal i utwórz nową aplikację.': 'Open Discord Developer Portal and create a new application.',
+  'W zakładce OAuth2 dodaj Redirect URI:': 'In the OAuth2 tab, add this Redirect URI:',
+  'Włącz Public Client i skopiuj Application ID.': 'Enable Public Client and copy the Application ID.',
+  'Kopiuj Redirect URI': 'Copy Redirect URI',
+  'Otwórz Discord Developer Portal': 'Open Discord Developer Portal',
+  'Client ID aplikacji Discord': 'Discord application Client ID',
+  'Zapisz i połącz': 'Save and connect',
+  'Konto połączone': 'Account connected',
+  'Rozłącz': 'Disconnect',
+  'Połącz konto Discord, aby zobaczyć tylko serwery, które sam stworzyłeś. Serwery, do których tylko dołączyłeś, nie będą widoczne.': 'Connect your Discord account to see only the servers you created yourself. Servers you merely joined will not be shown.',
+  'Połącz z Discord': 'Connect Discord',
+  'Wybierz swój serwer Discord': 'Choose your Discord server',
+  'Widzisz tylko serwery, które sam stworzyłeś.': 'Only servers you created yourself are shown.',
+  'Link szablonu serwera': 'Server template link',
+  'np. https://discord.new/AbCd1234': 'e.g. https://discord.new/AbCd1234',
+  'W Discord otwórz Ustawienia serwera → Szablon serwera → Utwórz szablon i skopiuj link. Zaimportujemy kanały tekstowe i głosowe.': 'In Discord, open Server Settings → Server Template → Create Template and copy the link. We will import text and voice channels.',
+  'Podejrzyj kanały': 'Preview channels',
+  'Importuj serwer': 'Import server',
+  'Zmień Client ID': 'Change Client ID',
+  'Brak własnych serwerów': 'No servers you own',
+  'Nie masz serwerów, których jesteś właścicielem. Import dostępny jest tylko dla własnych serwerów.': 'You have no servers that you own. Import is available only for your own servers.',
+  'Czekam na potwierdzenie w przeglądarce…': 'Waiting for confirmation in your browser…',
+  'Sprawdzam szablon…': 'Checking the template…',
+  'Importuję serwer…': 'Importing the server…',
+  'Zapisuję konfigurację…': 'Saving configuration…',
+  'Kanały do importu: {count}': 'Channels to import: {count}',
+  'Szablon: {name}': 'Template: {name}',
+  'Ten szablon nie zawiera obsługiwanych kanałów — utworzymy kanał ogólny.': 'This template has no supported channels — we will create a general channel.',
+  'Szablon ma {total} kanałów — zaimportujemy pierwsze {count}.': 'The template has {total} channels — we will import the first {count}.',
+  'Pominięto nieobsługiwane kanały: {count}.': 'Unsupported channels skipped: {count}.',
+  'Zaimportowano „{name}” (kanały: {count})': 'Imported “{name}” (channels: {count})',
+  'Nie udało się połączyć z Discord.': 'Could not connect to Discord.',
+  'Najpierw podaj Client ID aplikacji Discord.': 'First enter the Discord application Client ID.',
+  'Client ID musi składać się z 15–21 cyfr. Skopiuj Application ID z Discord Developer Portal.': 'The Client ID must contain 15–21 digits. Copy the Application ID from Discord Developer Portal.',
+  'Połączanie z Discord już trwa.': 'A Discord connection is already in progress.',
+  'Połącz się z Discord, aby zaimportować serwer.': 'Connect Discord to import a server.',
+  'Sesja Discord wygasła. Połącz się ponownie.': 'Your Discord session expired. Connect again.',
+  'Brak połączenia z Discord. Sprawdź internet i spróbuj ponownie.': 'No connection to Discord. Check your internet and try again.',
+  'Discord chwilowo ogranicza liczbę żądań. Spróbuj za chwilę.': 'Discord is temporarily rate limiting requests. Try again in a moment.',
+  'Discord nie udostępnił wymaganych danych. Połącz ponownie i zaakceptuj dostęp do serwerów.': 'Discord did not share the required data. Connect again and allow access to your servers.',
+  'Nie jesteś właścicielem tego serwera Discord. Import dostępny jest tylko dla serwerów, które sam stworzyłeś.': 'You are not the owner of this Discord server. Import is available only for servers you created yourself.',
+  'Nie znaleziono wybranego serwera Discord na Twoim koncie.': 'The selected Discord server was not found on your account.',
+  'Wklej poprawny link szablonu, np. https://discord.new/AbCd1234.': 'Paste a valid template link, e.g. https://discord.new/AbCd1234.',
+  'Nie udało się pobrać szablonu Discord. Sprawdź link i spróbuj ponownie.': 'Could not download the Discord template. Check the link and try again.',
+  'Ten szablon należy do innego serwera Discord. Wybierz szablon swojego serwera.': 'This template belongs to a different Discord server. Choose a template from your own server.',
+  'Serwer „{name}” został już zaimportowany.': 'The server “{name}” has already been imported.',
+  'Nie udało się zapisać zaimportowanego serwera na dysku.': 'Could not save the imported server to disk.',
+  'Port 47831 jest zajęty. Zamknij program, który go używa, i spróbuj ponownie.': 'Port 47831 is in use. Close the program using it and try again.',
+  'Nie otrzymano odpowiedzi od Discord. Spróbuj ponownie.': 'No response from Discord. Try again.',
+  'Połączanie z Discord zostało anulowane.': 'The Discord connection was cancelled.',
+  'Anulowano logowanie w Discord.': 'Discord login was cancelled.',
+  'Discord odrzucił logowanie. Spróbuj ponownie.': 'Discord rejected the login. Try again.',
+  'Nie udało się uruchomić lokalnego połączenia z Discord. Spróbuj ponownie.': 'Could not start the local Discord connection. Try again.',
+  'Nie udało się otworzyć przeglądarki. Spróbuj ponownie.': 'Could not open the browser. Try again.',
+  'Sesja wygasła. Zaloguj się ponownie.': 'Your session expired. Log in again.',
+  'Nie udało się zapisać konfiguracji Discord na dysku.': 'Could not save the Discord configuration to disk.',
+  'Nie udało się zweryfikować konta Discord. Spróbuj ponownie.': 'Could not verify the Discord account. Try again.',
+  'Discord zwrócił nieprawidłową listę serwerów. Spróbuj ponownie.': 'Discord returned an invalid server list. Try again.',
+  'Discord nie zwrócił tokenu dostępu. Spróbuj ponownie.': 'Discord did not return an access token. Try again.',
+  'Discord nie zwrócił kodu autoryzacji. Spróbuj ponownie.': 'Discord did not return an authorization code. Try again.',
+  'Import z Discord jest niedostępny w tej wersji.': 'Discord import is unavailable in this version.',
+  'Wybierz serwer Discord z listy.': 'Choose a Discord server from the list.',
+  'Nie udało się pobrać danych z Discord. Spróbuj ponownie.': 'Could not fetch data from Discord. Try again.',
 
   // Komunikaty dynamiczne
   'Wylogowano': 'Logged out',
@@ -2097,6 +2171,53 @@ function bindServers() {
     }
   });
 
+  // Import z Discord
+  $('openDiscordPortal').addEventListener('click', () => {
+    CHILL.app?.openExternal?.('https://discord.com/developers/applications');
+  });
+  $('copyDiscordRedirect').addEventListener('click', () => {
+    copyText($('discordRedirectUri').textContent).then(() => {
+      toast(t('Skopiowano'));
+    }).catch(() => toast(t('Nie udało się skopiować linku.')));
+  });
+  $('discordSaveConfigBtn').addEventListener('click', saveDiscordConfig);
+  $('discordClientId').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveDiscordConfig();
+    }
+  });
+  $('discordConnectBtn').addEventListener('click', connectDiscord);
+  $('discordDisconnectBtn').addEventListener('click', disconnectDiscord);
+  $('discordChangeConfig').addEventListener('click', () => {
+    discordEditingConfig = true;
+    $('discordClientId').value = discordConfig.clientId;
+    renderDiscordPanel();
+    setTimeout(() => $('discordClientId').focus(), 30);
+  });
+  $('discordSetupCancel').addEventListener('click', () => {
+    discordEditingConfig = false;
+    setDiscordSetupError('');
+    renderDiscordPanel();
+  });
+  $('discordGuildSelect').addEventListener('change', () => {
+    clearDiscordPreview();
+    setDiscordImportError('');
+  });
+  $('discordTemplate').addEventListener('input', () => {
+    clearDiscordPreview();
+    setDiscordImportError('');
+    updateDiscordActionState();
+  });
+  $('discordTemplate').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      previewDiscordImport();
+    }
+  });
+  $('discordPreviewBtn').addEventListener('click', previewDiscordImport);
+  $('discordImportBtn').addEventListener('click', importDiscordServer);
+
   $('inviteBtn').addEventListener('click', openInviteModal);
   $('closeInviteModal').addEventListener('click', () => { $('inviteOverlay').hidden = true; });
   $('inviteOverlay').addEventListener('click', (e) => {
@@ -2270,6 +2391,8 @@ function confirmDeleteChannel() {
 function openServerModal(tab = 'create') {
   if (!currentUser) return;
   $('serverOverlay').hidden = false;
+  const card = $('serverOverlay').querySelector('.server-card');
+  if (card) card.scrollTop = 0;
   $('serverName').value = '';
   $('serverInvite').value = '';
   $('createServerError').textContent = '';
@@ -2277,23 +2400,36 @@ function openServerModal(tab = 'create') {
   serverColor = '#3ee0a3';
   markColorSelection($('serverColors'), serverColor);
   switchServerTab(tab);
+  if (tab === 'discord') void initDiscordPanel();
 }
 
 function closeServerModal() {
   $('serverOverlay').hidden = true;
   $('createServerBtn').disabled = false;
   $('joinServerBtn').disabled = false;
+  clearDiscordPreview();
+  try { CHILL.discord?.cancel?.().catch(() => {}); } catch { /* ignore */ }
 }
 
 function switchServerTab(tab) {
-  const target = tab === 'join' ? 'join' : 'create';
+  const target = tab === 'join' ? 'join' : tab === 'discord' ? 'discord' : 'create';
   document.querySelectorAll('[data-server-tab]').forEach((button) => {
     button.classList.toggle('active', button.dataset.serverTab === target);
   });
   document.querySelectorAll('[data-server-panel]').forEach((panel) => {
     panel.hidden = panel.dataset.serverPanel !== target;
   });
-  setTimeout(() => (target === 'join' ? $('serverInvite') : $('serverName')).focus(), 40);
+  setTimeout(() => {
+    if (target === 'join') {
+      $('serverInvite').focus();
+    } else if (target === 'discord') {
+      if (!$('discordSetup').hidden) $('discordClientId').focus();
+      else if (!$('discordWizard').hidden) $('discordGuildSelect').focus();
+      else if (!$('discordLogin').hidden) $('discordConnectBtn').focus();
+    } else {
+      $('serverName').focus();
+    }
+  }, 40);
 }
 
 async function createServer() {
@@ -2366,6 +2502,388 @@ async function joinServer() {
   } finally {
     $('joinServerBtn').disabled = false;
     if (!errorEl.textContent) errorEl.textContent = '';
+  }
+}
+
+// ---------- Import z Discord ----------
+function discordErrorText(result) {
+  const messages = {
+    'auth': 'Sesja wygasła. Zaloguj się ponownie.',
+    'needs-setup': 'Najpierw podaj Client ID aplikacji Discord.',
+    'invalid-client-id': 'Client ID musi składać się z 15–21 cyfr. Skopiuj Application ID z Discord Developer Portal.',
+    'config-save': 'Nie udało się zapisać konfiguracji Discord na dysku.',
+    'oauth-busy': 'Połączanie z Discord już trwa.',
+    'needs-connect': 'Połącz się z Discord, aby zaimportować serwer.',
+    'unauthorized': 'Sesja Discord wygasła. Połącz się ponownie.',
+    'network': 'Brak połączenia z Discord. Sprawdź internet i spróbuj ponownie.',
+    'rate-limit': 'Discord chwilowo ogranicza liczbę żądań. Spróbuj za chwilę.',
+    'forbidden': 'Discord nie udostępnił wymaganych danych. Połącz ponownie i zaakceptuj dostęp do serwerów.',
+    'not-owner': 'Nie jesteś właścicielem tego serwera Discord. Import dostępny jest tylko dla serwerów, które sam stworzyłeś.',
+    'guild-missing': 'Nie znaleziono wybranego serwera Discord na Twoim koncie.',
+    'invalid-template': 'Wklej poprawny link szablonu, np. https://discord.new/AbCd1234.',
+    'template-error': 'Nie udało się pobrać szablonu Discord. Sprawdź link i spróbuj ponownie.',
+    'template-mismatch': 'Ten szablon należy do innego serwera Discord. Wybierz szablon swojego serwera.',
+    'already-imported': 'Serwer „{name}” został już zaimportowany.',
+    'save-failed': 'Nie udało się zapisać zaimportowanego serwera na dysku.',
+    'port-busy': 'Port 47831 jest zajęty. Zamknij program, który go używa, i spróbuj ponownie.',
+    'timeout': 'Nie otrzymano odpowiedzi od Discord. Spróbuj ponownie.',
+    'cancelled': 'Połączanie z Discord zostało anulowane.',
+    'oauth-denied': 'Anulowano logowanie w Discord.',
+    'oauth-failed': 'Discord odrzucił logowanie. Spróbuj ponownie.',
+    'oauth-server': 'Nie udało się uruchomić lokalnego połączenia z Discord. Spróbuj ponownie.',
+    'browser': 'Nie udało się otworzyć przeglądarki. Spróbuj ponownie.',
+    'discord-error': 'Nie udało się pobrać danych z Discord. Spróbuj ponownie.',
+  };
+  const template = messages[result?.code];
+  if (template) return t(template, { name: result?.serverName || '' });
+  return result?.error ? translateError(result.error) : t('Nie udało się połączyć z Discord.');
+}
+
+function setDiscordSetupError(message = '') {
+  const el = $('discordSetupError');
+  if (el) el.textContent = message;
+}
+
+function setDiscordImportError(message = '') {
+  const el = $('discordImportError');
+  if (el) el.textContent = message;
+}
+
+function updateDiscordActionState() {
+  const templateInput = $('discordTemplate');
+  const guildSelect = $('discordGuildSelect');
+  const hasGuild = Boolean(guildSelect?.value);
+  const hasTemplate = Boolean(templateInput?.value.trim());
+  const previewBtn = $('discordPreviewBtn');
+  const importBtn = $('discordImportBtn');
+  if (previewBtn) previewBtn.disabled = discordBusy || !hasGuild || !hasTemplate;
+  if (importBtn) importBtn.disabled = discordBusy || !discordPreviewData;
+  const guildDisabled = discordBusy || !discordGuilds.length;
+  if (guildSelect) guildSelect.disabled = guildDisabled;
+  for (const id of ['discordSaveConfigBtn', 'discordConnectBtn', 'discordDisconnectBtn', 'discordChangeConfig', 'discordSetupCancel']) {
+    const button = $(id);
+    if (button) button.disabled = discordBusy;
+  }
+  const clientInput = $('discordClientId');
+  if (clientInput) clientInput.disabled = discordBusy;
+  if (templateInput) templateInput.disabled = discordBusy;
+}
+
+function setDiscordBusy(busy, status = '') {
+  discordBusy = Boolean(busy);
+  const statusEl = $('discordStatus');
+  if (statusEl) statusEl.textContent = discordBusy && status ? t(status) : '';
+  updateDiscordActionState();
+}
+
+function renderDiscordPanel() {
+  const hasConfig = Boolean(discordConfig.clientId);
+  const setupVisible = !hasConfig || discordEditingConfig;
+  $('discordSetup').hidden = !setupVisible;
+  $('discordMain').hidden = setupVisible;
+  $('discordChangeConfig').hidden = !hasConfig || setupVisible;
+  $('discordSetupCancel').hidden = !hasConfig || !discordEditingConfig;
+  $('discordAccount').hidden = !discordUser;
+  $('discordLogin').hidden = Boolean(discordUser);
+  $('discordWizard').hidden = !discordUser;
+
+  if (discordUser) {
+    $('discordAccountName').textContent = discordUser.displayName || discordUser.username || 'Discord';
+    const avatar = $('discordAvatar');
+    if (discordUser.avatarUrl) {
+      avatar.textContent = '';
+      avatar.style.backgroundImage = `url("${discordUser.avatarUrl}")`;
+    } else {
+      avatar.textContent = initial(discordUser.displayName || discordUser.username || 'D');
+      avatar.style.backgroundImage = '';
+    }
+  }
+
+  renderDiscordGuilds();
+  renderDiscordPreview();
+  updateDiscordActionState();
+}
+
+function renderDiscordGuilds() {
+  const select = $('discordGuildSelect');
+  if (!select) return;
+  const previous = select.value;
+  select.innerHTML = '';
+  if (!discordGuilds.length) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = t('Brak własnych serwerów');
+    select.appendChild(option);
+  } else {
+    for (const guild of discordGuilds) {
+      const option = document.createElement('option');
+      option.value = guild.id;
+      option.textContent = guild.name;
+      select.appendChild(option);
+    }
+    if (discordGuilds.some((guild) => guild.id === previous)) select.value = previous;
+  }
+  updateDiscordActionState();
+}
+
+function renderDiscordPreview() {
+  const box = $('discordPreview');
+  if (!box) return;
+  box.innerHTML = '';
+  if (!discordPreviewData) {
+    box.hidden = true;
+    updateDiscordActionState();
+    return;
+  }
+
+  const data = discordPreviewData;
+  box.hidden = false;
+
+  const head = document.createElement('div');
+  head.className = 'discord-preview-head';
+  const title = document.createElement('strong');
+  title.textContent = t('Kanały do importu: {count}', { count: data.channels.length });
+  head.appendChild(title);
+  if (data.name) {
+    const name = document.createElement('span');
+    name.textContent = t('Szablon: {name}', { name: data.name });
+    head.appendChild(name);
+  }
+  box.appendChild(head);
+
+  if (data.truncated) {
+    const note = document.createElement('p');
+    note.className = 'discord-preview-note';
+    note.textContent = t('Szablon ma {total} kanałów — zaimportujemy pierwsze {count}.', {
+      total: data.total,
+      count: data.channels.length,
+    });
+    box.appendChild(note);
+  }
+  if (data.skipped > 0) {
+    const note = document.createElement('p');
+    note.className = 'discord-preview-note';
+    note.textContent = t('Pominięto nieobsługiwane kanały: {count}.', { count: data.skipped });
+    box.appendChild(note);
+  }
+
+  if (!data.channels.length) {
+    const empty = document.createElement('p');
+    empty.className = 'discord-preview-empty';
+    empty.textContent = t('Ten szablon nie zawiera obsługiwanych kanałów — utworzymy kanał ogólny.');
+    box.appendChild(empty);
+    updateDiscordActionState();
+    return;
+  }
+
+  const list = document.createElement('div');
+  list.className = 'discord-channel-list';
+  for (const channel of data.channels) {
+    const row = document.createElement('div');
+    row.className = 'discord-channel';
+    const icon = document.createElement('span');
+    icon.className = 'discord-channel-icon';
+    icon.textContent = channel.type === 'voice' ? '🔊' : '#';
+    const name = document.createElement('span');
+    name.className = 'discord-channel-name';
+    name.textContent = channel.name;
+    const type = document.createElement('span');
+    type.className = 'discord-channel-type';
+    type.textContent = t(channel.type === 'voice' ? 'Głosowy' : 'Tekstowy');
+    row.append(icon, name, type);
+    list.appendChild(row);
+  }
+  box.appendChild(list);
+  updateDiscordActionState();
+}
+
+function clearDiscordPreview() {
+  discordPreviewData = null;
+  renderDiscordPreview();
+}
+
+async function initDiscordPanel() {
+  discordEditingConfig = false;
+  discordPreviewData = null;
+  discordBusy = false;
+  discordUser = null;
+  discordGuilds = [];
+  setDiscordSetupError('');
+  setDiscordImportError('');
+  const statusEl = $('discordStatus');
+  if (statusEl) statusEl.textContent = '';
+  $('discordClientId').value = discordConfig.clientId || '';
+  $('discordRedirectUri').textContent = discordConfig.redirectUri;
+  renderDiscordPanel();
+
+  if (!CHILL.discord) {
+    setDiscordSetupError(t('Import z Discord jest niedostępny w tej wersji.'));
+    return;
+  }
+
+  try {
+    const info = await CHILL.discord.configGet();
+    if (!info || !info.ok) {
+      setDiscordSetupError(discordErrorText(info));
+      return;
+    }
+    discordConfig.clientId = info.clientId || '';
+    discordConfig.redirectUri = info.redirectUri || discordConfig.redirectUri;
+    discordUser = info.connected ? info.user || null : null;
+    discordGuilds = info.connected && Array.isArray(info.guilds) ? info.guilds : [];
+    $('discordClientId').value = discordConfig.clientId;
+    $('discordRedirectUri').textContent = discordConfig.redirectUri;
+    renderDiscordPanel();
+    if (discordUser && !discordGuilds.length) {
+      setDiscordImportError(t('Nie masz serwerów, których jesteś właścicielem. Import dostępny jest tylko dla własnych serwerów.'));
+    }
+  } catch {
+    setDiscordSetupError(t('Nie udało się połączyć z Discord.'));
+  }
+}
+
+async function saveDiscordConfig() {
+  if (discordBusy || !CHILL.discord) return;
+  const clientId = $('discordClientId').value.trim();
+  setDiscordSetupError('');
+  if (!/^\d{15,21}$/.test(clientId)) {
+    setDiscordSetupError(t('Client ID musi składać się z 15–21 cyfr. Skopiuj Application ID z Discord Developer Portal.'));
+    $('discordClientId').focus();
+    return;
+  }
+
+  setDiscordBusy(true, 'Zapisuję konfigurację…');
+  try {
+    const result = await CHILL.discord.configSet({ clientId });
+    if (!result || !result.ok) {
+      setDiscordSetupError(discordErrorText(result));
+      return;
+    }
+    discordConfig.clientId = result.clientId || clientId;
+    discordConfig.redirectUri = result.redirectUri || discordConfig.redirectUri;
+    discordEditingConfig = false;
+    discordUser = null;
+    discordGuilds = [];
+    setDiscordSetupError('');
+    renderDiscordPanel();
+  } catch {
+    setDiscordSetupError(t('Nie udało się zapisać konfiguracji Discord na dysku.'));
+    return;
+  } finally {
+    setDiscordBusy(false);
+  }
+  await connectDiscord();
+}
+
+async function connectDiscord() {
+  if (discordBusy || !CHILL.discord) return;
+  setDiscordImportError('');
+  setDiscordSetupError('');
+  setDiscordBusy(true, 'Czekam na potwierdzenie w przeglądarce…');
+  try {
+    const result = await CHILL.discord.connect();
+    if ($('serverOverlay').hidden) return;
+    if (!result || !result.ok) {
+      if (result?.code === 'needs-setup' || result?.code === 'invalid-client-id') {
+        discordEditingConfig = true;
+        renderDiscordPanel();
+        setDiscordSetupError(discordErrorText(result));
+        return;
+      }
+      setDiscordImportError(discordErrorText(result));
+      return;
+    }
+    discordUser = result.user || null;
+    discordGuilds = Array.isArray(result.guilds) ? result.guilds : [];
+    discordPreviewData = null;
+    renderDiscordPanel();
+    if (!discordGuilds.length) {
+      setDiscordImportError(t('Nie masz serwerów, których jesteś właścicielem. Import dostępny jest tylko dla własnych serwerów.'));
+    }
+  } catch {
+    if (!$('serverOverlay').hidden) setDiscordImportError(t('Nie udało się połączyć z Discord.'));
+  } finally {
+    setDiscordBusy(false);
+  }
+}
+
+async function disconnectDiscord() {
+  if (discordBusy || !CHILL.discord) return;
+  setDiscordBusy(true);
+  try { await CHILL.discord.disconnect(); } catch { /* ignore */ }
+  discordUser = null;
+  discordGuilds = [];
+  discordPreviewData = null;
+  setDiscordImportError('');
+  setDiscordSetupError('');
+  renderDiscordPanel();
+  setDiscordBusy(false);
+}
+
+async function previewDiscordImport() {
+  if (discordBusy || !CHILL.discord) return;
+  const guildId = $('discordGuildSelect').value;
+  const template = $('discordTemplate').value.trim();
+  setDiscordImportError('');
+  if (!guildId) {
+    setDiscordImportError(t('Wybierz serwer Discord z listy.'));
+    return;
+  }
+  if (!template) {
+    setDiscordImportError(t('Wklej poprawny link szablonu, np. https://discord.new/AbCd1234.'));
+    return;
+  }
+
+  discordPreviewData = null;
+  renderDiscordPreview();
+  setDiscordBusy(true, 'Sprawdzam szablon…');
+  try {
+    const result = await CHILL.discord.preview({ guildId, template });
+    if ($('serverOverlay').hidden) return;
+    if (!result || !result.ok) {
+      setDiscordImportError(discordErrorText(result));
+      return;
+    }
+    discordPreviewData = {
+      ...result.template,
+      guildId,
+      templateInput: template,
+    };
+    renderDiscordPreview();
+  } catch {
+    if (!$('serverOverlay').hidden) setDiscordImportError(t('Nie udało się pobrać szablonu Discord. Sprawdź link i spróbuj ponownie.'));
+  } finally {
+    setDiscordBusy(false);
+  }
+}
+
+async function importDiscordServer() {
+  if (discordBusy || !discordPreviewData || !CHILL.discord) return;
+  const { guildId, templateInput } = discordPreviewData;
+  setDiscordImportError('');
+  setDiscordBusy(true, 'Importuję serwer…');
+  try {
+    const result = await CHILL.discord.importServer({ guildId, template: templateInput });
+    if (!result || !result.ok) {
+      const message = discordErrorText(result);
+      if ($('serverOverlay').hidden) toast(message);
+      else setDiscordImportError(message);
+      return;
+    }
+    upsertServer(result.server);
+    const state = ensureServerState(result.server);
+    state.server = result.server;
+    closeServerModal();
+    selectServer(result.server.id);
+    connectServer(result.server);
+    toast(t('Zaimportowano „{name}” (kanały: {count})', {
+      name: result.server.name,
+      count: result.server.channels.length,
+    }));
+  } catch {
+    if (!$('serverOverlay').hidden) setDiscordImportError(t('Nie udało się zapisać zaimportowanego serwera na dysku.'));
+  } finally {
+    setDiscordBusy(false);
   }
 }
 

@@ -51,4 +51,14 @@ contextBridge.exposeInMainWorld('chill', {
     leave: (payload) => ipcRenderer.invoke('chill:servers-leave', payload),
     invite: (payload) => ipcRenderer.invoke('chill:servers-invite', payload),
   },
+
+  discord: {
+    configGet: () => ipcRenderer.invoke('chill:discord-config-get'),
+    configSet: (payload) => ipcRenderer.invoke('chill:discord-config-set', payload),
+    connect: () => ipcRenderer.invoke('chill:discord-connect'),
+    disconnect: () => ipcRenderer.invoke('chill:discord-disconnect'),
+    cancel: () => ipcRenderer.invoke('chill:discord-cancel'),
+    preview: (payload) => ipcRenderer.invoke('chill:discord-preview', payload),
+    importServer: (payload) => ipcRenderer.invoke('chill:discord-import', payload),
+  },
 });
