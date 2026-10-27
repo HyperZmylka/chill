@@ -129,6 +129,10 @@ const DEFAULT_PREFS = {
   gameDetect: true,
   status: 'online',
   lang: 'pl',
+  micMuted: false,
+  deafened: false,
+  audioInput: '',
+  audioOutput: '',
 };
 let prefs = { ...DEFAULT_PREFS };
 let authMode = 'login';
@@ -238,6 +242,27 @@ const I18N_EN = {
   'Wyślij': 'Send',
   'Nowa wersja': 'New version',
   'Pobierz ręcznie': 'Download manually',
+
+  // Dźwięk / mikrofon
+  'Wycisz mikrofon': 'Mute microphone',
+  'Włącz mikrofon': 'Unmute microphone',
+  'Wybierz mikrofon': 'Choose microphone',
+  'Wycisz dźwięk': 'Mute audio',
+  'Włącz dźwięk': 'Unmute audio',
+  'Wybierz słuchawki': 'Choose headphones',
+  'Mikrofon': 'Microphone',
+  'Wejście audio': 'Audio input',
+  'Słuchawki': 'Headphones',
+  'Wyjście audio': 'Audio output',
+  'Urządzenie': 'Device',
+  'Domyślne urządzenie': 'Default device',
+  'Brak dostępnych urządzeń': 'No devices available',
+  'Ładowanie urządzeń…': 'Loading devices…',
+  'Urządzenie {n}': 'Device {n}',
+  'Ustawienie zapisuje się lokalnie.': 'This setting is saved locally.',
+  'Konto': 'Account',
+  'Wyloguj się': 'Log out',
+  'Wylogowanie kończy sesję na tym urządzeniu. Konto i historia pozostaną zapisane.': 'Logging out ends the session on this device. Your account and history stay saved.',
 
   // Profil / ustawienia
   'Dodaj do znajomych': 'Add friend',
@@ -547,6 +572,7 @@ function applyLanguage(lang, persist = false) {
   refreshPasswordToggles();
   if (!currentUser) return;
   renderIdentity();
+  if (audioDevicesLoaded) renderAudioDeviceLists();
   renderSidebar();
   renderHeader();
   renderMessages(false);
@@ -601,6 +627,10 @@ function loadPrefs() {
   else if (prefs.theme === 'light') prefs.theme = 'white';
   else if (!['system', 'black', 'white', 'gradient'].includes(prefs.theme)) prefs.theme = 'system';
   if (prefs.lang !== 'en') prefs.lang = 'pl';
+  prefs.micMuted = Boolean(prefs.micMuted);
+  prefs.deafened = Boolean(prefs.deafened);
+  prefs.audioInput = typeof prefs.audioInput === 'string' ? prefs.audioInput : '';
+  prefs.audioOutput = typeof prefs.audioOutput === 'string' ? prefs.audioOutput : '';
 }
 function savePrefs() {
   try { localStorage.setItem(prefsKey(), JSON.stringify(prefs)); } catch { /* ignore */ }
@@ -680,6 +710,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindEmoji();
   bindGif();
   bindSettings();
+  bindAudioControls();
   bindUserProfile();
   bindShortcuts();
   boot();
@@ -905,6 +936,7 @@ function enterApp(user) {
   $('conversationSearch').value = '';
 
   renderIdentity();
+  refreshAudioDevices();
   $('settingsUsername').textContent = `@${user.username}`;
   connect();
   loadServers();
@@ -919,6 +951,7 @@ function enterApp(user) {
 }
 
 function logout() {
+  closeAudioMenus();
   if (reconnectTimer) clearTimeout(reconnectTimer);
   if (ws) {
     ws.onclose = null;
@@ -957,6 +990,7 @@ function logout() {
   $('loginError').textContent = '';
   closeEmojiPicker();
   closeGifPicker();
+  $('settingsOverlay').hidden = true;
   document.title = 'Chill';
   if (CHILL.chat?.setBadge) CHILL.chat.setBadge(0);
 
@@ -979,6 +1013,266 @@ function renderIdentity() {
   $('settingsAvatar').textContent = initial(myName);
   $('settingsAvatar').style.background = myColor;
   $('settingsName').textContent = myName;
+  renderAudioState();
+}
+
+// ============================================================
+// MIKROFON / SŁUCHAWKI
+// ============================================================
+let audioDevices = { input: [], output: [] };
+let audioDevicesLoaded = false;
+let audioRefreshToken = 0;
+let activeAudioMenu = null;
+let audioMenuTrigger = null;
+
+function normalizeAudioDevices(raw, kind) {
+  const seen = new Set();
+  const list = [];
+  for (const device of raw) {
+    if (device.kind !== kind) continue;
+    if (!device.deviceId || device.deviceId === 'default' || device.deviceId === 'communications') continue;
+    if (seen.has(device.deviceId)) continue;
+    seen.add(device.deviceId);
+    list.push({ id: device.deviceId, label: String(device.label || '').trim() });
+  }
+  return list;
+}
+
+function reconcileAudioDevice(kind, devices) {
+  const key = kind === 'mic' ? 'audioInput' : 'audioOutput';
+  if (!prefs[key]) return;
+  if (devices.some((device) => device.id === prefs[key])) return;
+  prefs[key] = '';
+  savePrefs();
+}
+
+async function refreshAudioDevices() {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    audioDevicesLoaded = true;
+    renderAudioDeviceLists();
+    return;
+  }
+  const token = ++audioRefreshToken;
+  try {
+    const raw = await navigator.mediaDevices.enumerateDevices();
+    if (token !== audioRefreshToken) return;
+    const inputs = normalizeAudioDevices(raw, 'audioinput');
+    const outputs = normalizeAudioDevices(raw, 'audiooutput');
+    audioDevices = { input: inputs, output: outputs };
+    reconcileAudioDevice('mic', inputs);
+    reconcileAudioDevice('output', outputs);
+    audioDevicesLoaded = true;
+  } catch {
+    if (token !== audioRefreshToken) return;
+    audioDevicesLoaded = true;
+  } finally {
+    if (token === audioRefreshToken) renderAudioDeviceLists();
+  }
+}
+
+function createAudioDeviceButton(kind, id, label, selected) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'audio-device';
+  button.dataset.audioKind = kind;
+  button.dataset.deviceId = id;
+  button.setAttribute('role', 'menuitemradio');
+  button.setAttribute('aria-checked', String(Boolean(selected)));
+  button.title = label;
+
+  const name = document.createElement('span');
+  name.className = 'audio-device-name';
+  name.textContent = label;
+
+  const check = document.createElement('span');
+  check.className = 'audio-device-check';
+  check.setAttribute('aria-hidden', 'true');
+  check.textContent = selected ? '✓' : '';
+
+  button.append(name, check);
+  button.addEventListener('click', () => chooseAudioDevice(kind, id));
+  return button;
+}
+
+function renderAudioDeviceList(kind) {
+  const list = $(kind === 'mic' ? 'micDeviceList' : 'outputDeviceList');
+  if (!list) return;
+  const devices = kind === 'mic' ? audioDevices.input : audioDevices.output;
+  const selectedId = kind === 'mic' ? prefs.audioInput : prefs.audioOutput;
+  const selectedExists = devices.some((device) => device.id === selectedId);
+
+  list.replaceChildren();
+  list.appendChild(createAudioDeviceButton(kind, '', t('Domyślne urządzenie'), !selectedId || !selectedExists));
+
+  if (!audioDevicesLoaded) {
+    const loading = document.createElement('div');
+    loading.className = 'audio-device-empty';
+    loading.textContent = t('Ładowanie urządzeń…');
+    list.appendChild(loading);
+    return;
+  }
+
+  if (!devices.length) {
+    const empty = document.createElement('div');
+    empty.className = 'audio-device-empty';
+    empty.textContent = t('Brak dostępnych urządzeń');
+    list.appendChild(empty);
+    return;
+  }
+
+  devices.forEach((device, index) => {
+    list.appendChild(createAudioDeviceButton(
+      kind,
+      device.id,
+      device.label || t('Urządzenie {n}', { n: index + 1 }),
+      device.id === selectedId,
+    ));
+  });
+}
+
+function renderAudioDeviceLists() {
+  renderAudioDeviceList('mic');
+  renderAudioDeviceList('output');
+}
+
+function chooseAudioDevice(kind, id) {
+  const key = kind === 'mic' ? 'audioInput' : 'audioOutput';
+  prefs[key] = String(id || '');
+  savePrefs();
+  closeAudioMenus(true);
+}
+
+function setMicMuted(muted) {
+  prefs.micMuted = Boolean(muted);
+  savePrefs();
+  renderAudioState();
+}
+
+function setDeafened(deafened) {
+  prefs.deafened = Boolean(deafened);
+  savePrefs();
+  renderAudioState();
+}
+
+function renderAudioState() {
+  const micBtn = $('micBtn');
+  const outputBtn = $('outputBtn');
+  if (!micBtn || !outputBtn) return;
+
+  const muted = Boolean(prefs.micMuted);
+  const deafened = Boolean(prefs.deafened);
+
+  micBtn.classList.toggle('muted', muted);
+  micBtn.title = t(muted ? 'Włącz mikrofon' : 'Wycisz mikrofon');
+  micBtn.setAttribute('aria-label', micBtn.title);
+  micBtn.setAttribute('aria-pressed', String(muted));
+
+  outputBtn.classList.toggle('muted', deafened);
+  outputBtn.title = t(deafened ? 'Włącz dźwięk' : 'Wycisz dźwięk');
+  outputBtn.setAttribute('aria-label', outputBtn.title);
+  outputBtn.setAttribute('aria-pressed', String(deafened));
+
+  const micMenuBtn = $('micMenuBtn');
+  if (micMenuBtn) {
+    micMenuBtn.title = t('Wybierz mikrofon');
+    micMenuBtn.setAttribute('aria-label', t('Wybierz mikrofon'));
+  }
+  const outputMenuBtn = $('outputMenuBtn');
+  if (outputMenuBtn) {
+    outputMenuBtn.title = t('Wybierz słuchawki');
+    outputMenuBtn.setAttribute('aria-label', t('Wybierz słuchawki'));
+  }
+
+  const micToggle = $('micToggleItem');
+  if (micToggle) {
+    micToggle.classList.toggle('on', muted);
+    micToggle.setAttribute('aria-checked', String(muted));
+  }
+  const outputToggle = $('outputToggleItem');
+  if (outputToggle) {
+    outputToggle.classList.toggle('on', deafened);
+    outputToggle.setAttribute('aria-checked', String(deafened));
+  }
+}
+
+function positionAudioMenu(menu, trigger) {
+  const rect = trigger.getBoundingClientRect();
+  const width = Math.min(264, window.innerWidth - 24);
+  const left = Math.min(Math.max(12, rect.left), window.innerWidth - width - 12);
+  menu.style.width = `${width}px`;
+  menu.style.left = `${left}px`;
+  menu.style.bottom = `${Math.max(12, window.innerHeight - rect.top + 8)}px`;
+}
+
+function closeAudioMenus(returnFocus = false) {
+  if (!activeAudioMenu) return;
+  const menu = activeAudioMenu === 'mic' ? $('micMenu') : $('outputMenu');
+  const trigger = audioMenuTrigger;
+  if (menu) menu.hidden = true;
+  if (trigger) trigger.setAttribute('aria-expanded', 'false');
+  activeAudioMenu = null;
+  audioMenuTrigger = null;
+  if (returnFocus && trigger) trigger.focus({ preventScroll: true });
+}
+
+function toggleAudioMenu(kind, trigger) {
+  if (activeAudioMenu === kind) {
+    closeAudioMenus(true);
+    return;
+  }
+  closeAudioMenus();
+  const menu = kind === 'mic' ? $('micMenu') : $('outputMenu');
+  if (!menu) return;
+  activeAudioMenu = kind;
+  audioMenuTrigger = trigger;
+  menu.hidden = false;
+  trigger.setAttribute('aria-expanded', 'true');
+  renderAudioDeviceList(kind);
+  positionAudioMenu(menu, trigger);
+  refreshAudioDevices();
+  const first = menu.querySelector('button:not([disabled])');
+  if (first) requestAnimationFrame(() => first.focus({ preventScroll: true }));
+}
+
+function bindAudioControls() {
+  $('micBtn').addEventListener('click', () => {
+    setMicMuted(!prefs.micMuted);
+    closeAudioMenus();
+  });
+  $('outputBtn').addEventListener('click', () => {
+    setDeafened(!prefs.deafened);
+    closeAudioMenus();
+  });
+  $('micMenuBtn').addEventListener('click', () => toggleAudioMenu('mic', $('micMenuBtn')));
+  $('outputMenuBtn').addEventListener('click', () => toggleAudioMenu('output', $('outputMenuBtn')));
+  $('micToggleItem').addEventListener('click', () => setMicMuted(!prefs.micMuted));
+  $('outputToggleItem').addEventListener('click', () => setDeafened(!prefs.deafened));
+
+  document.addEventListener('pointerdown', (event) => {
+    if (!activeAudioMenu || !(event.target instanceof Element)) return;
+    if (event.target.closest('.audio-menu') || event.target.closest('.me-split')) return;
+    closeAudioMenus();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !activeAudioMenu) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeAudioMenus(true);
+  }, true);
+
+  window.addEventListener('resize', () => closeAudioMenus());
+  document.addEventListener('scroll', (event) => {
+    if (!activeAudioMenu) return;
+    if (event.target instanceof Element && event.target.closest('.audio-menu')) return;
+    closeAudioMenus();
+  }, true);
+
+  if (navigator.mediaDevices?.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', () => {
+      refreshAudioDevices();
+    });
+  }
 }
 
 // ============================================================
@@ -3380,7 +3674,7 @@ function notifyIncoming(message, where, isCurrent) {
 }
 
 function playSound(mention = false) {
-  if (!prefs.sound) return;
+  if (!prefs.sound || prefs.deafened) return;
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
     const now = audioCtx.currentTime;
@@ -3893,6 +4187,7 @@ function bindSettings() {
 
 function openSettings(tab = 'profile') {
   if (!currentUser) return;
+  closeAudioMenus();
   $('settingsOverlay').hidden = false;
   switchSettingsTab(tab);
   fillProfileForm();

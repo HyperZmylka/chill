@@ -40,6 +40,7 @@ Serwer działa na komputerze właściciela — nie ma centralnego serwera. Gdy h
 - Kanał można usunąć prawym przyciskiem myszy → **Usuń kanał**. Historia wiadomości tekstowych w tym kanale również zostanie usunięta.
 - Uprawnienia są sprawdzane także po stronie hosta — członek serwera nie może utworzyć ani usunąć kanału nawet przez bezpośrednie wywołanie protokołu.
 - Kanały głosowe są oznaczone ikoną głośnika i służą do organizowania rozmów. Ta wersja nie prowadzi transmisji audio — w kanale głosowym nie można wysyłać wiadomości tekstowych.
+- Ikony mikrofonu i słuchawek w dolnym pasku zapisują lokalnie stan wyciszenia oraz wybór urządzenia audio. Wyciszenie słuchawek wyłącza też dźwięk powiadomień.
 - Po usunięciu wszystkich kanałów serwer pozostaje pusty; właściciel nadal może dodać nowy kanał. Ten stan jest zapisywany w `servers.json`.
 
 ## Znajomi i wiadomości prywatne

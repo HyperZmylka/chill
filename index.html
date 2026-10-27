@@ -201,20 +201,72 @@
           </span>
         </button>
         <div class="me-actions">
+          <div class="me-split">
+            <button type="button" class="me-action" id="micBtn" title="Wycisz mikrofon" aria-label="Wycisz mikrofon" aria-pressed="false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                <path d="M12 19v3"></path>
+                <path d="M8 22h8"></path>
+                <path class="icon-slash" d="M4 4 20 20"></path>
+              </svg>
+            </button>
+            <button type="button" class="me-action me-chevron" id="micMenuBtn" title="Wybierz mikrofon" data-i18n-title="Wybierz mikrofon" aria-label="Wybierz mikrofon" data-i18n-aria-label="Wybierz mikrofon" aria-haspopup="menu" aria-expanded="false" aria-controls="micMenu">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6"></path>
+              </svg>
+            </button>
+          </div>
+          <div class="me-split">
+            <button type="button" class="me-action" id="outputBtn" title="Wycisz dźwięk" aria-label="Wycisz dźwięk" aria-pressed="false">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"></path>
+                <path class="icon-slash" d="M4 4 20 20"></path>
+              </svg>
+            </button>
+            <button type="button" class="me-action me-chevron" id="outputMenuBtn" title="Wybierz słuchawki" data-i18n-title="Wybierz słuchawki" aria-label="Wybierz słuchawki" data-i18n-aria-label="Wybierz słuchawki" aria-haspopup="menu" aria-expanded="false" aria-controls="outputMenu">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="m6 9 6 6 6-6"></path>
+              </svg>
+            </button>
+          </div>
           <button type="button" class="me-action" id="settingsBtn" title="Ustawienia" data-i18n-title="Ustawienia" aria-label="Ustawienia" data-i18n-aria-label="Ustawienia">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
               <circle cx="12" cy="12" r="3"></circle>
             </svg>
           </button>
-          <button type="button" class="me-action danger" id="logoutBtn" title="Wyloguj" data-i18n-title="Wyloguj" aria-label="Wyloguj" data-i18n-aria-label="Wyloguj">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
-              <path d="m16 17 5-5-5-5"></path>
-              <path d="M21 12H9"></path>
-            </svg>
-          </button>
         </div>
+      </div>
+
+      <div class="audio-menu" id="micMenu" hidden role="menu" aria-labelledby="micMenuTitle">
+        <div class="audio-menu-head">
+          <span class="audio-menu-title" id="micMenuTitle" data-i18n="Mikrofon">Mikrofon</span>
+          <span class="audio-menu-sub" data-i18n="Wejście audio">Wejście audio</span>
+        </div>
+        <button type="button" class="audio-menu-toggle" id="micToggleItem" role="menuitemcheckbox" aria-checked="false">
+          <span data-i18n="Wycisz mikrofon">Wycisz mikrofon</span>
+          <span class="audio-switch" aria-hidden="true"><span></span></span>
+        </button>
+        <div class="audio-menu-sep"></div>
+        <div class="audio-menu-label" data-i18n="Urządzenie">Urządzenie</div>
+        <div class="audio-device-list" id="micDeviceList" role="group" aria-label="Mikrofon" data-i18n-aria-label="Mikrofon"></div>
+        <p class="audio-menu-note" data-i18n="Ustawienie zapisuje się lokalnie.">Ustawienie zapisuje się lokalnie.</p>
+      </div>
+
+      <div class="audio-menu" id="outputMenu" hidden role="menu" aria-labelledby="outputMenuTitle">
+        <div class="audio-menu-head">
+          <span class="audio-menu-title" id="outputMenuTitle" data-i18n="Słuchawki">Słuchawki</span>
+          <span class="audio-menu-sub" data-i18n="Wyjście audio">Wyjście audio</span>
+        </div>
+        <button type="button" class="audio-menu-toggle" id="outputToggleItem" role="menuitemcheckbox" aria-checked="false">
+          <span data-i18n="Wycisz dźwięk">Wycisz dźwięk</span>
+          <span class="audio-switch" aria-hidden="true"><span></span></span>
+        </button>
+        <div class="audio-menu-sep"></div>
+        <div class="audio-menu-label" data-i18n="Urządzenie">Urządzenie</div>
+        <div class="audio-device-list" id="outputDeviceList" role="group" aria-label="Słuchawki" data-i18n-aria-label="Słuchawki"></div>
+        <p class="audio-menu-note" data-i18n="Ustawienie zapisuje się lokalnie.">Ustawienie zapisuje się lokalnie.</p>
       </div>
     </div>
   </aside>
@@ -528,6 +580,15 @@
 
           <div class="divider"></div>
           <p class="settings-note" data-i18n="Konta i historia są przechowywane lokalnie w folderze danych aplikacji. Odinstalowanie Chill usuwa także te dane.">Konta i historia są przechowywane lokalnie w folderze danych aplikacji. Odinstalowanie Chill usuwa także te dane.</p>
+
+          <div class="divider"></div>
+          <div class="account-block">
+            <div>
+              <span class="setting-label" data-i18n="Konto">Konto</span>
+              <p class="settings-note" data-i18n="Wylogowanie kończy sesję na tym urządzeniu. Konto i historia pozostaną zapisane.">Wylogowanie kończy sesję na tym urządzeniu. Konto i historia pozostaną zapisane.</p>
+            </div>
+            <button type="button" class="btn-secondary danger" id="logoutBtn" data-i18n="Wyloguj się">Wyloguj się</button>
+          </div>
         </section>
       </div>
     </div>
