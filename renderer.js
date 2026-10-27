@@ -2145,7 +2145,11 @@ function bindServers() {
   });
 
   document.querySelectorAll('[data-server-tab]').forEach((button) => {
-    button.addEventListener('click', () => switchServerTab(button.dataset.serverTab));
+    button.addEventListener('click', () => {
+      const target = button.dataset.serverTab;
+      if (target === 'discord') void initDiscordPanel();
+      switchServerTab(target);
+    });
   });
 
   $('serverColors').addEventListener('click', (e) => {

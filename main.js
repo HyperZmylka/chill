@@ -1496,7 +1496,7 @@ const DISCORD_API = 'https://discord.com/api';
 const DISCORD_REDIRECT_URI = 'http://localhost:47831/callback';
 const DISCORD_CALLBACK_PORT = 47831;
 const DISCORD_OAUTH_TIMEOUT = 5 * 60 * 1000;
-const DISCORD_USER_AGENT = 'Chill/4.3.3 (https://github.com/HyperZmylka/chill, 4.3.3)';
+const DISCORD_USER_AGENT = 'Chill/4.3.4 (https://github.com/HyperZmylka/chill, 4.3.4)';
 const DISCORD_IMPORT_COLORS = ['#3ee0a3', '#7cc8ff', '#ffa46b', '#ff7aa2', '#b8a1ff', '#ffd166'];
 
 let discordConfig = null;
