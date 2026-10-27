@@ -13,6 +13,7 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 - **Znajomi** — kliknij profil innego członka serwera, dodaj go do znajomych i pisz bezpośrednio.
 - **Trwała historia** — wiadomości serwera zapisują się u osoby, która go hostuje; DM-y lokalne w `chat-data.json`, a DM-y serwerowe u hosta w `servers.json`.
 - **Emoji** — picker z wyszukiwarką i listą ostatnio używanych.
+- **Naklejki** — wbudowany zestaw Chill Pack (24 grafiki SVG), kategorie i wyszukiwarka; wybrana naklejka pojawia się bezpośrednio w rozmowie.
 - **GIF-y** — przycisk obok emoji, kategorie i wyszukiwarka; wybrany GIF pojawia się bezpośrednio w rozmowie.
 - **Wzmianki `@`** — podpowiedzi członków serwera i znajomych, wstawianie nicku z klawiatury i wyróżnienie w wiadomości.
 - **Statusy** — online, zaraz wracam, nie przeszkadzać, niewidoczny.
@@ -63,6 +64,14 @@ Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach p
 - Wybrany GIF jest wysyłany jako zwykły link: GIPHY `https://media.giphy.com/media/<id>/giphy.gif`, KLIPY `https://static2.klipy.com/...gif`. Dzięki temu działa w kanałach serwera i w DM-ach, a historia zapisuje się tak jak pozostałe wiadomości.
 - W rozmowie link GIF-a jest rozpoznawany i wyświetlany jako obrazek: GIPHY z `giphy.webp`, KLIPY z animowanego WebP. Jeśli WebP się nie wczyta, aplikacja użyje GIF-a, a potem pokaże przycisk **Otwórz GIF**. Do wyświetlania potrzebne jest połączenie z internetem.
 - W pickerze i pod wiadomościami znajdują się oznaczenia **Powered by GIPHY** i **Powered by KLIPY**. Pozycje KLIPY korzystają z publicznych linków do mediów, bez klucza API.
+
+## Naklejki
+
+- Przycisk naklejki znajduje się w polu pisania, obok emoji i GIF. Otwiera picker **Chill Pack** z kategoriami (`Wszystkie`, `Reakcje`, `Emocje`, `Zwierzęta`, `Jedzenie`, `Impreza`) i wyszukiwarką.
+- Zestaw zawiera 24 wbudowane grafiki SVG (`stickers.js`) — działa bez internetu, klucza API i zewnętrznych licencji. Kategorie i podpisy są tłumaczone na polski i angielski.
+- Wyszukiwanie działa lokalnie i po obu językach, np. `kot` znajdzie naklejkę **Kot**, a `cat` — **Cat**. Ignoruje polskie znaki diakrytyczne.
+- Kliknięcie miniatury od razu wysyła naklejkę. W rozmowie jest wyświetlana jako obrazek, a w historii zapisuje się jako `chill-sticker://<id>` — dzięki temu działa w kanałach serwera, DM-ach lokalnych i serwerowych oraz po ponownym uruchomieniu.
+- Wyszukiwarka wiadomości rozpoznaje nazwy naklejek, a powiadomienia pokazują `Naklejka • <nazwa>`.
 
 ## Język interfejsu
 

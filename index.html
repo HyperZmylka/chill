@@ -301,6 +301,12 @@
       <div class="composer-field">
         <textarea id="messageInput" rows="1" placeholder="Napisz wiadomość…" data-i18n-placeholder="Napisz wiadomość…" maxlength="4000" spellcheck="true"></textarea>
         <button type="button" class="composer-btn" id="emojiBtn" title="Emoji" aria-label="Emoji" data-i18n-title="Emoji" data-i18n-aria-label="Emoji">☺</button>
+        <button type="button" class="composer-btn sticker-btn" id="stickerBtn" title="Naklejki" aria-label="Naklejki" aria-controls="stickerOverlay" aria-expanded="false" data-i18n-title="Naklejki" data-i18n-aria-label="Naklejki">
+          <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4.5 6.5A2.5 2.5 0 0 1 7 4h10a2.5 2.5 0 0 1 2.5 2.5v8.9L14.4 20H7a2.5 2.5 0 0 1-2.5-2.5z"/>
+            <path d="M14.2 20v-4.2a1.7 1.7 0 0 1 1.7-1.7h4.1"/>
+          </svg>
+        </button>
         <button type="button" class="composer-btn gif-btn" id="gifBtn" title="GIF" aria-label="GIF" aria-controls="gifOverlay" aria-expanded="false">GIF</button>
         <div class="mention-pop" id="mentionPop" hidden></div>
       </div>
@@ -316,6 +322,20 @@
       <input type="search" class="emoji-search" id="emojiSearch" placeholder="Szukaj emoji…" data-i18n-placeholder="Szukaj emoji…" spellcheck="false">
       <div class="emoji-recent" id="emojiRecent"></div>
       <div class="emoji-grid" id="emojiGrid"></div>
+    </div>
+
+    <!-- Naklejki -->
+    <div class="sticker-pop" id="stickerOverlay" hidden>
+      <header class="sticker-head">
+        <div class="sticker-heading">
+          <strong data-i18n="Naklejki">Naklejki</strong>
+          <span class="sticker-pack">Chill Pack</span>
+        </div>
+        <button type="button" class="icon-btn tiny" id="closeSticker" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      </header>
+      <input type="search" class="sticker-search" id="stickerSearch" placeholder="Szukaj naklejek…" data-i18n-placeholder="Szukaj naklejek…" spellcheck="false">
+      <div class="sticker-categories" id="stickerCategories"></div>
+      <div class="sticker-grid" id="stickerGrid"></div>
     </div>
 
     <!-- GIF -->
@@ -799,6 +819,7 @@
 </div>
 
 <script src="gifs.js"></script>
+<script src="stickers.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>

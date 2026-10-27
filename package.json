@@ -1,8 +1,8 @@
 {
   "name": "chill",
   "productName": "Chill",
-  "version": "4.3.4",
-  "description": "Chill — spokojny komunikator desktopowy: serwery, kanały, wiadomości prywatne, emoji i aktualizacje.",
+  "version": "4.4.0",
+  "description": "Chill — spokojny komunikator desktopowy: serwery, kanały, wiadomości prywatne, emoji, naklejki, GIF-y i aktualizacje.",
   "main": "main.js",
   "private": true,
   "author": "HyperZmylka",
@@ -54,6 +54,7 @@
       "renderer.js",
       "discord-import.js",
       "gifs.js",
+      "stickers.js",
       "build/icon.png",
       "node_modules/**/*"
     ],

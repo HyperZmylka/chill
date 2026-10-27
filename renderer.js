@@ -49,6 +49,18 @@ for (const gif of GIFS) {
   }
 }
 
+// ---------- Naklejki ----------
+const STICKER_PACK = window.CHILL_STICKER_PACK && typeof window.CHILL_STICKER_PACK === 'object'
+  ? window.CHILL_STICKER_PACK
+  : null;
+const STICKERS = Array.isArray(STICKER_PACK?.stickers) ? STICKER_PACK.stickers : [];
+const STICKER_ALL_CATEGORIES = 'Wszystkie';
+const STICKER_MESSAGE_RE = /^chill-sticker:\/\/([a-z0-9-]{2,40})$/;
+const STICKER_BY_ID = STICKER_PACK?.byId instanceof Map
+  ? STICKER_PACK.byId
+  : new Map(STICKERS.map((sticker) => [sticker.id, sticker]));
+let stickerState = { category: STICKER_ALL_CATEGORIES, query: '' };
+
 // ---------- Emoji ----------
 const EMOJI_GROUPS = [
   { name: 'Emocje', items: ['😀', '😁', '😂', '🤣', '😊', '😉', '😍', '🥰', '😘', '😋', '😎', '🤩', '🥳', '😏', '😢', '😭', '😤', '😡', '🤬', '😱', '😳', '🤔', '🤨', '😐', '🙄', '😴', '🤯', '🥺', '😬', '🤗', '🤭', '🤫', '😅', '😇', '🙃', '😜', '🤪'] },
@@ -235,12 +247,17 @@ const I18N_EN = {
   'Emoji': 'Emoji',
   'Szukaj emoji…': 'Search emoji…',
   'Szukaj GIF-ów…': 'Search GIFs…',
+  'Naklejki': 'Stickers',
+  'Naklejka': 'Sticker',
+  'Szukaj naklejek…': 'Search stickers…',
   'Wszystkie': 'All',
   'Popularne': 'Popular',
   'Reakcje': 'Reactions',
   'Śmieszne': 'Funny',
   'Zwierzęta': 'Animals',
   'Jedzenie': 'Food',
+  'Impreza': 'Party',
+  'Emocje': 'Emotions',
   'Gry': 'Games',
   'Otwórz GIF': 'Open GIF',
   'Członkowie': 'Members',
@@ -656,6 +673,10 @@ function applyLanguage(lang, persist = false) {
     renderGifCategories();
     renderGifs();
   }
+  if ($('stickerOverlay') && !$('stickerOverlay').hidden) {
+    renderStickerCategories();
+    renderStickers();
+  }
   renderTyping();
   updateBadges();
   if (!$('userProfileOverlay').hidden) renderUserProfile();
@@ -782,6 +803,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindChat();
   bindServers();
   bindEmoji();
+  bindSticker();
   bindGif();
   bindSettings();
   bindAudioControls();
@@ -3705,6 +3727,7 @@ function updateComposer() {
   $('typingBar').hidden = !enabled || typingUsers.size === 0;
   if (!enabled) {
     closeEmojiPicker();
+    closeStickerPicker();
     closeGifPicker();
   }
 }
@@ -3812,7 +3835,11 @@ function renderMessages(scroll = true) {
   }
 
   if (searchQuery) {
-    list = list.filter((m) => String(m.text).toLowerCase().includes(searchQuery));
+    list = list.filter((m) => {
+      const sticker = stickerMessageDescriptor(m.text);
+      if (sticker) return stickerSearchText(sticker).includes(searchQuery);
+      return String(m.text).toLowerCase().includes(searchQuery);
+    });
   }
 
   if (!list.length) {
@@ -3916,45 +3943,59 @@ function buildMessage(message, grouped) {
 
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
-  const gif = gifMessageDescriptor(message.text);
-  const chatUrl = gif ? gifChatSource(gif) : '';
-  if (gif && chatUrl) {
-    bubble.classList.add('bubble-gif');
-    const fallbackUrl = gifChatFallback(gif);
-    const openUrl = gifOpenUrl(gif);
+  const sticker = stickerMessageDescriptor(message.text);
+  if (sticker) {
+    bubble.classList.add('bubble-sticker');
     const img = document.createElement('img');
-    img.className = 'chat-gif';
-    img.src = chatUrl;
-    img.alt = 'GIF';
-    img.title = gifAttributionLabel(gif);
-    if (gifSource(gif) === 'klipy' && gif.w > 0 && gif.h > 0) {
-      img.width = gif.w;
-      img.height = gif.h;
-    }
+    img.className = 'chat-sticker';
+    img.src = stickerDataUrl(sticker);
+    img.alt = stickerLabel(sticker);
+    img.title = `${t('Naklejka')} • ${stickerLabel(sticker)}`;
     img.loading = 'lazy';
     img.decoding = 'async';
     img.draggable = false;
-    img.referrerPolicy = 'no-referrer';
-    img.addEventListener('error', () => {
-      if (img.dataset.fallback !== '1' && fallbackUrl && fallbackUrl !== chatUrl) {
-        img.dataset.fallback = '1';
-        img.src = fallbackUrl;
-        return;
-      }
-      img.remove();
-      const fallback = document.createElement('button');
-      fallback.type = 'button';
-      fallback.className = 'chat-gif-fallback';
-      fallback.textContent = t('Otwórz GIF');
-      fallback.title = openUrl;
-      fallback.addEventListener('click', () => {
-        if (openUrl) CHILL.app?.openExternal?.(openUrl);
-      });
-      bubble.appendChild(fallback);
-    });
     bubble.appendChild(img);
   } else {
-    bubble.innerHTML = formatMessageText(message.text);
+    const gif = gifMessageDescriptor(message.text);
+    const chatUrl = gif ? gifChatSource(gif) : '';
+    if (gif && chatUrl) {
+      bubble.classList.add('bubble-gif');
+      const fallbackUrl = gifChatFallback(gif);
+      const openUrl = gifOpenUrl(gif);
+      const img = document.createElement('img');
+      img.className = 'chat-gif';
+      img.src = chatUrl;
+      img.alt = 'GIF';
+      img.title = gifAttributionLabel(gif);
+      if (gifSource(gif) === 'klipy' && gif.w > 0 && gif.h > 0) {
+        img.width = gif.w;
+        img.height = gif.h;
+      }
+      img.loading = 'lazy';
+      img.decoding = 'async';
+      img.draggable = false;
+      img.referrerPolicy = 'no-referrer';
+      img.addEventListener('error', () => {
+        if (img.dataset.fallback !== '1' && fallbackUrl && fallbackUrl !== chatUrl) {
+          img.dataset.fallback = '1';
+          img.src = fallbackUrl;
+          return;
+        }
+        img.remove();
+        const fallback = document.createElement('button');
+        fallback.type = 'button';
+        fallback.className = 'chat-gif-fallback';
+        fallback.textContent = t('Otwórz GIF');
+        fallback.title = openUrl;
+        fallback.addEventListener('click', () => {
+          if (openUrl) CHILL.app?.openExternal?.(openUrl);
+        });
+        bubble.appendChild(fallback);
+      });
+      bubble.appendChild(img);
+    } else {
+      bubble.innerHTML = formatMessageText(message.text);
+    }
   }
 
   main.appendChild(meta);
@@ -4185,11 +4226,14 @@ function notifyIncoming(message, where, isCurrent) {
 
   const mention = isMention(message.text);
   if (prefs.mentionsOnly && !mention) return;
+  const sticker = stickerMessageDescriptor(message.text);
 
   if (prefs.notify && CHILL.chat?.notify) {
     CHILL.chat.notify({
       title: mention ? t('Wzmianka od {name}', { name: message.authorName }) : `${message.authorName} • ${where}`,
-      body: gifMessageDescriptor(message.text) ? 'GIF' : String(message.text).slice(0, 160),
+      body: sticker
+        ? `${t('Naklejka')} • ${stickerLabel(sticker)}`
+        : gifMessageDescriptor(message.text) ? 'GIF' : String(message.text).slice(0, 160),
     });
   }
   if (prefs.sound) playSound(mention);
@@ -4225,6 +4269,7 @@ function bindEmoji() {
     const opening = pop.hidden;
     pop.hidden = !pop.hidden;
     if (opening) {
+      closeStickerPicker();
       closeGifPicker();
       $('emojiSearch').value = '';
       $('emojiSearch').focus();
@@ -4306,6 +4351,157 @@ function saveRecent(char) {
 }
 
 // ============================================================
+// NAKLEJKI
+// ============================================================
+function bindSticker() {
+  const pop = $('stickerOverlay');
+  const search = $('stickerSearch');
+  if (!pop || !search) return;
+
+  $('stickerBtn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const opening = pop.hidden;
+    pop.hidden = !pop.hidden;
+    $('stickerBtn').setAttribute('aria-expanded', String(!pop.hidden));
+    if (opening) {
+      closeEmojiPicker();
+      closeGifPicker();
+      hideMentionPop();
+      stickerState.query = '';
+      search.value = '';
+      renderStickerCategories();
+      renderStickers();
+      search.focus();
+    }
+  });
+  $('closeSticker').addEventListener('click', closeStickerPicker);
+  pop.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('click', closeStickerPicker);
+
+  search.addEventListener('input', () => {
+    const wasSearching = Boolean(stickerState.query.trim());
+    stickerState.query = search.value;
+    const isSearching = Boolean(stickerState.query.trim());
+    if (wasSearching !== isSearching) renderStickerCategories();
+    renderStickers();
+  });
+  search.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      closeStickerPicker();
+    }
+  });
+  $('stickerCategories').addEventListener('click', (e) => {
+    const button = e.target.closest('[data-sticker-category]');
+    if (!button) return;
+    stickerState.category = button.dataset.stickerCategory;
+    stickerState.query = '';
+    search.value = '';
+    renderStickerCategories();
+    renderStickers();
+    search.focus();
+  });
+}
+
+function closeStickerPicker() {
+  const pop = $('stickerOverlay');
+  if (pop) pop.hidden = true;
+  const button = $('stickerBtn');
+  if (button) button.setAttribute('aria-expanded', 'false');
+}
+
+function renderStickerCategories() {
+  const container = $('stickerCategories');
+  if (!container) return;
+  const categories = [STICKER_ALL_CATEGORIES, ...(STICKER_PACK?.categories || [])]
+    .filter((category, index, list) => category && list.indexOf(category) === index);
+  const searching = Boolean(stickerState.query.trim());
+  container.innerHTML = '';
+  for (const category of categories) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'sticker-category';
+    button.dataset.stickerCategory = category;
+    button.textContent = t(category);
+    const active = !searching && stickerState.category === category;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+    container.appendChild(button);
+  }
+}
+
+function stickerSearchText(sticker) {
+  const fromPack = STICKER_PACK?.searchText?.(sticker);
+  if (fromPack) return fromPack;
+  return `${sticker?.labelPl || ''} ${sticker?.labelEn || ''} ${sticker?.category || ''} ${sticker?.tags || ''}`.toLowerCase();
+}
+
+function renderStickers() {
+  const grid = $('stickerGrid');
+  if (!grid) return;
+  const terms = foldGifText(stickerState.query).split(/\s+/).filter(Boolean);
+  const list = STICKERS.filter((sticker) => {
+    if (!sticker || !STICKER_BY_ID.has(sticker.id)) return false;
+    if (!terms.length) {
+      return stickerState.category === STICKER_ALL_CATEGORIES || sticker.category === stickerState.category;
+    }
+    const haystack = foldGifText(stickerSearchText(sticker));
+    return terms.every((term) => haystack.includes(term));
+  });
+  grid.innerHTML = '';
+  grid.classList.toggle('is-empty', !list.length);
+  if (!list.length) {
+    grid.innerHTML = `<div class="sticker-empty">${esc(t('Nic nie znaleziono'))}</div>`;
+    return;
+  }
+  for (const sticker of list) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'sticker-item';
+    button.title = stickerLabel(sticker);
+    button.setAttribute('aria-label', `${t('Naklejka')}: ${stickerLabel(sticker)}`);
+    const img = document.createElement('img');
+    img.src = stickerDataUrl(sticker);
+    img.alt = '';
+    img.decoding = 'async';
+    img.draggable = false;
+    const label = document.createElement('span');
+    label.className = 'sticker-item-label';
+    label.textContent = stickerLabel(sticker);
+    button.appendChild(img);
+    button.appendChild(label);
+    button.addEventListener('click', () => sendSticker(sticker));
+    grid.appendChild(button);
+  }
+}
+
+function sendSticker(sticker) {
+  if (!sticker || !STICKER_BY_ID.has(sticker.id) || $('composer').hidden) return;
+  const token = STICKER_PACK?.token?.(sticker.id) || `chill-sticker://${sticker.id}`;
+  hideMentionPop();
+  if (!deliverMessage(token)) return;
+  closeStickerPicker();
+  stopTyping();
+  $('messageInput').focus();
+}
+
+function stickerMessageDescriptor(text) {
+  const match = String(text ?? '').trim().match(STICKER_MESSAGE_RE);
+  return match ? STICKER_BY_ID.get(match[1]) || null : null;
+}
+
+function stickerLabel(sticker) {
+  if (!sticker) return t('Naklejka');
+  const fromPack = STICKER_PACK?.label?.(sticker, prefs.lang);
+  if (fromPack) return fromPack;
+  return prefs.lang === 'en' ? (sticker.labelEn || sticker.labelPl) : (sticker.labelPl || sticker.labelEn);
+}
+
+function stickerDataUrl(sticker) {
+  return STICKER_PACK?.dataUrl?.(sticker) || '';
+}
+
+// ============================================================
 // GIF-Y
 // ============================================================
 function bindGif() {
@@ -4318,6 +4514,7 @@ function bindGif() {
     $('gifBtn').setAttribute('aria-expanded', String(!pop.hidden));
     if (opening) {
       closeEmojiPicker();
+      closeStickerPicker();
       gifState.query = '';
       search.value = '';
       renderGifCategories();
@@ -4929,6 +5126,7 @@ function bindShortcuts() {
       if (!$('serverOverlay').hidden) { closeServerModal(); return; }
       if (!$('inviteOverlay').hidden) { $('inviteOverlay').hidden = true; return; }
       if (!$('settingsOverlay').hidden) { closeSettings(); return; }
+      if (!$('stickerOverlay').hidden) { closeStickerPicker(); return; }
       if (!$('gifOverlay').hidden) { closeGifPicker(); return; }
       if (!$('emojiOverlay').hidden) { closeEmojiPicker(); return; }
       if (!$('searchBar').hidden) { setMessageSearch(false); return; }
