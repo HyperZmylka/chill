@@ -20,7 +20,7 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 - **Statusy** — online, zaraz wracam, nie przeszkadzać, niewidoczny.
 - **Wykrywanie gier** — „Gra w …” na profilu i liście członków.
 - **Powiadomienia** — systemowe dymki, przyjemny dwudźwięk przy nowej wiadomości i trzytonowy sygnał przy wzmiance, tryb „tylko wzmianki”, odznaki.
-- **Wygląd** — motyw czarny, biały, dopasowany do systemu albo gradient; akcenty i kompaktowe wiadomości.
+- **Wygląd** — sześć presetów (Chill, Discord, Minimal, Zorza, Zachód słońca, Ocean), motyw Discord, 12 akcentów i własny kolor, kształt interfejsu (miękki, zaokrąglony, kwadratowy), tła (Zorza, Zachód słońca, Ocean, Las, Mono), styl wiadomości (dymki lub płaski jak w Discordzie), rozmiar tekstu, ograniczenie animacji i wysoki kontrast.
 - **Język interfejsu** — polski (domyślnie) albo angielski, przełączany w Ustawieniach → Język. Zmiana działa od razu, również w menu tray.
 - **Profil w rogu** — awatar, nazwa, ustawienia i wylogowanie są przypięte do lewego dolnego rogu.
 - **Tray i autostart** — Chill zostaje w zasobniku i może startować z Windows.
@@ -84,6 +84,13 @@ Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach p
 - Dostęp do pliku jest powiązany z aktywną sesją i członkostwem w serwerze. Token jest ważny przez 7 dni i jest unieważniany po rozłączeniu, więc odtwarzanie wymaga połączenia z serwerem, do którego należy rozmowa.
 - Do nagrywania potrzebny jest mikrofon. Jeśli w dolnym pasku wybrano konkretne urządzenie wejściowe, nagrywanie użyje właśnie jego (z bezpiecznym powrotem do domyślnego mikrofonu).
 - Wyszukiwarka wiadomości znajduje głosówki po słowach `głosówka`, `nagranie`, `audio`, `voice message` i pokrewnych, również bez polskich znaków diakrytycznych.
+
+## Wygląd, dostępność i dźwięk
+
+- **Ustawienia → Wygląd** zawiera presety, motyw, akcent, kształt, tło, styl wiadomości i kompaktowy układ. Wszystkie zmiany działają od razu i zapisują się osobno dla każdego konta.
+- Preset **Discord** ustawia ciemny motyw, fioletowy akcent, kwadratowe kształty i płaski styl wiadomości. Presety **Zorza**, **Zachód słońca** i **Ocean** łączą gradientowe tło z dopasowanym akcentem.
+- **Ustawienia → Dostępność** pozwala wybrać rozmiar tekstu wiadomości, ograniczyć animacje i włączyć wysoki kontrast.
+- **Ustawienia → Głos i dźwięk** zawiera wybór mikrofonu i słuchawek, test mikrofonu z miernikiem poziomu, redukcję szumów, automatyczną głośność, usuwanie echa oraz głośność wiadomości głosowych. Ustawienia przetwarzania dotyczą nowych nagrań.
 
 ## Język interfejsu
 
@@ -163,6 +170,7 @@ Szczegóły wydawania nowej wersji: [GITHUB-UPDATER.md](GITHUB-UPDATER.md).
 - `main.js` — okno, tray (także w języku interfejsu), konta, hostowanie serwerów (HTTP/WebSocket), walidacja uprawnień kanałów, `servers.json`, `language.json`, przechowywanie i serwowanie nagrań głosowych, aktualizacje.
 - `preload.js` — bezpieczny most `window.chill` (context isolation).
 - `renderer.js` — logowanie, serwery, kanały tekstowe/głosowe, zaproszenia, profile i znajomi, DM-y, emoji, GIF-y, naklejki, nagrywanie i odtwarzanie wiadomości głosowych, wzmianki `@`, motywy, ustawienia, tłumaczenia PL/EN, powiadomienia.
+- `appearance.js` — wspólne presety wyglądu, walidacja kolorów i opcji oraz dobór czytelnego koloru tekstu akcentu.
 - `gifs.js` — statyczny katalog GIF-ów (96 pozycji GIPHY + 40 KLIPY, bez klucza API).
 - `stickers.js` — wbudowany zestaw 24 naklejek SVG.
 - `voice.js` — wspólne helpery wiadomości głosowych: tokeny, czasy, typy MIME i tekst wyszukiwania.

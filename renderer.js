@@ -3,6 +3,7 @@
 
 const CHILL = window.chill || {};
 const VOICE = window.CHILL_VOICE;
+const APPEARANCE = window.CHILL_APPEARANCE;
 const WS_URL = `ws://127.0.0.1:${CHILL.chatPort || 47830}/chat`;
 const $ = (id) => document.getElementById(id);
 
@@ -127,6 +128,7 @@ let downloadingUpdate = false;
 let autoUpdateVersion = '';
 let currentUpdateInfo = null;
 let audioCtx = null;
+let micTest = null;
 let mentionState = { start: 0, end: 0, items: [], index: 0 };
 let channelType = 'text';
 let menuChannelId = null;
@@ -146,6 +148,12 @@ const typingUsers = new Map();
 const DEFAULT_PREFS = {
   theme: 'system',
   accent: '#3ee0a3',
+  shape: 'soft',
+  background: 'default',
+  messageStyle: 'bubbles',
+  fontScale: 'normal',
+  reduceMotion: false,
+  highContrast: false,
   compact: false,
   notify: true,
   sound: true,
@@ -157,6 +165,10 @@ const DEFAULT_PREFS = {
   deafened: false,
   audioInput: '',
   audioOutput: '',
+  outputVolume: 100,
+  noiseSuppression: true,
+  autoGainControl: true,
+  echoCancellation: false,
 };
 let prefs = { ...DEFAULT_PREFS };
 let authMode = 'login';
@@ -347,6 +359,62 @@ const I18N_EN = {
   'Kolor akcentu': 'Accent color',
   'Kompaktowe wiadomości': 'Compact messages',
   'Mniejszy odstęp między wiadomościami': 'Less spacing between messages',
+  'Dostępność': 'Accessibility',
+  'Głos i dźwięk': 'Voice & sound',
+  'Presety wyglądu': 'Appearance presets',
+  'Miękki i spokojny': 'Soft and calm',
+  'Płaski, ciemny, fioletowy': 'Flat, dark, blurple',
+  'Prosty i monochromatyczny': 'Simple and monochrome',
+  'Fioletowa poświata': 'Purple glow',
+  'Zorza': 'Aurora',
+  'Zachód słońca': 'Sunset',
+  'Ciepłe pomarańcze': 'Warm oranges',
+  'Chłodny błękit': 'Cool blue',
+  'Kształt interfejsu': 'Interface shape',
+  'Miękki': 'Soft',
+  'Zaokrąglony': 'Rounded',
+  'Kwadratowy': 'Square',
+  'Tło aplikacji': 'App background',
+  'Domyślne': 'Default',
+  'Las': 'Forest',
+  'Mono': 'Mono',
+  'Styl wiadomości': 'Message style',
+  'Dymki': 'Bubbles',
+  'Płaski (Discord)': 'Flat (Discord)',
+  'Własny kolor': 'Custom color',
+  'Zielony': 'Green',
+  'Czerwony': 'Red',
+  'Fuksja': 'Fuchsia',
+  'Cyjan': 'Cyan',
+  'Złoty': 'Gold',
+  'Dostosuj czytelność, rozmiar tekstu i animacje.': 'Adjust readability, text size and motion.',
+  'Rozmiar tekstu wiadomości': 'Message text size',
+  'Mały': 'Small',
+  'Normalny': 'Normal',
+  'Duży': 'Large',
+  'Ogranicz animacje': 'Reduce motion',
+  'Wyłącz animacje i płynne przewijanie': 'Turn off animations and smooth scrolling',
+  'Wysoki kontrast': 'High contrast',
+  'Mocniejsze obramowania i czytelniejszy tekst': 'Stronger borders and clearer text',
+  'Te ustawienia działają od razu i są zapisywane na tym koncie.': 'These settings apply instantly and are saved to this account.',
+  'Wybierz mikrofon, sprawdź jego poziom i dopasuj dźwięk.': 'Choose a microphone, check its level and adjust the sound.',
+  'Słuchawki / głośniki': 'Headphones / speakers',
+  'Test mikrofonu': 'Microphone test',
+  'Sprawdź, czy Chill Cię słyszy.': 'Check that Chill can hear you.',
+  'Poziom mikrofonu': 'Microphone level',
+  'Kliknij „Test mikrofonu”, aby sprawdzić poziom.': 'Click “Microphone test” to check the level.',
+  'Zatrzymaj test': 'Stop test',
+  'Poziom mikrofonu: {value}%': 'Microphone level: {value}%',
+  'Nie udało się uruchomić testu mikrofonu.': 'Could not start the microphone test.',
+  'Redukcja szumów': 'Noise suppression',
+  'Usuwa stały szum w tle': 'Removes constant background noise',
+  'Automatyczna głośność': 'Automatic gain control',
+  'Wyrównuje głośność mowy': 'Evens out speech volume',
+  'Usuwanie echa': 'Echo cancellation',
+  'Przydatne przy głośnikach; może ściszyć głosówki': 'Useful with speakers; may make voice notes quieter',
+  'Głośność wiadomości głosowych': 'Voice message volume',
+  'Odtwórz dźwięk testowy': 'Play test sound',
+  'Ustawienia mikrofonu dotyczą nowych nagrań. Głośność zmienia odtwarzanie wiadomości głosowych.': 'Microphone settings apply to new recordings. Volume changes voice message playback.',
   'Wybierz język interfejsu Chill. Zmiana działa od razu.': 'Choose the Chill interface language. Changes apply instantly.',
   'Język interfejsu': 'Interface language',
   'Ustawienie języka jest zapisywane na tym koncie i nie zmienia historii rozmów.': 'The language setting is saved to this account and does not change your chat history.',
@@ -689,6 +757,7 @@ function applyLanguage(lang, persist = false) {
   translateStaticDom();
   updateAuthCopy();
   refreshPasswordToggles();
+  if (micTest) refreshMicTestUi();
   if (!currentUser) return;
   renderIdentity();
   if (audioDevicesLoaded) renderAudioDeviceLists();
@@ -748,12 +817,19 @@ function loadPrefs() {
   }
   if (prefs.theme === 'dark') prefs.theme = 'gradient';
   else if (prefs.theme === 'light') prefs.theme = 'white';
-  else if (!['system', 'black', 'white', 'gradient'].includes(prefs.theme)) prefs.theme = 'system';
+  if (APPEARANCE) Object.assign(prefs, APPEARANCE.normalizeAppearance(prefs));
+  else if (!['system', 'black', 'white', 'gradient', 'discord'].includes(prefs.theme)) prefs.theme = 'system';
   if (prefs.lang !== 'en') prefs.lang = 'pl';
+  prefs.compact = Boolean(prefs.compact);
   prefs.micMuted = Boolean(prefs.micMuted);
   prefs.deafened = Boolean(prefs.deafened);
   prefs.audioInput = typeof prefs.audioInput === 'string' ? prefs.audioInput : '';
   prefs.audioOutput = typeof prefs.audioOutput === 'string' ? prefs.audioOutput : '';
+  const volume = Number(prefs.outputVolume);
+  prefs.outputVolume = Number.isFinite(volume) ? Math.max(0, Math.min(100, Math.round(volume))) : 100;
+  prefs.noiseSuppression = prefs.noiseSuppression !== false;
+  prefs.autoGainControl = prefs.autoGainControl !== false;
+  prefs.echoCancellation = prefs.echoCancellation === true;
 }
 function savePrefs() {
   try { localStorage.setItem(prefsKey(), JSON.stringify(prefs)); } catch { /* ignore */ }
@@ -768,11 +844,13 @@ function resolveTheme(theme) {
   if (theme === 'system') return themeMedia.matches ? 'white' : 'black';
   if (theme === 'white') return 'white';
   if (theme === 'black') return 'black';
+  if (theme === 'discord') return 'discord';
   return 'gradient';
 }
 
 function applyTheme(theme) {
-  let mode = ['system', 'black', 'white', 'gradient'].includes(theme) ? theme : 'system';
+  const themes = APPEARANCE?.THEMES || ['system', 'black', 'white', 'gradient', 'discord'];
+  let mode = themes.includes(theme) ? theme : 'system';
   if (theme === 'dark') mode = 'gradient';
   if (theme === 'light') mode = 'white';
   document.body.dataset.theme = resolveTheme(mode);
@@ -788,13 +866,93 @@ function syncSystemTheme() {
 }
 
 function applyAccent(color) {
-  const value = /^#[0-9a-f]{6}$/i.test(color || '') ? color : '#3ee0a3';
-  document.documentElement.style.setProperty('--accent', value);
-  document.documentElement.style.setProperty('--accent-2', `color-mix(in srgb, ${value} 58%, #9fe8ff)`);
+  const value = APPEARANCE ? APPEARANCE.normalizeColor(color) : (/^#[0-9a-f]{6}$/i.test(color || '') ? color : '#3ee0a3');
+  const ink = APPEARANCE ? APPEARANCE.readableInk(value) : '#05271c';
+  const second = `color-mix(in srgb, ${value} 58%, #9fe8ff)`;
+  for (const root of [document.documentElement, document.body]) {
+    if (!root) continue;
+    root.style.setProperty('--accent', value);
+    root.style.setProperty('--accent-2', second);
+    root.style.setProperty('--accent-ink', ink);
+  }
   prefs.accent = value;
   document.querySelectorAll('[data-accent]').forEach((btn) => {
     btn.classList.toggle('selected', btn.dataset.accent.toLowerCase() === value.toLowerCase());
   });
+  const custom = $('customAccent');
+  if (custom) custom.value = value;
+  const customValue = $('customAccentValue');
+  if (customValue) customValue.textContent = value.toUpperCase();
+  const wrap = $('customAccentWrap');
+  if (wrap) {
+    const isPreset = [...document.querySelectorAll('[data-accent]')]
+      .some((btn) => btn.dataset.accent.toLowerCase() === value.toLowerCase());
+    wrap.classList.toggle('selected', !isPreset);
+  }
+}
+
+function applyAppearance() {
+  if (!APPEARANCE) return;
+  Object.assign(prefs, APPEARANCE.normalizeAppearance(prefs));
+  document.body.dataset.shape = prefs.shape;
+  document.body.dataset.background = prefs.background;
+  document.body.dataset.msgStyle = prefs.messageStyle;
+  document.body.dataset.fontScale = prefs.fontScale;
+  document.body.dataset.motion = prefs.reduceMotion ? 'reduced' : 'full';
+  document.body.dataset.contrast = prefs.highContrast ? 'high' : 'normal';
+  applyAccent(prefs.accent);
+  syncAppearanceControls();
+}
+
+function syncAppearanceControls() {
+  document.querySelectorAll('[data-shape-choice]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.shapeChoice === prefs.shape);
+  });
+  document.querySelectorAll('[data-background-choice]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.backgroundChoice === prefs.background);
+  });
+  document.querySelectorAll('[data-message-style]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.messageStyle === prefs.messageStyle);
+  });
+  document.querySelectorAll('[data-font-scale]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.fontScale === prefs.fontScale);
+  });
+  const preset = APPEARANCE ? APPEARANCE.matchPreset(prefs) : 'custom';
+  document.querySelectorAll('[data-appearance-preset]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.appearancePreset === preset);
+  });
+  const reduceMotion = $('reduceMotionToggle');
+  if (reduceMotion) reduceMotion.checked = Boolean(prefs.reduceMotion);
+  const highContrast = $('highContrastToggle');
+  if (highContrast) highContrast.checked = Boolean(prefs.highContrast);
+}
+
+function syncVoiceControls() {
+  const volume = $('outputVolumeRange');
+  if (volume) volume.value = String(prefs.outputVolume);
+  const volumeValue = $('outputVolumeValue');
+  if (volumeValue) volumeValue.textContent = `${prefs.outputVolume}%`;
+  const noise = $('noiseSuppressionToggle');
+  if (noise) noise.checked = Boolean(prefs.noiseSuppression);
+  const gain = $('autoGainToggle');
+  if (gain) gain.checked = Boolean(prefs.autoGainControl);
+  const echo = $('echoCancelToggle');
+  if (echo) echo.checked = Boolean(prefs.echoCancellation);
+}
+
+function applyAppearancePreset(id) {
+  const preset = APPEARANCE?.preset(id);
+  if (!preset) return;
+  Object.assign(prefs, preset);
+  applyTheme(prefs.theme);
+  applyAppearance();
+  savePrefs();
+}
+
+function applyVoiceVolume() {
+  const value = Number(prefs.outputVolume);
+  const volume = Number.isFinite(value) ? Math.max(0, Math.min(1, value / 100)) : 1;
+  if (voiceAudio) voiceAudio.volume = volume;
 }
 
 function toast(text, ms = 2600) {
@@ -1051,6 +1209,8 @@ function enterApp(user) {
   loadPrefs();
   applyTheme(prefs.theme);
   applyAccent(prefs.accent);
+  applyAppearance();
+  syncVoiceControls();
   applyLanguage(prefs.lang, true);
   loadFriends();
 
@@ -1262,13 +1422,57 @@ function renderAudioDeviceList(kind) {
 function renderAudioDeviceLists() {
   renderAudioDeviceList('mic');
   renderAudioDeviceList('output');
+  renderSettingsAudioDevices();
+}
+
+function fillSettingsAudioSelect(select, kind) {
+  if (!select) return;
+  const devices = kind === 'mic' ? audioDevices.input : audioDevices.output;
+  const selectedId = kind === 'mic' ? prefs.audioInput : prefs.audioOutput;
+  const selectedExists = devices.some((device) => device.id === selectedId);
+
+  select.replaceChildren();
+  const fallback = document.createElement('option');
+  fallback.value = '';
+  fallback.textContent = t('Domyślne urządzenie');
+  select.appendChild(fallback);
+
+  if (!audioDevicesLoaded) {
+    const loading = document.createElement('option');
+    loading.value = '';
+    loading.textContent = t('Ładowanie urządzeń…');
+    loading.disabled = true;
+    select.appendChild(loading);
+  } else if (!devices.length) {
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = t('Brak dostępnych urządzeń');
+    empty.disabled = true;
+    select.appendChild(empty);
+  } else {
+    devices.forEach((device, index) => {
+      const option = document.createElement('option');
+      option.value = device.id;
+      option.textContent = device.label || t('Urządzenie {n}', { n: index + 1 });
+      select.appendChild(option);
+    });
+  }
+
+  select.value = selectedExists ? selectedId : '';
+}
+
+function renderSettingsAudioDevices() {
+  fillSettingsAudioSelect($('settingsMicSelect'), 'mic');
+  fillSettingsAudioSelect($('settingsOutputSelect'), 'output');
 }
 
 function chooseAudioDevice(kind, id) {
+  if (kind === 'mic') stopMicTest();
   const key = kind === 'mic' ? 'audioInput' : 'audioOutput';
   prefs[key] = String(id || '');
   savePrefs();
   closeAudioMenus(true);
+  renderSettingsAudioDevices();
 }
 
 function setMicMuted(muted) {
@@ -1321,6 +1525,111 @@ function renderAudioState() {
   if (outputToggle) {
     outputToggle.classList.toggle('on', deafened);
     outputToggle.setAttribute('aria-checked', String(deafened));
+  }
+}
+
+function refreshMicTestUi() {
+  const btn = $('micTestBtn');
+  if (btn) {
+    btn.textContent = t(micTest ? 'Zatrzymaj test' : 'Test mikrofonu');
+    btn.classList.toggle('testing', Boolean(micTest));
+    btn.setAttribute('aria-pressed', String(Boolean(micTest)));
+  }
+  const status = $('micTestStatus');
+  if (!status) return;
+  if (micTest) status.textContent = t('Poziom mikrofonu: {value}%', { value: micTest.lastLevel || 0 });
+  else status.textContent = t('Kliknij „Test mikrofonu”, aby sprawdzić poziom.');
+}
+
+function stopMicTest() {
+  if (!micTest) {
+    refreshMicTestUi();
+    return;
+  }
+  const test = micTest;
+  micTest = null;
+  cancelAnimationFrame(test.raf);
+  try { test.source.disconnect(); } catch { /* ignore */ }
+  try { test.stream.getTracks().forEach((track) => track.stop()); } catch { /* ignore */ }
+  try { test.context.close(); } catch { /* ignore */ }
+  const level = $('micTestLevel');
+  if (level) level.style.width = '0%';
+  const meter = $('micTestMeter');
+  if (meter) meter.setAttribute('aria-valuenow', '0');
+  refreshMicTestUi();
+}
+
+async function toggleMicTest() {
+  if (micTest) {
+    stopMicTest();
+    return;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    toast(t('Nie udało się uruchomić testu mikrofonu.'));
+    return;
+  }
+  const btn = $('micTestBtn');
+  if (btn) btn.disabled = true;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  let stream = null;
+  let context = null;
+  try {
+    stream = await requestMicrophone();
+    if (!Ctx) throw new Error('no audio context');
+    context = new Ctx({ sampleRate: 48000 });
+    if (context.state === 'suspended') await context.resume().catch(() => {});
+    const source = context.createMediaStreamSource(stream);
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.75;
+    source.connect(analyser);
+    const data = new Uint8Array(analyser.fftSize);
+    micTest = {
+      stream,
+      context,
+      source,
+      analyser,
+      data,
+      raf: 0,
+      lastLevel: 0,
+      lastUi: 0,
+    };
+    stream = null;
+    context = null;
+    refreshMicTestUi();
+    const tick = () => {
+      if (!micTest) return;
+      micTest.analyser.getByteTimeDomainData(micTest.data);
+      let sum = 0;
+      for (const sample of micTest.data) {
+        const value = (sample - 128) / 128;
+        sum += value * value;
+      }
+      const rms = Math.sqrt(sum / micTest.data.length);
+      const db = 20 * Math.log10(Math.max(rms, 0.000001));
+      const level = Math.max(0, Math.min(100, Math.round(((db + 60) / 60) * 100)));
+      if (level !== micTest.lastLevel) {
+        micTest.lastLevel = level;
+        const fill = $('micTestLevel');
+        if (fill) fill.style.width = `${level}%`;
+        const meter = $('micTestMeter');
+        if (meter) meter.setAttribute('aria-valuenow', String(level));
+      }
+      const now = performance.now();
+      if (now - micTest.lastUi > 160) {
+        micTest.lastUi = now;
+        const status = $('micTestStatus');
+        if (status) status.textContent = t('Poziom mikrofonu: {value}%', { value: micTest.lastLevel });
+      }
+      micTest.raf = requestAnimationFrame(tick);
+    };
+    tick();
+  } catch {
+    try { stream?.getTracks().forEach((track) => track.stop()); } catch { /* ignore */ }
+    try { context?.close(); } catch { /* ignore */ }
+    toast(t('Nie udało się uruchomić testu mikrofonu.'));
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -4119,7 +4428,10 @@ function voiceSourceUrl(voice) {
 }
 
 function ensureVoiceAudio() {
-  if (voiceAudio) return voiceAudio;
+  if (voiceAudio) {
+    applyVoiceVolume();
+    return voiceAudio;
+  }
   voiceAudio = new Audio();
   voiceAudio.preload = 'metadata';
   voiceAudio.addEventListener('timeupdate', () => updateVoicePlayerUi());
@@ -4149,6 +4461,7 @@ function ensureVoiceAudio() {
     updateVoicePlayerUi();
     toast(t('Nie można odtworzyć wiadomości głosowej.'));
   });
+  applyVoiceVolume();
   return voiceAudio;
 }
 
@@ -4350,9 +4663,9 @@ function pickVoiceMime() {
 async function requestMicrophone() {
   const constraints = {
     audio: {
-      echoCancellation: false,
-      noiseSuppression: true,
-      autoGainControl: true,
+      echoCancellation: prefs.echoCancellation === true,
+      noiseSuppression: prefs.noiseSuppression !== false,
+      autoGainControl: prefs.autoGainControl !== false,
       channelCount: 1,
       sampleRate: 48000,
     },
@@ -4392,7 +4705,7 @@ function createVoiceProcessing(stream) {
     compressor.attack.value = 0.005;
     compressor.release.value = 0.25;
     const makeup = context.createGain();
-    makeup.gain.value = 1.15;
+    makeup.gain.value = prefs.autoGainControl !== false ? 1.15 : 1.0;
     const destination = context.createMediaStreamDestination();
     destination.channelCount = 1;
     destination.channelCountMode = 'explicit';
@@ -4454,6 +4767,7 @@ function formatRecordingClock(seconds) {
 
 async function startVoiceRecording() {
   if (voiceSession || voiceStarting) return;
+  stopMicTest();
   if (!VOICE || !navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
     toast(t('Nie udało się nagrać wiadomości głosowej.'));
     return;
@@ -4974,15 +5288,16 @@ function notifyIncoming(message, where, isCurrent) {
   if (prefs.sound) playSound(mention);
 }
 
-function playSound(mention = false) {
-  if (!prefs.sound || prefs.deafened) return;
+function playSound(mention = false, force = false) {
+  if (!force && (!prefs.sound || prefs.deafened)) return;
   try {
     if (audioCtx?.state === 'closed') audioCtx = null;
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
     if (audioCtx.state === 'suspended') void audioCtx.resume().catch(() => {});
     const now = audioCtx.currentTime;
     const master = audioCtx.createGain();
-    master.gain.value = 0.85;
+    const testLevel = force ? Math.max(0, Math.min(1, Number(prefs.outputVolume) / 100)) : 1;
+    master.gain.value = 0.85 * testLevel;
     master.connect(audioCtx.destination);
     const notes = mention ? [659.25, 830.61, 987.77] : [783.99, 1046.5];
     notes.forEach((frequency, index) => {
@@ -5575,6 +5890,63 @@ function bindSettings() {
     const btn = e.target.closest('[data-theme-choice]');
     if (!btn) return;
     applyTheme(btn.dataset.themeChoice);
+    applyAppearance();
+    savePrefs();
+  });
+
+  $('appearancePresets').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-appearance-preset]');
+    if (!btn) return;
+    applyAppearancePreset(btn.dataset.appearancePreset);
+  });
+
+  $('shapeChoices').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-shape-choice]');
+    if (!btn) return;
+    prefs.shape = btn.dataset.shapeChoice;
+    applyAppearance();
+    savePrefs();
+  });
+
+  $('backgroundChoices').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-background-choice]');
+    if (!btn) return;
+    prefs.background = btn.dataset.backgroundChoice;
+    applyAppearance();
+    savePrefs();
+  });
+
+  $('messageStyleChoices').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-message-style]');
+    if (!btn) return;
+    prefs.messageStyle = btn.dataset.messageStyle;
+    applyAppearance();
+    savePrefs();
+  });
+
+  $('fontScaleChoices').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-font-scale]');
+    if (!btn) return;
+    prefs.fontScale = btn.dataset.fontScale;
+    applyAppearance();
+    savePrefs();
+  });
+
+  $('reduceMotionToggle').addEventListener('change', () => {
+    prefs.reduceMotion = $('reduceMotionToggle').checked;
+    applyAppearance();
+    savePrefs();
+  });
+
+  $('highContrastToggle').addEventListener('change', () => {
+    prefs.highContrast = $('highContrastToggle').checked;
+    applyAppearance();
+    savePrefs();
+  });
+
+  $('customAccent').addEventListener('input', () => {
+    prefs.accent = $('customAccent').value;
+    applyAppearance();
     savePrefs();
   });
 
@@ -5589,6 +5961,7 @@ function bindSettings() {
     const btn = e.target.closest('[data-accent]');
     if (!btn) return;
     applyAccent(btn.dataset.accent);
+    applyAppearance();
     savePrefs();
   });
 
@@ -5597,6 +5970,33 @@ function bindSettings() {
     $('chatApp').classList.toggle('compact', prefs.compact);
     savePrefs();
   });
+
+  $('settingsMicSelect').addEventListener('change', () => {
+    chooseAudioDevice('mic', $('settingsMicSelect').value);
+  });
+  $('settingsOutputSelect').addEventListener('change', () => {
+    chooseAudioDevice('output', $('settingsOutputSelect').value);
+  });
+  $('micTestBtn').addEventListener('click', () => { void toggleMicTest(); });
+  $('noiseSuppressionToggle').addEventListener('change', () => {
+    prefs.noiseSuppression = $('noiseSuppressionToggle').checked;
+    savePrefs();
+  });
+  $('autoGainToggle').addEventListener('change', () => {
+    prefs.autoGainControl = $('autoGainToggle').checked;
+    savePrefs();
+  });
+  $('echoCancelToggle').addEventListener('change', () => {
+    prefs.echoCancellation = $('echoCancelToggle').checked;
+    savePrefs();
+  });
+  $('outputVolumeRange').addEventListener('input', () => {
+    prefs.outputVolume = Number($('outputVolumeRange').value);
+    $('outputVolumeValue').textContent = `${prefs.outputVolume}%`;
+    applyVoiceVolume();
+    savePrefs();
+  });
+  $('testSoundBtn').addEventListener('click', () => playSound(false, true));
 
   $('notifyToggle').addEventListener('change', () => {
     prefs.notify = $('notifyToggle').checked;
@@ -5663,7 +6063,9 @@ function openSettings(tab = 'profile') {
   switchSettingsTab(tab);
   fillProfileForm();
   applyTheme(prefs.theme);
-  applyAccent(prefs.accent);
+  applyAppearance();
+  syncVoiceControls();
+  refreshMicTestUi();
   $('compactToggle').checked = prefs.compact;
   $('notifyToggle').checked = prefs.notify;
   $('soundToggle').checked = prefs.sound;
@@ -5677,20 +6079,27 @@ function openSettings(tab = 'profile') {
   $('passwordError').textContent = '';
   $('passwordSaved').textContent = '';
   $('updateStatus').textContent = '';
+  refreshAudioDevices();
   loadAutostart();
 }
 
 function closeSettings() {
+  stopMicTest();
   $('settingsOverlay').hidden = true;
 }
 
 function switchSettingsTab(tab) {
+  if (tab !== 'voice') stopMicTest();
   document.querySelectorAll('[data-settings-tab]').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.settingsTab === tab);
   });
   document.querySelectorAll('[data-settings-panel]').forEach((panel) => {
     panel.hidden = panel.dataset.settingsPanel !== tab;
   });
+  if (tab === 'voice') {
+    renderSettingsAudioDevices();
+    refreshAudioDevices();
+  }
 }
 
 function fillProfileForm() {

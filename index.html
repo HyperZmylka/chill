@@ -421,8 +421,10 @@
         <div class="settings-nav-title" data-i18n="Ustawienia">Ustawienia</div>
         <button type="button" class="settings-tab active" data-settings-tab="profile" data-i18n="Profil">Profil</button>
         <button type="button" class="settings-tab" data-settings-tab="appearance" data-i18n="Wygląd">Wygląd</button>
-        <button type="button" class="settings-tab" data-settings-tab="language" data-i18n="Język">Język</button>
+        <button type="button" class="settings-tab" data-settings-tab="accessibility" data-i18n="Dostępność">Dostępność</button>
+        <button type="button" class="settings-tab" data-settings-tab="voice" data-i18n="Głos i dźwięk">Głos i dźwięk</button>
         <button type="button" class="settings-tab" data-settings-tab="notifications" data-i18n="Powiadomienia">Powiadomienia</button>
+        <button type="button" class="settings-tab" data-settings-tab="language" data-i18n="Język">Język</button>
         <button type="button" class="settings-tab" data-settings-tab="app" data-i18n="Aplikacja">Aplikacja</button>
       </aside>
 
@@ -504,12 +506,63 @@
           <p class="settings-lead" data-i18n="Dopasuj Chill do siebie. Zmiany zapisują się od razu.">Dopasuj Chill do siebie. Zmiany zapisują się od razu.</p>
 
           <div class="setting-block">
+            <span class="setting-label" data-i18n="Presety wyglądu">Presety wyglądu</span>
+            <div class="preset-grid" id="appearancePresets">
+              <button type="button" class="appearance-preset" data-appearance-preset="chill">
+                <span class="preset-preview" aria-hidden="true"></span>
+                <span class="preset-copy">
+                  <strong data-i18n="Chill">Chill</strong>
+                  <small data-i18n="Miękki i spokojny">Miękki i spokojny</small>
+                </span>
+              </button>
+              <button type="button" class="appearance-preset" data-appearance-preset="discord">
+                <span class="preset-preview" aria-hidden="true"></span>
+                <span class="preset-copy">
+                  <strong data-i18n="Discord">Discord</strong>
+                  <small data-i18n="Płaski, ciemny, fioletowy">Płaski, ciemny, fioletowy</small>
+                </span>
+              </button>
+              <button type="button" class="appearance-preset" data-appearance-preset="minimal">
+                <span class="preset-preview" aria-hidden="true"></span>
+                <span class="preset-copy">
+                  <strong data-i18n="Minimal">Minimal</strong>
+                  <small data-i18n="Prosty i monochromatyczny">Prosty i monochromatyczny</small>
+                </span>
+              </button>
+              <button type="button" class="appearance-preset" data-appearance-preset="aurora">
+                <span class="preset-preview" aria-hidden="true"></span>
+                <span class="preset-copy">
+                  <strong data-i18n="Zorza">Zorza</strong>
+                  <small data-i18n="Fioletowa poświata">Fioletowa poświata</small>
+                </span>
+              </button>
+              <button type="button" class="appearance-preset" data-appearance-preset="sunset">
+                <span class="preset-preview" aria-hidden="true"></span>
+                <span class="preset-copy">
+                  <strong data-i18n="Zachód słońca">Zachód słońca</strong>
+                  <small data-i18n="Ciepłe pomarańcze">Ciepłe pomarańcze</small>
+                </span>
+              </button>
+              <button type="button" class="appearance-preset" data-appearance-preset="ocean">
+                <span class="preset-preview" aria-hidden="true"></span>
+                <span class="preset-copy">
+                  <strong data-i18n="Ocean">Ocean</strong>
+                  <small data-i18n="Chłodny błękit">Chłodny błękit</small>
+                </span>
+              </button>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="setting-block">
             <span class="setting-label" data-i18n="Motyw">Motyw</span>
-            <div class="segmented" id="themeChoices">
+            <div class="segmented theme-choices" id="themeChoices">
               <button type="button" data-theme-choice="system" data-i18n="Systemowy">Systemowy</button>
               <button type="button" data-theme-choice="black" data-i18n="Czarny">Czarny</button>
               <button type="button" data-theme-choice="white" data-i18n="Biały">Biały</button>
               <button type="button" data-theme-choice="gradient" data-i18n="Gradient">Gradient</button>
+              <button type="button" data-theme-choice="discord" data-i18n="Discord">Discord</button>
             </div>
           </div>
 
@@ -522,6 +575,75 @@
               <button type="button" class="color-dot" data-accent="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy" data-i18n-aria-label="Różowy"></button>
               <button type="button" class="color-dot" data-accent="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy" data-i18n-aria-label="Lawendowy"></button>
               <button type="button" class="color-dot" data-accent="#ffd166" style="--dot:#ffd166" aria-label="Żółty" data-i18n-aria-label="Żółty"></button>
+              <button type="button" class="color-dot" data-accent="#5865f2" style="--dot:#5865f2" aria-label="Discord" data-i18n-aria-label="Discord"></button>
+              <button type="button" class="color-dot" data-accent="#23a55a" style="--dot:#23a55a" aria-label="Zielony" data-i18n-aria-label="Zielony"></button>
+              <button type="button" class="color-dot" data-accent="#f23f43" style="--dot:#f23f43" aria-label="Czerwony" data-i18n-aria-label="Czerwony"></button>
+              <button type="button" class="color-dot" data-accent="#eb459e" style="--dot:#eb459e" aria-label="Fuksja" data-i18n-aria-label="Fuksja"></button>
+              <button type="button" class="color-dot" data-accent="#00a8fc" style="--dot:#00a8fc" aria-label="Cyjan" data-i18n-aria-label="Cyjan"></button>
+              <button type="button" class="color-dot" data-accent="#f0b232" style="--dot:#f0b232" aria-label="Złoty" data-i18n-aria-label="Złoty"></button>
+            </div>
+            <div class="custom-color-row">
+              <label class="custom-color" id="customAccentWrap">
+                <input type="color" id="customAccent" value="#3ee0a3" aria-label="Własny kolor" data-i18n-aria-label="Własny kolor">
+                <span data-i18n="Własny kolor">Własny kolor</span>
+              </label>
+              <code id="customAccentValue">#3EE0A3</code>
+            </div>
+          </div>
+
+          <div class="setting-block">
+            <span class="setting-label" data-i18n="Kształt interfejsu">Kształt interfejsu</span>
+            <div class="segmented" id="shapeChoices">
+              <button type="button" data-shape-choice="soft">
+                <span class="shape-demo shape-soft" aria-hidden="true"></span>
+                <span data-i18n="Miękki">Miękki</span>
+              </button>
+              <button type="button" data-shape-choice="rounded">
+                <span class="shape-demo shape-rounded" aria-hidden="true"></span>
+                <span data-i18n="Zaokrąglony">Zaokrąglony</span>
+              </button>
+              <button type="button" data-shape-choice="square">
+                <span class="shape-demo shape-square" aria-hidden="true"></span>
+                <span data-i18n="Kwadratowy">Kwadratowy</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="setting-block">
+            <span class="setting-label" data-i18n="Tło aplikacji">Tło aplikacji</span>
+            <div class="background-grid" id="backgroundChoices">
+              <button type="button" class="background-choice" data-background-choice="default">
+                <span class="background-swatch swatch-default" aria-hidden="true"></span>
+                <span data-i18n="Domyślne">Domyślne</span>
+              </button>
+              <button type="button" class="background-choice" data-background-choice="aurora">
+                <span class="background-swatch swatch-aurora" aria-hidden="true"></span>
+                <span data-i18n="Zorza">Zorza</span>
+              </button>
+              <button type="button" class="background-choice" data-background-choice="sunset">
+                <span class="background-swatch swatch-sunset" aria-hidden="true"></span>
+                <span data-i18n="Zachód słońca">Zachód słońca</span>
+              </button>
+              <button type="button" class="background-choice" data-background-choice="ocean">
+                <span class="background-swatch swatch-ocean" aria-hidden="true"></span>
+                <span data-i18n="Ocean">Ocean</span>
+              </button>
+              <button type="button" class="background-choice" data-background-choice="forest">
+                <span class="background-swatch swatch-forest" aria-hidden="true"></span>
+                <span data-i18n="Las">Las</span>
+              </button>
+              <button type="button" class="background-choice" data-background-choice="mono">
+                <span class="background-swatch swatch-mono" aria-hidden="true"></span>
+                <span data-i18n="Mono">Mono</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="setting-block">
+            <span class="setting-label" data-i18n="Styl wiadomości">Styl wiadomości</span>
+            <div class="segmented" id="messageStyleChoices">
+              <button type="button" data-message-style="bubbles" data-i18n="Dymki">Dymki</button>
+              <button type="button" data-message-style="flat" data-i18n="Płaski (Discord)">Płaski (Discord)</button>
             </div>
           </div>
 
@@ -533,6 +655,111 @@
             <input type="checkbox" id="compactToggle">
             <span class="switch"></span>
           </label>
+        </section>
+
+        <section class="settings-panel" data-settings-panel="accessibility" hidden>
+          <h2 data-i18n="Dostępność">Dostępność</h2>
+          <p class="settings-lead" data-i18n="Dostosuj czytelność, rozmiar tekstu i animacje.">Dostosuj czytelność, rozmiar tekstu i animacje.</p>
+
+          <div class="setting-block">
+            <span class="setting-label" data-i18n="Rozmiar tekstu wiadomości">Rozmiar tekstu wiadomości</span>
+            <div class="segmented" id="fontScaleChoices">
+              <button type="button" data-font-scale="small" data-i18n="Mały">Mały</button>
+              <button type="button" data-font-scale="normal" data-i18n="Normalny">Normalny</button>
+              <button type="button" data-font-scale="large" data-i18n="Duży">Duży</button>
+            </div>
+          </div>
+
+          <label class="switch-row">
+            <span>
+              <strong data-i18n="Ogranicz animacje">Ogranicz animacje</strong>
+              <small data-i18n="Wyłącz animacje i płynne przewijanie">Wyłącz animacje i płynne przewijanie</small>
+            </span>
+            <input type="checkbox" id="reduceMotionToggle">
+            <span class="switch"></span>
+          </label>
+
+          <label class="switch-row">
+            <span>
+              <strong data-i18n="Wysoki kontrast">Wysoki kontrast</strong>
+              <small data-i18n="Mocniejsze obramowania i czytelniejszy tekst">Mocniejsze obramowania i czytelniejszy tekst</small>
+            </span>
+            <input type="checkbox" id="highContrastToggle">
+            <span class="switch"></span>
+          </label>
+
+          <div class="divider"></div>
+          <p class="settings-note" data-i18n="Te ustawienia działają od razu i są zapisywane na tym koncie.">Te ustawienia działają od razu i są zapisywane na tym koncie.</p>
+        </section>
+
+        <section class="settings-panel" data-settings-panel="voice" hidden>
+          <h2 data-i18n="Głos i dźwięk">Głos i dźwięk</h2>
+          <p class="settings-lead" data-i18n="Wybierz mikrofon, sprawdź jego poziom i dopasuj dźwięk.">Wybierz mikrofon, sprawdź jego poziom i dopasuj dźwięk.</p>
+
+          <div class="field-grid">
+            <label class="field">
+              <span data-i18n="Mikrofon">Mikrofon</span>
+              <select id="settingsMicSelect"></select>
+            </label>
+            <label class="field">
+              <span data-i18n="Słuchawki / głośniki">Słuchawki / głośniki</span>
+              <select id="settingsOutputSelect"></select>
+            </label>
+          </div>
+
+          <div class="setting-block mic-test-block">
+            <div class="mic-test-head">
+              <div>
+                <span class="setting-label" data-i18n="Test mikrofonu">Test mikrofonu</span>
+                <small data-i18n="Sprawdź, czy Chill Cię słyszy.">Sprawdź, czy Chill Cię słyszy.</small>
+              </div>
+              <button type="button" class="btn-secondary small" id="micTestBtn" data-i18n="Test mikrofonu">Test mikrofonu</button>
+            </div>
+            <div class="mic-test-meter" id="micTestMeter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Poziom mikrofonu" data-i18n-aria-label="Poziom mikrofonu">
+              <span id="micTestLevel"></span>
+            </div>
+            <p class="settings-note mic-test-status" id="micTestStatus" data-i18n="Kliknij „Test mikrofonu”, aby sprawdzić poziom.">Kliknij „Test mikrofonu”, aby sprawdzić poziom.</p>
+          </div>
+
+          <label class="switch-row">
+            <span>
+              <strong data-i18n="Redukcja szumów">Redukcja szumów</strong>
+              <small data-i18n="Usuwa stały szum w tle">Usuwa stały szum w tle</small>
+            </span>
+            <input type="checkbox" id="noiseSuppressionToggle">
+            <span class="switch"></span>
+          </label>
+
+          <label class="switch-row">
+            <span>
+              <strong data-i18n="Automatyczna głośność">Automatyczna głośność</strong>
+              <small data-i18n="Wyrównuje głośność mowy">Wyrównuje głośność mowy</small>
+            </span>
+            <input type="checkbox" id="autoGainToggle">
+            <span class="switch"></span>
+          </label>
+
+          <label class="switch-row">
+            <span>
+              <strong data-i18n="Usuwanie echa">Usuwanie echa</strong>
+              <small data-i18n="Przydatne przy głośnikach; może ściszyć głosówki">Przydatne przy głośnikach; może ściszyć głosówki</small>
+            </span>
+            <input type="checkbox" id="echoCancelToggle">
+            <span class="switch"></span>
+          </label>
+
+          <div class="divider"></div>
+
+          <div class="setting-block">
+            <span class="setting-label" data-i18n="Głośność wiadomości głosowych">Głośność wiadomości głosowych</span>
+            <div class="range-row">
+              <input type="range" id="outputVolumeRange" min="0" max="100" step="1" value="100" aria-label="Głośność wiadomości głosowych" data-i18n-aria-label="Głośność wiadomości głosowych">
+              <span class="range-value" id="outputVolumeValue">100%</span>
+              <button type="button" class="btn-secondary small" id="testSoundBtn" data-i18n="Odtwórz dźwięk testowy">Odtwórz dźwięk testowy</button>
+            </div>
+          </div>
+
+          <p class="settings-note" data-i18n="Ustawienia mikrofonu dotyczą nowych nagrań. Głośność zmienia odtwarzanie wiadomości głosowych.">Ustawienia mikrofonu dotyczą nowych nagrań. Głośność zmienia odtwarzanie wiadomości głosowych.</p>
         </section>
 
         <section class="settings-panel" data-settings-panel="language" hidden>
@@ -837,6 +1064,7 @@
 <script src="gifs.js"></script>
 <script src="stickers.js"></script>
 <script src="voice.js"></script>
+<script src="appearance.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>
