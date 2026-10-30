@@ -18,6 +18,7 @@ const {
   parseTemplateCode,
 } = require('./discord-import');
 const voiceMessages = require('./voice');
+const { InternetTunnel } = require('./tunnel');
 
 app.setName('Chill');
 
@@ -46,6 +47,16 @@ let updateInfo = null;
 let updateCheckInterval = null;
 let wss = null;
 let httpServer = null;
+let internetTunnel = null;
+
+function tunnelEndpoint() {
+  return internetTunnel?.endpoint || null;
+}
+
+async function ensureInternetTunnel() {
+  if (!internetTunnel) throw new Error('Dostęp z internetu nie jest jeszcze gotowy.');
+  return internetTunnel.ensure();
+}
 
 // ---------- Ścieżki danych ----------
 function dataDir() {
@@ -230,6 +241,9 @@ function dmKey(a, b) {
 const users = new Map();
 const userSockets = new Map();
 const serverSessions = new Map();
+const joinFailures = new Map();
+const JOIN_FAILURE_LIMIT = 30;
+const JOIN_FAILURE_WINDOW = 60_000;
 
 // ---------- Serwery (kanały + zaproszenia) ----------
 let serversStore = null;
@@ -534,6 +548,10 @@ function uniqueInviteCode() {
 }
 
 function serverShareLink(server) {
+  const endpoint = tunnelEndpoint();
+  if (endpoint?.host) {
+    return `chill://${endpoint.host}:${endpoint.port || 443}/${server.invite}?tls=1`;
+  }
   return `chill://${lanAddress()}:${CHAT_PORT}/${server.invite}`;
 }
 
@@ -582,6 +600,7 @@ function hostedMembership(server, userId) {
     owner: true,
     ownerId: server.ownerId,
     address: `127.0.0.1:${CHAT_PORT}`,
+    secure: false,
     invite: server.invite,
     shareLink: serverShareLink(server),
     channels: server.channels.map((channel) => ({ id: channel.id, name: channel.name, type: channel.type, createdAt: channel.createdAt })),
@@ -592,6 +611,7 @@ function hostedMembership(server, userId) {
 }
 
 function joinedMembership(entry) {
+  const secure = Boolean(entry.secure);
   return {
     id: entry.id,
     name: entry.name || 'Serwer',
@@ -599,8 +619,9 @@ function joinedMembership(entry) {
     color: entry.color || '#3ee0a3',
     owner: false,
     address: entry.address,
+    secure,
     invite: entry.invite,
-    shareLink: `chill://${entry.address}/${entry.invite}`,
+    shareLink: `chill://${entry.address}/${entry.invite}${secure ? '?tls=1' : ''}`,
     memberId: entry.memberId,
     joinedAt: entry.joinedAt || Date.now(),
   };
@@ -764,6 +785,48 @@ function isLoopback(address) {
   return address === '127.0.0.1' || address === '::1' || address === '::ffff:127.0.0.1';
 }
 
+function requestClientIp(req) {
+  const forwarded = req.headers['cf-connecting-ip'] || req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    return forwarded.split(',')[0].trim();
+  }
+  return req.socket.remoteAddress || '';
+}
+
+function isTunneledRequest(req) {
+  return Boolean(req.headers['cf-connecting-ip'] || req.headers['cf-ray'] || req.headers['x-forwarded-for']);
+}
+
+function joinRateLimited(ip) {
+  const entry = joinFailures.get(ip);
+  if (!entry) return false;
+  const cutoff = Date.now() - JOIN_FAILURE_WINDOW;
+  const recent = entry.filter((at) => at > cutoff);
+  if (!recent.length) {
+    joinFailures.delete(ip);
+    return false;
+  }
+  joinFailures.set(ip, recent);
+  return recent.length >= JOIN_FAILURE_LIMIT;
+}
+
+function noteJoinFailure(ip) {
+  if (!ip) return;
+  const cutoff = Date.now() - JOIN_FAILURE_WINDOW;
+  const recent = (joinFailures.get(ip) || []).filter((at) => at > cutoff);
+  recent.push(Date.now());
+  joinFailures.set(ip, recent);
+  if (joinFailures.size > 1000) {
+    for (const [key, attempts] of joinFailures) {
+      if (!attempts.some((at) => at > cutoff)) joinFailures.delete(key);
+    }
+  }
+}
+
+function clearJoinFailures(ip) {
+  if (ip) joinFailures.delete(ip);
+}
+
 function detachServerSession(ws) {
   const session = ws._serverSession;
   if (!session) return;
@@ -783,6 +846,11 @@ function detachServerSession(ws) {
 }
 
 function handleJoinServer(ws, msg, send) {
+  const ip = ws._clientIp || '';
+  if (ip && joinRateLimited(ip)) {
+    send({ type: 'server:error', code: 'rate-limited', message: 'Zbyt wiele prób. Spróbuj ponownie za chwilę.' });
+    return;
+  }
   const invite = String(msg.invite || '').trim().toUpperCase();
   const store = loadServersStore();
   let server = msg.serverId ? findHostedServer(String(msg.serverId)) : null;
@@ -790,13 +858,16 @@ function handleJoinServer(ws, msg, send) {
     server = store.hosted.find((item) => item.invite === invite) || null;
   }
   if (!server) {
+    noteJoinFailure(ip);
     send({ type: 'server:error', code: 'not-found', message: 'Nie znaleziono serwera o tym kodzie zaproszenia.' });
     return;
   }
   if (server.invite !== invite) {
+    noteJoinFailure(ip);
     send({ type: 'server:error', code: 'invalid-invite', message: 'Nieprawidłowy kod zaproszenia.' });
     return;
   }
+  clearJoinFailures(ip);
 
   detachServerSession(ws);
 
@@ -1095,7 +1166,8 @@ function startChatServer(port = CHAT_PORT) {
 
   wss.on('connection', (ws, req) => {
     let currentUserId = null;
-    const local = isLoopback(req.socket.remoteAddress);
+    const local = isLoopback(req.socket.remoteAddress) && !isTunneledRequest(req);
+    ws._clientIp = requestClientIp(req);
 
     const send = (payload) => {
       if (ws.readyState === 1) ws.send(JSON.stringify(payload));
@@ -2016,6 +2088,7 @@ ipcMain.handle('chill:servers-save-joined', (e, payload = {}) => {
     store.joined.push(entry);
   }
   entry.address = address;
+  entry.secure = payload.secure === true;
   entry.invite = invite;
   entry.name = name;
   entry.color = color;
@@ -2050,16 +2123,39 @@ ipcMain.handle('chill:servers-leave', (e, payload = {}) => {
   return { ok: true, deleted: false };
 });
 
-ipcMain.handle('chill:servers-invite', (e, payload = {}) => {
+ipcMain.handle('chill:servers-invite', async (e, payload = {}) => {
   const current = activeSession();
   if (!current) return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.' };
   const id = String(payload.id || '').trim();
   const store = loadServersStore();
   const hosted = store.hosted.find((server) => server.id === id && server.ownerId === current.id);
-  if (hosted) return { ok: true, shareLink: serverShareLink(hosted), invite: hosted.invite };
+  if (hosted) {
+    let internet = false;
+    let tunnelError = '';
+    try {
+      const endpoint = await ensureInternetTunnel();
+      internet = Boolean(endpoint);
+    } catch (error) {
+      tunnelError = String(error?.message || error || 'Nie udało się włączyć dostępu z internetu.');
+    }
+    return {
+      ok: true,
+      shareLink: serverShareLink(hosted),
+      invite: hosted.invite,
+      internet,
+      tunnelError,
+    };
+  }
   const entry = store.joined.find((item) => item.userId === current.id && item.id === id);
   if (!entry) return { ok: false, error: 'Nie znaleziono serwera.' };
-  return { ok: true, shareLink: `chill://${entry.address}/${entry.invite}`, invite: entry.invite };
+  const secure = Boolean(entry.secure);
+  return {
+    ok: true,
+    shareLink: `chill://${entry.address}/${entry.invite}${secure ? '?tls=1' : ''}`,
+    invite: entry.invite,
+    internet: secure,
+    secure,
+  };
 });
 
 
@@ -2915,6 +3011,10 @@ if (!app.requestSingleInstanceLock()) {
     loadChatStore();
     loadServersStore();
     startChatServer(CHAT_PORT);
+    internetTunnel = new InternetTunnel({
+      dir: path.join(dataDir(), 'tunnel'),
+      port: CHAT_PORT,
+    });
     createWindow();
     createTray();
     Menu.setApplicationMenu(null);
@@ -2934,6 +3034,7 @@ if (!app.requestSingleInstanceLock()) {
 
 app.on('before-quit', () => {
   quitting = true;
+  try { internetTunnel?.stop(); } catch { /* tunel mógł już zostać zatrzymany */ }
   clearTimeout(chatSaveTimer);
   clearTimeout(serversSaveTimer);
   try {

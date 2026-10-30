@@ -1914,6 +1914,9 @@ body[data-theme="white"] .audio-menu-toggle.on .audio-switch span { background: 
   overflow-wrap: anywhere;
   user-select: all;
 }
+.invite-network { margin: -2px 0 10px; }
+.invite-network.error { color: var(--danger); }
+.invite-retry { margin: -4px 0 12px; padding: 6px 10px; font-size: 11.5px; }
 .invite-actions { justify-content: space-between; }
 .btn-secondary.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 28%, transparent); }
 .btn-secondary.danger:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); }

@@ -136,6 +136,8 @@ let menuChannelId = null;
 let deleteChannelId = null;
 let pendingChannelDelete = false;
 let channelPrefs = {};
+let inviteChannel = null;
+let inviteRequestSeq = 0;
 let discordConfig = { clientId: '', redirectUri: 'http://localhost:47831/callback' };
 let discordUser = null;
 let discordGuilds = [];
@@ -655,6 +657,16 @@ const I18N_EN = {
   'Nie udało się utworzyć serwera.': 'Could not create the server.',
   'Wystąpił błąd podczas tworzenia serwera.': 'An error occurred while creating the server.',
   'Wklej pełny link, np. chill://192.168.1.5:47830/AB12CD.': 'Paste the full link, e.g. chill://192.168.1.5:47830/AB12CD.',
+  'Przygotowuję link internetowy… Pierwsze uruchomienie może potrwać chwilę.': 'Preparing an internet link… The first run may take a moment.',
+  'Link pochodzi od właściciela serwera.': 'The link comes from the server owner.',
+  'Link działa przez internet. Możesz wysłać go każdemu.': 'The link works over the internet. You can send it to anyone.',
+  'Nie udało się włączyć dostępu z internetu. Link działa tylko w sieci lokalnej.': 'Could not enable internet access. The link works only on the local network.',
+  'Link działa przez internet.': 'The link works over the internet.',
+  'Link działa tylko w sieci lokalnej.': 'The link works only on the local network.',
+  'Spróbuj ponownie': 'Try again',
+  'Przygotowuję link…': 'Preparing the link…',
+  'Dostęp z internetu niedostępny — skopiowano link lokalny.': 'Internet access is unavailable — copied the local link.',
+  'Zbyt wiele prób. Spróbuj ponownie za chwilę.': 'Too many attempts. Try again in a moment.',
   'Nie udało się dołączyć do serwera.': 'Could not join the server.',
   'Nie udało się zapisać serwera.': 'Could not save the server.',
   'Łączę…': 'Connecting…',
@@ -2159,13 +2171,14 @@ function parseInvite(raw) {
     return null;
   }
   const host = url.hostname;
-  const port = url.port || '47830';
+  const secure = url.searchParams.get('tls') === '1' || url.searchParams.get('secure') === '1';
+  const port = url.port || (secure ? '443' : '47830');
   const invite = decodeURIComponent(url.pathname.replace(/^\/+/, '')).trim().toUpperCase();
   const channelId = String(url.searchParams.get('channel') || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80);
   if (!host || !/^[a-zA-Z0-9.-]+$/.test(host) || host.startsWith('.') || host.endsWith('.')) return null;
   if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535) return null;
   if (!/^[A-Z0-9]{4,16}$/.test(invite)) return null;
-  return { address: `${host}:${port}`, invite, channelId };
+  return { address: `${host}:${port}`, invite, channelId, secure };
 }
 
 function connectServer(server) {
@@ -2184,7 +2197,7 @@ function connectServer(server) {
 
   let socket;
   try {
-    socket = new WebSocket(`ws://${server.address}/chat`);
+    socket = new WebSocket(`${server.secure ? 'wss' : 'ws'}://${server.address}/chat`);
   } catch {
     state.status = 'offline';
     state.error = t('Nieprawidłowy adres serwera.');
@@ -2606,12 +2619,12 @@ async function probeServer(parsed, memberId) {
       fn(value);
     };
     try {
-      socket = new WebSocket(`ws://${parsed.address}/chat`);
+      socket = new WebSocket(`${parsed.secure ? 'wss' : 'ws'}://${parsed.address}/chat`);
     } catch {
       reject(new Error(t('Nieprawidłowy adres serwera.')));
       return;
     }
-    timer = setTimeout(() => finish(reject, new Error(t('Serwer nie odpowiada. Sprawdź adres i spróbuj ponownie.'))), 10_000);
+    timer = setTimeout(() => finish(reject, new Error(t('Serwer nie odpowiada. Sprawdź adres i spróbuj ponownie.'))), 15_000);
     socket.onopen = () => {
       socket.send(JSON.stringify({
         type: 'join-server',
@@ -2720,9 +2733,15 @@ function bindServers() {
   $('discordImportBtn').addEventListener('click', importDiscordServer);
 
   $('inviteBtn').addEventListener('click', () => { void openInviteModal(); });
-  $('closeInviteModal').addEventListener('click', () => { $('inviteOverlay').hidden = true; });
+  $('closeInviteModal').addEventListener('click', () => {
+    inviteRequestSeq += 1;
+    $('inviteOverlay').hidden = true;
+  });
   $('inviteOverlay').addEventListener('click', (e) => {
-    if (e.target === $('inviteOverlay')) $('inviteOverlay').hidden = true;
+    if (e.target === $('inviteOverlay')) {
+      inviteRequestSeq += 1;
+      $('inviteOverlay').hidden = true;
+    }
   });
   $('copyInviteBtn').addEventListener('click', () => {
     copyText($('inviteLink').textContent).then(() => {
@@ -2730,6 +2749,7 @@ function bindServers() {
       setTimeout(() => { $('inviteSaved').textContent = ''; }, 2500);
     }).catch(() => toast(t('Nie udało się skopiować linku.')));
   });
+  $('retryInviteTunnel').addEventListener('click', () => { void openInviteModal(inviteChannel); });
   $('leaveServerBtn').addEventListener('click', leaveActiveServer);
 
   // Kanały — tworzenie (tylko właściciel)
@@ -3080,11 +3100,8 @@ function handleChannelAction(action) {
     return;
   }
   if (action === 'copy') {
-    const link = channelShareLink(state, channel);
     closeChannelMenu();
-    copyText(link)
-      .then(() => toast(t('Skopiowano link do kanału.')))
-      .catch(() => toast(t('Nie udało się skopiować linku.')));
+    void copyChannelInvite(state, channel);
     return;
   }
   if (action === 'mute') {
@@ -3241,7 +3258,8 @@ async function joinServer() {
   $('joinServerBtn').disabled = true;
   errorEl.textContent = t('Łączę…');
   try {
-    const known = servers.find((server) => server.invite === parsed.invite && (server.address === parsed.address || server.owner));
+    const known = servers.find((server) => server.invite === parsed.invite
+      && ((server.address === parsed.address && Boolean(server.secure) === Boolean(parsed.secure)) || server.owner));
     if (known) {
       closeServerModal();
       selectServer(known.id);
@@ -3254,6 +3272,7 @@ async function joinServer() {
     const data = await probeServer(parsed, memberId);
     const result = await CHILL.servers.saveJoined({
       address: parsed.address,
+      secure: parsed.secure,
       invite: parsed.invite,
       server: data.server,
       memberId,
@@ -3662,7 +3681,8 @@ function createChannelFromForm(e) {
 }
 
 function serverShareBase(state) {
-  return state.server.shareLink || `chill://${state.server.address}/${state.server.invite}`;
+  return state.server.shareLink
+    || `chill://${state.server.address}/${state.server.invite}${state.server.secure ? '?tls=1' : ''}`;
 }
 
 function appendChannelToLink(link, channel) {
@@ -3673,6 +3693,26 @@ function appendChannelToLink(link, channel) {
 
 function channelShareLink(state, channel) {
   return appendChannelToLink(serverShareBase(state), channel);
+}
+
+async function copyChannelInvite(state, channel) {
+  let base = serverShareBase(state);
+  let internet = null;
+  if (state.you?.owner && CHILL.servers?.invite) {
+    toast(t('Przygotowuję link…'));
+    const result = await resolveServerInvite(state);
+    if (result?.ok && result.shareLink) {
+      base = result.shareLink;
+      internet = Boolean(result.internet);
+    }
+  }
+  try {
+    await copyText(appendChannelToLink(base, channel));
+    if (internet === false) toast(t('Dostęp z internetu niedostępny — skopiowano link lokalny.'));
+    else toast(t('Skopiowano link do kanału.'));
+  } catch {
+    toast(t('Nie udało się skopiować linku.'));
+  }
 }
 
 function focusInvitedChannel(serverId, channelId) {
@@ -3686,28 +3726,71 @@ function focusInvitedChannel(serverId, channelId) {
   }
 }
 
+async function resolveServerInvite(state) {
+  if (!state || !CHILL.servers?.invite) return null;
+  try {
+    const result = await CHILL.servers.invite({ id: state.server.id });
+    if (result?.ok && result.shareLink) state.server.shareLink = result.shareLink;
+    return result || null;
+  } catch (error) {
+    return { ok: false, error: String(error?.message || error || '') };
+  }
+}
+
 async function openInviteModal(channel = null) {
   const state = serverState(activeServerId);
   if (!state) return;
-  const invitedChannel = channel?.id ? channel : null;
+  const seq = ++inviteRequestSeq;
+  inviteChannel = channel?.id ? channel : null;
+  const invitedChannel = inviteChannel;
+  const owner = Boolean(state.you?.owner);
   $('inviteOverlay').hidden = false;
   if ($('inviteTitle')) $('inviteTitle').textContent = invitedChannel ? t('Zaproś do kanału') : t('Zaproś do serwera');
   $('inviteServerName').textContent = invitedChannel
     ? `${state.server.name} • #${invitedChannel.name}`
     : state.server.name;
   $('inviteSaved').textContent = '';
-  $('leaveServerBtn').textContent = state.you?.owner ? t('Usuń serwer') : t('Opuść serwer');
+  $('leaveServerBtn').textContent = owner ? t('Usuń serwer') : t('Opuść serwer');
   resetLeaveConfirm();
   const link = (base) => invitedChannel ? appendChannelToLink(base, invitedChannel) : base;
   $('inviteLink').textContent = link(serverShareBase(state));
-  if (CHILL.servers?.invite) {
-    try {
-      const result = await CHILL.servers.invite({ id: state.server.id });
-      if (result?.ok && result.shareLink) {
-        state.server.shareLink = result.shareLink;
-        $('inviteLink').textContent = link(result.shareLink);
+
+  const statusEl = $('inviteNetworkStatus');
+  const retryBtn = $('retryInviteTunnel');
+  const copyBtn = $('copyInviteBtn');
+  if (statusEl) {
+    statusEl.hidden = false;
+    statusEl.classList.remove('error');
+    statusEl.textContent = owner
+      ? t('Przygotowuję link internetowy… Pierwsze uruchomienie może potrwać chwilę.')
+      : t('Link pochodzi od właściciela serwera.');
+  }
+  if (retryBtn) retryBtn.hidden = true;
+  if (copyBtn) copyBtn.disabled = owner;
+
+  if (!CHILL.servers?.invite) {
+    if (copyBtn) copyBtn.disabled = false;
+    return;
+  }
+  const result = await resolveServerInvite(state);
+  if (seq !== inviteRequestSeq) return;
+  if (copyBtn) copyBtn.disabled = false;
+  if (result?.ok && result.shareLink) $('inviteLink').textContent = link(result.shareLink);
+
+  if (owner) {
+    if (result?.internet) {
+      if (statusEl) statusEl.textContent = t('Link działa przez internet. Możesz wysłać go każdemu.');
+    } else {
+      if (statusEl) {
+        statusEl.textContent = t('Nie udało się włączyć dostępu z internetu. Link działa tylko w sieci lokalnej.');
+        statusEl.classList.add('error');
       }
-    } catch { /* ignore */ }
+      if (retryBtn) retryBtn.hidden = false;
+    }
+  } else if (statusEl) {
+    statusEl.textContent = result?.internet
+      ? t('Link działa przez internet.')
+      : t('Link działa tylko w sieci lokalnej.');
   }
 }
 
@@ -4844,7 +4927,7 @@ function voiceTransport() {
     if (!channel || channel.type === 'voice' || !state.voiceKey) return null;
     const address = state.server.address || (state.server.owner ? `127.0.0.1:${CHILL.chatPort || 47830}` : '');
     if (!address) return null;
-    return { address, key: state.voiceKey, conversationKey: conversationKey() };
+    return { address, secure: Boolean(state.server.secure), key: state.voiceKey, conversationKey: conversationKey() };
   }
   if (current.kind === 'dm') {
     const entry = dmEntry(current.id);
@@ -4854,10 +4937,10 @@ function voiceTransport() {
       if (!state || state.status !== 'online' || !state.ws || state.ws.readyState !== WebSocket.OPEN || !state.voiceKey) return null;
       const address = state.server.address || (state.server.owner ? `127.0.0.1:${CHILL.chatPort || 47830}` : '');
       if (!address) return null;
-      return { address, key: state.voiceKey, conversationKey: conversationKey() };
+      return { address, secure: Boolean(state.server.secure), key: state.voiceKey, conversationKey: conversationKey() };
     }
     if (!wsReady() || !localVoiceKey) return null;
-    return { address: `127.0.0.1:${CHILL.chatPort || 47830}`, key: localVoiceKey, conversationKey: conversationKey() };
+    return { address: `127.0.0.1:${CHILL.chatPort || 47830}`, secure: false, key: localVoiceKey, conversationKey: conversationKey() };
   }
   return null;
 }
@@ -4865,7 +4948,7 @@ function voiceTransport() {
 function voiceSourceUrl(voice) {
   const transport = voiceTransport();
   if (!transport || !voice || !voice.id) return '';
-  return `http://${transport.address}/voice/${voice.id}?key=${encodeURIComponent(transport.key)}`;
+  return `${transport.secure ? 'https' : 'http'}://${transport.address}/voice/${voice.id}?key=${encodeURIComponent(transport.key)}`;
 }
 
 function ensureVoiceAudio() {
@@ -5427,7 +5510,7 @@ async function uploadVoiceBlob(blob, seconds) {
   if (!VOICE) throw new Error(t('Nie udało się wysłać wiadomości głosowej.'));
   const transport = voiceTransport();
   if (!transport) throw new Error(t('Sesja głosowa wygasła — połącz ponownie.'));
-  const url = `http://${transport.address}/voice?key=${encodeURIComponent(transport.key)}&d=${encodeURIComponent(VOICE.clampSeconds(seconds))}`;
+  const url = `${transport.secure ? 'https' : 'http'}://${transport.address}/voice?key=${encodeURIComponent(transport.key)}&d=${encodeURIComponent(VOICE.clampSeconds(seconds))}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
   let response;
@@ -5459,6 +5542,7 @@ async function uploadVoiceBlob(blob, seconds) {
     token: VOICE.token(data.id, data.duration || seconds),
     id: data.id,
     address: transport.address,
+    secure: transport.secure,
     key: transport.key,
   };
 }
@@ -5468,7 +5552,7 @@ async function deleteVoiceUpload(uploaded) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
   try {
-    await fetch(`http://${uploaded.address}/voice/${uploaded.id}?key=${encodeURIComponent(uploaded.key)}`, {
+    await fetch(`${uploaded.secure ? 'https' : 'http'}://${uploaded.address}/voice/${uploaded.id}?key=${encodeURIComponent(uploaded.key)}`, {
       method: 'DELETE',
       signal: controller.signal,
     });

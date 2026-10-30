@@ -6,7 +6,7 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 
 - **Własne serwery zamiast stałych pokoi** — na starcie nie ma żadnych pokoi ani kanałów. Tworzysz serwer, dostajesz kanał `ogólny` i zapraszasz znajomych.
 - **Kanały tekstowe i głosowe** — właściciel serwera tworzy kanały do pisania albo głosowe, a następnie może je usuwać prawym przyciskiem myszy. Serwer może mieć zero kanałów.
-- **Zaproszenia linkiem** — `chill://adres:port/kod`. Działa w sieci lokalnej, a po skonfigurowaniu sieci także przez internet.
+- **Zaproszenia linkiem** — `chill://adres:port/kod`. Link działa od razu przez internet (tunel Cloudflare), bez przekierowywania portów; w sieci lokalnej nadal można użyć adresu IP hosta.
 - **Role** — właściciel i członkowie. Tylko właściciel tworzy i usuwa kanały oraz usuwa serwer.
 - **Lista obecnych** — status online/offline i oznaczenie właściciela.
 - **Wiadomości prywatne** — rozmowy 1:1 z kontami lokalnymi oraz ze znajomymi dodanymi z serwerów.
@@ -30,11 +30,13 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 
 1. Otwórz Chill i kliknij **+** na pasku serwerów.
 2. Wybierz **Utwórz serwer**, podaj nazwę i kolor. Serwer dostanie pierwszy kanał tekstowy `ogólny`.
-3. Kliknij **Zaproś** w nagłówku i skopiuj link `chill://...`.
-4. Znajomy wybierze **+** → **Dołącz kodem** i wklei link.
+3. Kliknij **Zaproś** w nagłówku i skopiuj link `chill://...`. Chill sam przygotuje bezpieczny adres internetowy.
+4. Znajomy wybierze **+** → **Dołącz kodem** i wklei link — może być w innej sieci, nie musi być na tym samym Wi-Fi.
 5. Oboje musicie mieć uruchomiony Chill. Host musi być online, żeby jego serwer działał.
 
 Serwer działa na komputerze właściciela — nie ma centralnego serwera. Gdy host wyłączy aplikację, pozostali zobaczą stan „Serwer offline”, a po jego powrocie Chill połączy się ponownie automatycznie.
+
+Przy pierwszym zaproszeniu Chill pobiera mały program tunelujący Cloudflare (`cloudflared`, około 55 MB) do folderu danych aplikacji. Kolejne linki są gotowe od razu. Jeśli tunel nie może zostać uruchomiony, aplikacja pokaże błąd i skopiuje link lokalny, a przycisk **Spróbuj ponownie** ponowi próbę.
 
 ### Kanały
 
@@ -103,19 +105,22 @@ Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach p
 
 Domyślnym językiem jest polski. Język interfejsu jest przechowywany lokalnie (`language.json` oraz ustawienia konta w pamięci przeglądarki aplikacji).
 
+### Internet
+
+- **Nie musisz nic konfigurować na routerze.** Chill uruchamia tymczasowy tunel Cloudflare i tworzy link `chill://<losowa-nazwa>.trycloudflare.com:443/KOD?tls=1`.
+- Połączenie jest szyfrowane przez HTTPS/WSS, a ruch przechodzi przez Cloudflare. Host nie wystawia portu `47830` bezpośrednio do internetu.
+- Wymagany jest dostęp do `trycloudflare.com` i `github.com` (pierwsze pobranie `cloudflared`). Jeśli sieć blokuje Cloudflare, aplikacja wróci do linku lokalnego.
+- Link internetowy jest ważny do zakończenia procesu `cloudflared`. Po restarcie Chill host musi otworzyć **Zaproś** i wysłać znajomym nowy link.
+- Darmowy tunel Cloudflare nie ma gwarancji dostępności (to rozwiązanie testowe Cloudflare). Do stałej pracy warto użyć własnego tunelu Cloudflare z domeną albo VPN mesh.
+- Host musi mieć włączony komputer i uruchomiony Chill.
+
 ### Sieć lokalna
 
 - Oba komputery muszą być w tej samej sieci Wi-Fi/LAN.
 - Windows może zapytać o dostęp do sieci — zezwól aplikacji w sieciach prywatnych.
 - Domyślny port to **47830 (TCP)**.
-- Link zaproszenia zawiera lokalny adres IP hosta. Jeśli adres się zmieni, wygeneruj nowy link.
-
-### Internet
-
-- Najprościej użyć VPN mesh, np. Tailscale lub ZeroTier, i wpisać adres VPN hosta w miejsce adresu w linku.
-- Alternatywnie przekieruj port TCP `47830` na routerze i podmień adres w linku na publiczny adres IP lub domenę.
-- Połączenia serwerów używają `ws://` (bez TLS). Nie wystawiaj portu publicznie bez dodatkowej ochrony — używaj zaufanego VPN.
-- Host musi mieć włączony komputer i uruchomiony Chill.
+- Stare linki `chill://192.168.x.x:47830/KOD` nadal działają w sieci lokalnej. Jeśli adres IP hosta się zmieni, wygeneruj nowy link.
+- Gdy dostęp do internetu jest niedostępny, Chill pokazuje i kopiuje właśnie taki link lokalny.
 
 ## Konta i bezpieczeństwo
 
@@ -129,6 +134,7 @@ Konta są **lokalne** — nie ma chmury ani zewnętrznego serwera uwierzytelnian
   - `chat-data.json` — lokalne wiadomości prywatne,
   - `servers.json` — hostowane i dołączone serwery, kanały (typ tekstowy/głosowy), członkowie, historia kanałów i wiadomości prywatne serwera,
   - `voice/` — pliki audio wiadomości głosowych hostowanych serwerów i lokalnych DM-ów oraz `voice/index.json` z metadanymi,
+  - `tunnel/cloudflared.exe` — program tunelu Cloudflare pobierany przy pierwszym zaproszeniu internetowym,
   - `language.json` — język interfejsu używany przez okno i menu tray.
 - Odinstalowanie aplikacji usuwa także te dane.
 - Serwer nie ma centralnego systemu kont — dostęp reguluje kod zaproszenia. Link traktuj jak hasło.
@@ -177,9 +183,10 @@ Szczegóły wydawania nowej wersji: [GITHUB-UPDATER.md](GITHUB-UPDATER.md).
 - `gifs.js` — statyczny katalog GIF-ów (96 pozycji GIPHY + 40 KLIPY, bez klucza API).
 - `stickers.js` — wbudowany zestaw 24 naklejek SVG.
 - `voice.js` — wspólne helpery wiadomości głosowych: tokeny, czasy, typy MIME i tekst wyszukiwania.
+- `tunnel.js` — pobieranie i weryfikacja `cloudflared` oraz zarządzanie tymczasowym tunelem Cloudflare.
 - `index.html` / `style.css` — interfejs Chill.
 
-Czat serwerów działa przez wbudowany serwer WebSocket na porcie `47830`. Każdy hostowany serwer jest dostępny pod kodem zaproszenia; wiadomości, członkowie i DM-y serwerowe są zapisywani w `servers.json`. Nagrania głosowe są przesyłane przez uwierzytelnione endpointy HTTP `/voice` i przechowywane w `voice/`.
+Czat serwerów działa przez wbudowany serwer WebSocket na porcie `47830`. Każdy hostowany serwer jest dostępny pod kodem zaproszenia; wiadomości, członkowie i DM-y serwerowe są zapisywani w `servers.json`. Nagrania głosowe są przesyłane przez uwierzytelnione endpointy HTTP `/voice` i przechowywane w `voice/`. Do zaproszeń internetowych Chill uruchamia `cloudflared tunnel --url http://127.0.0.1:47830` i udostępnia ten sam serwer przez WSS/HTTPS.
 
 ## Zmienne środowiskowe (opcjonalne)
 
