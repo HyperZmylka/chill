@@ -987,7 +987,7 @@
   <div class="modal" id="inviteOverlay" hidden>
     <div class="modal-card invite-card">
       <button type="button" class="icon-btn modal-close" id="closeInviteModal" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
-      <h2 data-i18n="Zaproś do serwera">Zaproś do serwera</h2>
+      <h2 id="inviteTitle" data-i18n="Zaproś do serwera">Zaproś do serwera</h2>
       <p class="settings-lead" id="inviteServerName">Serwer</p>
       <div class="invite-box">
         <code id="inviteLink">chill://…</code>
@@ -1007,11 +1007,11 @@
     <div class="modal-card server-card channel-card">
       <button type="button" class="icon-btn modal-close" id="closeChannelModal" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
       <div class="server-modal-head">
-        <h2 data-i18n="Nowy kanał">Nowy kanał</h2>
-        <p data-i18n="Wybierz typ kanału i nadaj mu nazwę.">Wybierz typ kanału i nadaj mu nazwę.</p>
+        <h2 id="channelModalTitle" data-i18n="Nowy kanał">Nowy kanał</h2>
+        <p id="channelModalLead" data-i18n="Wybierz typ kanału i nadaj mu nazwę.">Wybierz typ kanału i nadaj mu nazwę.</p>
       </div>
 
-      <div class="field channel-type-field">
+      <div class="field channel-type-field" id="channelTypeField">
         <span data-i18n="Typ kanału">Typ kanału</span>
         <div class="segmented channel-type-tabs" id="channelTypeChoices">
           <button type="button" class="active" data-channel-type="text">
@@ -1039,8 +1039,83 @@
   </div>
 
   <!-- Menu kontekstowe kanału -->
-  <div class="context-menu" id="channelMenu" hidden role="menu">
-    <button type="button" class="context-item danger" id="deleteChannelBtn" role="menuitem">
+  <div class="context-menu channel-menu" id="channelMenu" hidden role="menu" aria-label="Akcje kanału" data-i18n-aria-label="Akcje kanału">
+    <button type="button" class="context-item" data-channel-action="invite" role="menuitem">
+      <span class="context-icon" aria-hidden="true">👤</span>
+      <span data-i18n="Zaproś do kanału">Zaproś do kanału</span>
+    </button>
+    <button type="button" class="context-item" data-channel-action="pin" role="menuitem">
+      <span class="context-icon" aria-hidden="true">📌</span>
+      <span id="pinChannelLabel" data-i18n="Przypnij kanał na górę">Przypnij kanał na górę</span>
+    </button>
+    <button type="button" class="context-item" data-channel-action="copy" role="menuitem">
+      <span class="context-icon" aria-hidden="true">🔗</span>
+      <span data-i18n="Kopiuj link">Kopiuj link</span>
+    </button>
+
+    <div class="context-sep" role="separator"></div>
+
+    <button type="button" class="context-item" data-channel-action="mute" role="menuitem">
+      <span class="context-icon" aria-hidden="true">🔇</span>
+      <span id="muteChannelLabel" data-i18n="Wycisz kanał">Wycisz kanał</span>
+    </button>
+
+    <div class="context-submenu">
+      <button type="button" class="context-item context-parent" id="notifyChannelBtn" data-submenu="notify" aria-haspopup="menu" aria-expanded="false" role="menuitem">
+        <span class="context-icon" aria-hidden="true">🔔</span>
+        <span data-i18n="Ustawienia powiadomień">Ustawienia powiadomień</span>
+        <span class="context-arrow" aria-hidden="true">›</span>
+      </button>
+      <div class="context-sub" id="notifyChannelSubmenu" role="menu" hidden>
+        <div class="context-sub-title" data-i18n="Powiadomienia kanału">Powiadomienia kanału</div>
+        <button type="button" class="context-sub-item selected" data-notify-level="all" role="menuitemradio" aria-checked="true">
+          <span class="context-check" aria-hidden="true">✓</span>
+          <span class="context-icon" aria-hidden="true">🔔</span>
+          <span class="context-sub-label" data-i18n="Wszystkie wiadomości">Wszystkie wiadomości</span>
+        </button>
+        <button type="button" class="context-sub-item" data-notify-level="mentions" role="menuitemradio" aria-checked="false">
+          <span class="context-check" aria-hidden="true">✓</span>
+          <span class="context-icon" aria-hidden="true">@</span>
+          <span class="context-sub-label" data-i18n="Tylko wzmianki">Tylko wzmianki</span>
+        </button>
+        <button type="button" class="context-sub-item" data-notify-level="none" role="menuitemradio" aria-checked="false">
+          <span class="context-check" aria-hidden="true">✓</span>
+          <span class="context-icon" aria-hidden="true">🔕</span>
+          <span class="context-sub-label" data-i18n="Nic">Nic</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="context-submenu">
+      <button type="button" class="context-item context-parent" id="moveChannelBtn" data-submenu="move" aria-haspopup="menu" aria-expanded="false" role="menuitem">
+        <span class="context-icon" aria-hidden="true">↕</span>
+        <span data-i18n="Przenieś do…">Przenieś do…</span>
+        <span class="context-arrow" aria-hidden="true">›</span>
+      </button>
+      <div class="context-sub" id="moveChannelSubmenu" role="menu" hidden>
+        <div class="context-sub-title" data-i18n="Przenieś przed kanał">Przenieś przed kanał</div>
+        <div id="moveChannelOptions"></div>
+      </div>
+    </div>
+
+    <div class="context-sep" role="separator"></div>
+
+    <button type="button" class="context-item" data-channel-action="edit" role="menuitem">
+      <span class="context-icon" aria-hidden="true">✏️</span>
+      <span data-i18n="Edytuj kanał">Edytuj kanał</span>
+    </button>
+    <button type="button" class="context-item" data-channel-action="duplicate" role="menuitem">
+      <span class="context-icon" aria-hidden="true">📄</span>
+      <span data-i18n="Powiel kanał">Powiel kanał</span>
+    </button>
+    <button type="button" class="context-item" data-channel-action="create-text" role="menuitem">
+      <span class="context-icon" aria-hidden="true">#</span>
+      <span data-i18n="Stwórz kanał tekstowy">Stwórz kanał tekstowy</span>
+    </button>
+
+    <div class="context-sep" role="separator"></div>
+
+    <button type="button" class="context-item danger" id="deleteChannelBtn" data-channel-action="delete" role="menuitem">
       <span class="context-icon" aria-hidden="true">🗑</span>
       <span data-i18n="Usuń kanał">Usuń kanał</span>
     </button>

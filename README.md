@@ -39,8 +39,11 @@ Serwer działa na komputerze właściciela — nie ma centralnego serwera. Gdy h
 ### Kanały
 
 - Właściciel klika **+** obok listy kanałów, wybiera typ **Do pisania** lub **Głosowy**, wpisuje nazwę i tworzy kanał.
-- Kanał można usunąć prawym przyciskiem myszy → **Usuń kanał**. Historia wiadomości tekstowych w tym kanale również zostanie usunięta.
-- Uprawnienia są sprawdzane także po stronie hosta — członek serwera nie może utworzyć ani usunąć kanału nawet przez bezpośrednie wywołanie protokołu.
+- Menu kanału otwiera się po kliknięciu kanału, prawym przyciskiem myszy albo skrótem **Shift+F10**. Zawiera ono: **Zaproś do kanału**, **Przypnij kanał na górę**, **Kopiuj link**, **Wycisz kanał**, **Ustawienia powiadomień**, **Przenieś do…**, **Edytuj kanał**, **Powiel kanał**, **Stwórz kanał tekstowy** i **Usuń kanał**. Menu widzi wyłącznie właściciel serwera.
+- **Przypnij**, **Wycisz** i **Ustawienia powiadomień** zapisują się lokalnie dla danego konta i kanału. Przypięte kanały są na górze listy, a wyciszony kanał nie pokazuje powiadomień systemowych; poziom **Tylko wzmianki** przepuszcza wyłącznie wzmianki.
+- **Kopiuj link** i **Zaproś do kanału** tworzą adres `chill://host:port/KOD?channel=<id>`, który po dołączeniu otwiera właściwy kanał.
+- **Edytuj kanał** zmienia nazwę bez utraty historii. **Powiel kanał** tworzy kopię z nazwą `-kopia` i przenosi do niej do 300 ostatnich wiadomości (nowe identyfikatory, wspólne pliki głosowe są bezpiecznie współdzielone). **Przenieś do…** zmienia kolejność kanałów widoczną dla wszystkich członków. **Usuń kanał** usuwa kanał wraz z historią wiadomości tekstowych.
+- Uprawnienia są sprawdzane także po stronie hosta — członek serwera nie widzi menu i nie może utworzyć, zmienić nazwy, powielić, przenieść ani usunąć kanału nawet przez bezpośrednie wywołanie protokołu.
 - Kanały głosowe są oznaczone ikoną głośnika i służą do organizowania rozmów. Ta wersja nie prowadzi transmisji audio — w kanale głosowym nie można wysyłać wiadomości tekstowych.
 - Ikony mikrofonu i słuchawek w dolnym pasku zapisują lokalnie stan wyciszenia oraz wybór urządzenia audio. Wyciszenie słuchawek wyłącza też dźwięk powiadomień.
 - Po usunięciu wszystkich kanałów serwer pozostaje pusty; właściciel nadal może dodać nowy kanał. Ten stan jest zapisywany w `servers.json`.
@@ -169,7 +172,7 @@ Szczegóły wydawania nowej wersji: [GITHUB-UPDATER.md](GITHUB-UPDATER.md).
 
 - `main.js` — okno, tray (także w języku interfejsu), konta, hostowanie serwerów (HTTP/WebSocket), walidacja uprawnień kanałów, `servers.json`, `language.json`, przechowywanie i serwowanie nagrań głosowych, aktualizacje.
 - `preload.js` — bezpieczny most `window.chill` (context isolation).
-- `renderer.js` — logowanie, serwery, kanały tekstowe/głosowe, zaproszenia, profile i znajomi, DM-y, emoji, GIF-y, naklejki, nagrywanie i odtwarzanie wiadomości głosowych, wzmianki `@`, motywy, ustawienia, tłumaczenia PL/EN, powiadomienia.
+- `renderer.js` — logowanie, serwery, kanały tekstowe/głosowe i ich menu (przypinanie, wyciszanie, powiadomienia, edycja, powielanie, przenoszenie), zaproszenia, profile i znajomi, DM-y, emoji, GIF-y, naklejki, nagrywanie i odtwarzanie wiadomości głosowych, wzmianki `@`, motywy, ustawienia, tłumaczenia PL/EN, powiadomienia.
 - `appearance.js` — wspólne presety wyglądu, walidacja kolorów i opcji oraz dobór czytelnego koloru tekstu akcentu.
 - `gifs.js` — statyczny katalog GIF-ów (96 pozycji GIPHY + 40 KLIPY, bez klucza API).
 - `stickers.js` — wbudowany zestaw 24 naklejek SVG.

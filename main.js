@@ -443,11 +443,29 @@ function activeVoiceToken(value) {
   return entry;
 }
 
-function removeVoiceItem(id) {
+function voiceItemReferencedElsewhere(id) {
+  if (!voiceMessages.isValidId(id)) return false;
+  const collect = (messages) => {
+    for (const message of Array.isArray(messages) ? messages : []) {
+      const parsed = voiceMessages.parse(message?.text);
+      if (parsed?.id === id) return true;
+    }
+    return false;
+  };
+  for (const server of loadServersStore().hosted) {
+    for (const list of Object.values(server.messages || {})) if (collect(list)) return true;
+    for (const list of Object.values(server.dms || {})) if (collect(list)) return true;
+  }
+  for (const list of Object.values(loadChatStore().dms || {})) if (collect(list)) return true;
+  return false;
+}
+
+function removeVoiceItem(id, force = false) {
   if (!voiceMessages.isValidId(id)) return false;
   const store = loadVoiceStore();
   const item = store.items[id];
   if (!item) return false;
+  if (!force && voiceItemReferencedElsewhere(id)) return false;
   delete store.items[id];
   try {
     fs.unlinkSync(path.join(voiceDir(), item.file));
@@ -517,6 +535,42 @@ function uniqueInviteCode() {
 
 function serverShareLink(server) {
   return `chill://${lanAddress()}:${CHAT_PORT}/${server.invite}`;
+}
+
+function channelPayload(channel) {
+  return { id: channel.id, name: channel.name, type: channel.type, createdAt: channel.createdAt };
+}
+
+function channelsPayload(server) {
+  return server.channels.map(channelPayload);
+}
+
+function copyChannelName(server, sourceName) {
+  const base = `${sourceName}-kopia`.slice(0, 32);
+  let name = base;
+  let counter = 2;
+  while (server.channels.some((channel) => channel.name.toLowerCase() === name.toLowerCase())) {
+    const suffix = `-${counter}`;
+    name = `${base.slice(0, Math.max(1, 32 - suffix.length))}${suffix}`;
+    counter += 1;
+  }
+  return name;
+}
+
+function broadcastServerChannels(server) {
+  broadcastServer(server.id, { type: 'server:channels', channels: channelsPayload(server) });
+}
+
+function channelOwnerContext(ws, send) {
+  const session = ws._serverSession;
+  if (!session) return null;
+  const server = findHostedServer(session.serverId);
+  if (!server) return null;
+  if (!session.owner || server.ownerId !== session.memberId) {
+    send({ type: 'server:error', code: 'forbidden', message: 'Tylko właściciel serwera może zarządzać kanałami.' });
+    return null;
+  }
+  return { session, server };
 }
 
 function hostedMembership(server, userId) {
@@ -1262,6 +1316,113 @@ function startChatServer(port = CHAT_PORT) {
             break;
           }
 
+          case 'server:channel:rename': {
+            const context = channelOwnerContext(ws, send);
+            if (!context) return;
+            const { session, server } = context;
+            const channelId = String(msg.channelId || '');
+            const channel = server.channels.find((item) => item.id === channelId);
+            if (!channel) {
+              send({ type: 'server:error', code: 'invalid-channel', message: 'Nie znaleziono kanału.' });
+              return;
+            }
+            const name = String(msg.name || '').trim().replace(/\s+/g, '-').replace(/[^\p{L}\p{N}_.-]/gu, '').slice(0, 32);
+            if (!name) {
+              send({ type: 'server:error', code: 'invalid-channel', message: 'Podaj poprawną nazwę kanału.' });
+              return;
+            }
+            if (server.channels.some((item) => item.id !== channel.id && item.name.toLowerCase() === name.toLowerCase())) {
+              send({ type: 'server:error', code: 'channel-exists', message: 'Kanał o tej nazwie już istnieje.' });
+              return;
+            }
+            channel.name = name;
+            scheduleServersSave();
+            broadcastServerChannels(server);
+            broadcastServer(server.id, {
+              type: 'server:channel:renamed',
+              channel: channelPayload(channel),
+              actorId: session.memberId,
+            });
+            break;
+          }
+
+          case 'server:channel:duplicate': {
+            const context = channelOwnerContext(ws, send);
+            if (!context) return;
+            const { session, server } = context;
+            const channelId = String(msg.channelId || '');
+            const sourceIndex = server.channels.findIndex((item) => item.id === channelId);
+            if (sourceIndex < 0) {
+              send({ type: 'server:error', code: 'invalid-channel', message: 'Nie znaleziono kanału.' });
+              return;
+            }
+            const source = server.channels[sourceIndex];
+            let id = makeChannelId();
+            while (server.channels.some((item) => item.id === id)) id = makeChannelId();
+            const channel = {
+              id,
+              name: copyChannelName(server, source.name),
+              type: source.type,
+              createdAt: Date.now(),
+            };
+            const sourceMessages = Array.isArray(server.messages[source.id]) ? server.messages[source.id] : [];
+            const messages = source.type === 'text'
+              ? sourceMessages.slice(-300).map((message) => ({
+                ...message,
+                id: `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
+                channelId: channel.id,
+              }))
+              : [];
+            server.channels.splice(sourceIndex + 1, 0, channel);
+            if (channel.type === 'text') server.messages[channel.id] = messages;
+            scheduleServersSave();
+            broadcastServerChannels(server);
+            broadcastServer(server.id, {
+              type: 'server:channel:duplicated',
+              channel: channelPayload(channel),
+              messages,
+              actorId: session.memberId,
+            });
+            break;
+          }
+
+          case 'server:channel:move': {
+            const context = channelOwnerContext(ws, send);
+            if (!context) return;
+            const { session, server } = context;
+            const channelId = String(msg.channelId || '');
+            const targetId = String(msg.targetId || '');
+            const from = server.channels.findIndex((item) => item.id === channelId);
+            if (from < 0) {
+              send({ type: 'server:error', code: 'invalid-channel', message: 'Nie znaleziono kanału.' });
+              return;
+            }
+            if (targetId && targetId === channelId) return;
+            const targetIndex = targetId && targetId !== '__end__'
+              ? server.channels.findIndex((item) => item.id === targetId)
+              : -1;
+            if (targetId && targetId !== '__end__' && targetIndex < 0) {
+              send({ type: 'server:error', code: 'invalid-channel', message: 'Nie znaleziono kanału docelowego.' });
+              return;
+            }
+            const [channel] = server.channels.splice(from, 1);
+            let to = server.channels.length;
+            if (targetIndex >= 0) {
+              to = server.channels.findIndex((item) => item.id === targetId);
+              if (to < 0) to = server.channels.length;
+            }
+            server.channels.splice(to, 0, channel);
+            scheduleServersSave();
+            broadcastServerChannels(server);
+            broadcastServer(server.id, {
+              type: 'server:channel:moved',
+              channelId: channel.id,
+              name: channel.name,
+              actorId: session.memberId,
+            });
+            break;
+          }
+
           case 'server:channel:delete': {
             const session = ws._serverSession;
             if (!session) return;
@@ -1278,8 +1439,9 @@ function startChatServer(port = CHAT_PORT) {
               return;
             }
             const [removed] = server.channels.splice(index, 1);
-            const removedVoice = removeVoiceFromMessages(server.messages[removed.id] || []);
+            const removedMessages = server.messages[removed.id] || [];
             delete server.messages[removed.id];
+            const removedVoice = removeVoiceFromMessages(removedMessages);
             if (removedVoice) saveVoiceStore();
             scheduleServersSave();
             broadcastServer(server.id, {
@@ -1874,8 +2036,8 @@ ipcMain.handle('chill:servers-leave', (e, payload = {}) => {
   const hostedIndex = store.hosted.findIndex((server) => server.id === id && server.ownerId === current.id);
   if (hostedIndex >= 0) {
     const hosted = store.hosted[hostedIndex];
-    if (removeVoiceForServer(hosted)) saveVoiceStore();
     store.hosted.splice(hostedIndex, 1);
+    if (removeVoiceForServer(hosted)) saveVoiceStore();
     store.joined = store.joined.filter((entry) => !(entry.userId === current.id && entry.id === id));
     saveServersStore();
     closeServerSessions(id, { type: 'server:deleted', serverId: id });

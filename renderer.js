@@ -131,9 +131,11 @@ let audioCtx = null;
 let micTest = null;
 let mentionState = { start: 0, end: 0, items: [], index: 0 };
 let channelType = 'text';
+let editingChannelId = null;
 let menuChannelId = null;
 let deleteChannelId = null;
 let pendingChannelDelete = false;
+let channelPrefs = {};
 let discordConfig = { clientId: '', redirectUri: 'http://localhost:47831/callback' };
 let discordUser = null;
 let discordGuilds = [];
@@ -457,6 +459,39 @@ const I18N_EN = {
   'Usuń kanał': 'Delete channel',
   'Usunąć kanał?': 'Delete channel?',
   'Tej operacji nie można cofnąć. Historia wiadomości w kanale zostanie usunięta.': "This action cannot be undone. The channel's message history will be deleted.",
+  'Zaproś do kanału': 'Invite to channel',
+  'Przypnij kanał na górę': 'Pin channel to top',
+  'Odepnij kanał': 'Unpin channel',
+  'Kopiuj link': 'Copy link',
+  'Wycisz kanał': 'Mute channel',
+  'Wyłącz wyciszenie': 'Unmute channel',
+  'Ustawienia powiadomień': 'Notification settings',
+  'Powiadomienia kanału': 'Channel notifications',
+  'Wszystkie wiadomości': 'All messages',
+  'Nic': 'Nothing',
+  'Przenieś do…': 'Move to…',
+  'Przenieś przed kanał': 'Move before channel',
+  'Na koniec listy': 'To the end of the list',
+  'Brak innych kanałów': 'No other channels',
+  'Edytuj kanał': 'Edit channel',
+  'Powiel kanał': 'Duplicate channel',
+  'Stwórz kanał tekstowy': 'Create text channel',
+  'Zapisz': 'Save',
+  'Zmień nazwę kanału. Historia wiadomości pozostanie bez zmian.': 'Change the channel name. Message history will stay unchanged.',
+  'Akcje kanału': 'Channel actions',
+  'Przypięty': 'Pinned',
+  'Wyciszony': 'Muted',
+  'Powiadomienia kanału: {level}': 'Channel notifications: {level}',
+  'Skopiowano link do kanału.': 'Channel link copied.',
+  'Odpięto kanał „{name}”.': 'Channel “{name}” unpinned.',
+  'Przypięto kanał „{name}” na górze.': 'Channel “{name}” pinned to top.',
+  'Włączono powiadomienia dla kanału „{name}”.': 'Notifications enabled for channel “{name}”.',
+  'Wyciszono kanał „{name}”.': 'Channel “{name}” muted.',
+  'Nazwa kanału „{name}” została zmieniona.': 'Channel name changed to “{name}”.',
+  'Kanał „{name}” został powielony.': 'Channel “{name}” duplicated.',
+  'Kanał „{name}” został przeniesiony.': 'Channel “{name}” moved.',
+  'Nie udało się przenieść kanału.': 'Could not move the channel.',
+  'Nie udało się powielić kanału.': 'Could not duplicate the channel.',
 
   // Import z Discord
   'Z Discord': 'From Discord',
@@ -594,6 +629,7 @@ const I18N_EN = {
   'Kanały głosowe nie obsługują wiadomości tekstowych.': 'Voice channels do not support text messages.',
   'Tylko właściciel serwera może tworzyć kanały.': 'Only the server owner can create channels.',
   'Tylko właściciel serwera może usuwać kanały.': 'Only the server owner can delete channels.',
+  'Tylko właściciel serwera może zarządzać kanałami.': 'Only the server owner can manage channels.',
   'Podaj poprawną nazwę kanału.': 'Enter a valid channel name.',
   'Kanał o tej nazwie już istnieje.': 'A channel with this name already exists.',
   'Nie znaleziono kanału.': 'Channel not found.',
@@ -836,6 +872,40 @@ function savePrefs() {
   localStorage.setItem('chill.theme', prefs.theme);
   localStorage.setItem('chill.accent', prefs.accent);
   localStorage.setItem('chill.lang', prefs.lang);
+}
+
+function channelPrefsKey() { return `chill.channelPrefs.${myId || 'guest'}`; }
+
+function loadChannelPrefs() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(channelPrefsKey()) || '{}');
+    channelPrefs = stored && typeof stored === 'object' && !Array.isArray(stored) ? stored : {};
+  } catch {
+    channelPrefs = {};
+  }
+}
+
+function saveChannelPrefs() {
+  try { localStorage.setItem(channelPrefsKey(), JSON.stringify(channelPrefs)); } catch { /* ignore */ }
+}
+
+function channelSettings(serverId, channelId) {
+  const raw = channelPrefs?.[serverId]?.[channelId];
+  return {
+    pinned: raw?.pinned === true,
+    muted: raw?.muted === true,
+    notify: ['all', 'mentions', 'none'].includes(raw?.notify) ? raw.notify : 'all',
+  };
+}
+
+function setChannelSettings(serverId, channelId, patch) {
+  if (!serverId || !channelId) return { pinned: false, muted: false, notify: 'all' };
+  if (!channelPrefs[serverId] || typeof channelPrefs[serverId] !== 'object') channelPrefs[serverId] = {};
+  const next = { ...channelSettings(serverId, channelId), ...patch };
+  if (!next.pinned && !next.muted && next.notify === 'all') delete channelPrefs[serverId][channelId];
+  else channelPrefs[serverId][channelId] = next;
+  saveChannelPrefs();
+  return channelSettings(serverId, channelId);
 }
 
 const themeMedia = window.matchMedia('(prefers-color-scheme: light)');
@@ -1207,6 +1277,7 @@ function enterApp(user) {
   searchQuery = '';
 
   loadPrefs();
+  loadChannelPrefs();
   applyTheme(prefs.theme);
   applyAccent(prefs.accent);
   applyAppearance();
@@ -1259,6 +1330,8 @@ function logout() {
 
   currentUser = null;
   myId = '';
+  channelPrefs = {};
+  closeChannelMenu();
   servers = [];
   activeServerId = null;
   current = { kind: 'home' };
@@ -2088,10 +2161,11 @@ function parseInvite(raw) {
   const host = url.hostname;
   const port = url.port || '47830';
   const invite = decodeURIComponent(url.pathname.replace(/^\/+/, '')).trim().toUpperCase();
+  const channelId = String(url.searchParams.get('channel') || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80);
   if (!host || !/^[a-zA-Z0-9.-]+$/.test(host) || host.startsWith('.') || host.endsWith('.')) return null;
   if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535) return null;
   if (!/^[A-Z0-9]{4,16}$/.test(invite)) return null;
-  return { address: `${host}:${port}`, invite };
+  return { address: `${host}:${port}`, invite, channelId };
 }
 
 function connectServer(server) {
@@ -2239,7 +2313,11 @@ function handleServerFrame(serverId, msg) {
       }
 
       if (activeServerId === serverId) {
-        if (!state.channels.some((channel) => channel.id === current.id)) {
+        const pendingChannel = String(state.pendingChannelId || '');
+        state.pendingChannelId = '';
+        if (pendingChannel && state.channels.some((channel) => channel.id === pendingChannel)) {
+          current = { kind: 'server', serverId, id: pendingChannel };
+        } else if (!state.channels.some((channel) => channel.id === current.id)) {
           current = { kind: 'server', serverId, id: state.channels[0]?.id || '' };
         }
         state.lastChannelId = current.id || state.lastChannelId;
@@ -2304,6 +2382,40 @@ function handleServerFrame(serverId, msg) {
       break;
     }
 
+    case 'server:channel:renamed': {
+      const channel = msg.channel;
+      if (!channel?.id) break;
+      const normalized = { ...channel, type: channel.type === 'voice' ? 'voice' : 'text' };
+      const index = state.channels.findIndex((item) => item.id === normalized.id);
+      if (index >= 0) state.channels[index] = { ...state.channels[index], ...normalized };
+      else state.channels.push(normalized);
+      if (editingChannelId === normalized.id) closeChannelModal();
+      if (msg.actorId === state.you?.memberId) {
+        toast(t('Nazwa kanału „{name}” została zmieniona.', { name: normalized.name }));
+      }
+      break;
+    }
+
+    case 'server:channel:duplicated': {
+      const channel = msg.channel;
+      if (!channel?.id) break;
+      const normalized = { ...channel, type: channel.type === 'voice' ? 'voice' : 'text' };
+      if (!state.channels.some((item) => item.id === normalized.id)) state.channels.push(normalized);
+      history.set(`server:${serverId}:${normalized.id}`, Array.isArray(msg.messages) ? msg.messages.slice(-300) : []);
+      if (msg.actorId === state.you?.memberId) {
+        toast(t('Kanał „{name}” został powielony.', { name: normalized.name }));
+        if (activeServerId === serverId) selectChannel(normalized.id);
+      }
+      break;
+    }
+
+    case 'server:channel:moved': {
+      if (msg.actorId === state.you?.memberId) {
+        toast(t('Kanał „{name}” został przeniesiony.', { name: msg.name || '' }));
+      }
+      break;
+    }
+
     case 'server:channel:deleted': {
       if (msg.actorId === state.you?.memberId) {
         toast(t('Kanał „{name}” został usunięty.', { name: msg.name || '' }));
@@ -2336,7 +2448,12 @@ function handleServerFrame(serverId, msg) {
       }
       if (!own) {
         const channel = state.channels.find((item) => item.id === message.channelId);
-        notifyIncoming(message, channel ? `#${channel.name} • ${state.server.name}` : state.server.name, active);
+        notifyIncoming(
+          message,
+          channel ? `#${channel.name} • ${state.server.name}` : state.server.name,
+          active,
+          { serverId, channelId: message.channelId },
+        );
       }
       break;
     }
@@ -2602,7 +2719,7 @@ function bindServers() {
   $('discordPreviewBtn').addEventListener('click', previewDiscordImport);
   $('discordImportBtn').addEventListener('click', importDiscordServer);
 
-  $('inviteBtn').addEventListener('click', openInviteModal);
+  $('inviteBtn').addEventListener('click', () => { void openInviteModal(); });
   $('closeInviteModal').addEventListener('click', () => { $('inviteOverlay').hidden = true; });
   $('inviteOverlay').addEventListener('click', (e) => {
     if (e.target === $('inviteOverlay')) $('inviteOverlay').hidden = true;
@@ -2636,17 +2753,47 @@ function bindServers() {
   });
 
   // Menu kontekstowe kanału
-  $('channelMenu').addEventListener('click', (e) => e.stopPropagation());
-  $('deleteChannelBtn').addEventListener('click', () => {
-    const state = serverState(activeServerId);
-    const channel = state?.channels.find((item) => item.id === menuChannelId);
-    closeChannelMenu();
-    if (!channel) return;
-    openChannelDelete(channel);
+  $('channelMenu').addEventListener('click', (event) => {
+    event.stopPropagation();
+    const submenu = event.target.closest('[data-submenu]');
+    if (submenu) {
+      toggleChannelSubmenu(submenu.dataset.submenu);
+      return;
+    }
+    const notifyOption = event.target.closest('[data-notify-level]');
+    if (notifyOption) {
+      setChannelNotifyLevel(notifyOption.dataset.notifyLevel);
+      return;
+    }
+    const moveOption = event.target.closest('[data-move-target]');
+    if (moveOption) {
+      moveChannelTo(moveOption.dataset.moveTarget);
+      return;
+    }
+    const action = event.target.closest('[data-channel-action]');
+    if (action) handleChannelAction(action.dataset.channelAction);
   });
   document.addEventListener('click', closeChannelMenu);
   document.addEventListener('contextmenu', (e) => {
     if (!e.target.closest('#channelMenu')) closeChannelMenu();
+  });
+  document.addEventListener('keydown', (event) => {
+    const menu = $('channelMenu');
+    if (menu.hidden) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeChannelMenu();
+      return;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const items = [...menu.querySelectorAll('button:not([disabled])')].filter((item) => item.offsetParent !== null);
+      if (!items.length) return;
+      const index = items.indexOf(document.activeElement);
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      items[(index + step + items.length) % items.length]?.focus();
+    }
   });
   window.addEventListener('resize', closeChannelMenu);
   document.addEventListener('scroll', closeChannelMenu, true);
@@ -2667,16 +2814,41 @@ function canManageChannels() {
 
 function openChannelModal() {
   if (!canManageChannels()) return;
+  editingChannelId = null;
   channelType = 'text';
   selectChannelType(channelType);
+  if ($('channelModalTitle')) $('channelModalTitle').textContent = t('Nowy kanał');
+  if ($('channelModalLead')) $('channelModalLead').textContent = t('Wybierz typ kanału i nadaj mu nazwę.');
+  if ($('channelTypeField')) $('channelTypeField').hidden = false;
   $('newChannelName').value = '';
   $('channelError').textContent = '';
+  $('createChannelBtn').textContent = t('Stwórz');
   $('createChannelBtn').disabled = false;
   $('channelOverlay').hidden = false;
   setTimeout(() => $('newChannelName').focus(), 40);
 }
 
+function openChannelEdit(channel) {
+  if (!channel || !canManageChannels()) return;
+  editingChannelId = channel.id;
+  channelType = channel.type === 'voice' ? 'voice' : 'text';
+  selectChannelType(channelType);
+  if ($('channelModalTitle')) $('channelModalTitle').textContent = t('Edytuj kanał');
+  if ($('channelModalLead')) $('channelModalLead').textContent = t('Zmień nazwę kanału. Historia wiadomości pozostanie bez zmian.');
+  if ($('channelTypeField')) $('channelTypeField').hidden = true;
+  $('newChannelName').value = channel.name;
+  $('channelError').textContent = '';
+  $('createChannelBtn').textContent = t('Zapisz');
+  $('createChannelBtn').disabled = false;
+  $('channelOverlay').hidden = false;
+  setTimeout(() => {
+    $('newChannelName').focus();
+    $('newChannelName').select();
+  }, 40);
+}
+
 function closeChannelModal() {
+  editingChannelId = null;
   $('channelOverlay').hidden = true;
   $('newChannelName').value = '';
   $('channelError').textContent = '';
@@ -2708,30 +2880,242 @@ function createChannelFromModal() {
     errorEl.textContent = t('Nazwa kanału może mieć maksymalnie 32 znaki.');
     return;
   }
+  if (editingChannelId) {
+    const channel = state.channels.find((item) => item.id === editingChannelId);
+    if (!channel) {
+      closeChannelModal();
+      return;
+    }
+    if (channel.name === name) {
+      closeChannelModal();
+      return;
+    }
+    $('createChannelBtn').disabled = true;
+    state.ws.send(JSON.stringify({ type: 'server:channel:rename', channelId: channel.id, name }));
+    return;
+  }
   $('createChannelBtn').disabled = true;
   state.ws.send(JSON.stringify({ type: 'server:channel:create', name, channelType }));
+}
+
+function currentMenuChannel() {
+  return serverState(activeServerId)?.channels.find((item) => item.id === menuChannelId) || null;
+}
+
+function closeChannelSubmenus() {
+  document.querySelectorAll('#channelMenu .context-sub').forEach((sub) => {
+    sub.hidden = true;
+    sub.style.top = '';
+    sub.classList.remove('open-left');
+  });
+  document.querySelectorAll('#channelMenu [data-submenu]').forEach((button) => {
+    button.setAttribute('aria-expanded', 'false');
+  });
+}
+
+function toggleChannelSubmenu(name) {
+  const sub = name === 'notify' ? $('notifyChannelSubmenu') : $('moveChannelSubmenu');
+  const parent = name === 'notify' ? $('notifyChannelBtn') : $('moveChannelBtn');
+  if (!sub || !parent) return;
+  const open = sub.hidden;
+  closeChannelSubmenus();
+  if (!open) return;
+  sub.hidden = false;
+  parent.setAttribute('aria-expanded', 'true');
+  const parentRect = parent.getBoundingClientRect();
+  if (parentRect.right + sub.offsetWidth + 12 > window.innerWidth) sub.classList.add('open-left');
+  const subHeight = sub.offsetHeight;
+  if (parentRect.top + subHeight > window.innerHeight - 8) {
+    const top = Math.max(8 - parentRect.top, window.innerHeight - 8 - subHeight - parentRect.top);
+    sub.style.top = `${top}px`;
+  }
+}
+
+function channelNotifyLabel(level) {
+  if (level === 'none') return t('Nic');
+  if (level === 'mentions') return t('Tylko wzmianki');
+  return t('Wszystkie wiadomości');
+}
+
+function buildMoveChannelOptions() {
+  const container = $('moveChannelOptions');
+  const state = serverState(activeServerId);
+  const channel = currentMenuChannel();
+  if (!container || !state || !channel) return;
+  if (state.channels.length < 2) {
+    container.innerHTML = `<div class="context-sub-empty">${esc(t('Brak innych kanałów'))}</div>`;
+    return;
+  }
+  const currentIndex = state.channels.findIndex((item) => item.id === channel.id);
+  const rows = state.channels.map((target, index) => {
+    const selected = target.id === channel.id;
+    const noop = !selected && index === currentIndex + 1;
+    const icon = target.type === 'voice' ? '🔊' : '#';
+    return `
+      <button type="button" class="context-sub-item${selected ? ' selected' : ''}" role="menuitem" data-move-target="${esc(target.id)}"${selected || noop ? ' disabled' : ''}>
+        <span class="context-check" aria-hidden="true">${selected ? '✓' : ''}</span>
+        <span class="context-icon" aria-hidden="true">${icon}</span>
+        <span class="context-sub-label">${esc(target.name)}</span>
+      </button>
+    `;
+  }).join('');
+  const endDisabled = currentIndex === state.channels.length - 1;
+  container.innerHTML = `${rows}<div class="context-sub-sep"></div>
+    <button type="button" class="context-sub-item" role="menuitem" data-move-target="__end__"${endDisabled ? ' disabled' : ''}>
+      <span class="context-check" aria-hidden="true"></span>
+      <span class="context-icon" aria-hidden="true">⬇</span>
+      <span class="context-sub-label">${esc(t('Na koniec listy'))}</span>
+    </button>`;
+}
+
+function updateChannelMenu() {
+  const state = serverState(activeServerId);
+  const channel = currentMenuChannel();
+  if (!state || !channel) return;
+  const settings = channelSettings(state.server.id, channel.id);
+  if ($('pinChannelLabel')) $('pinChannelLabel').textContent = settings.pinned ? t('Odepnij kanał') : t('Przypnij kanał na górę');
+  if ($('muteChannelLabel')) $('muteChannelLabel').textContent = settings.muted ? t('Wyłącz wyciszenie') : t('Wycisz kanał');
+  document.querySelectorAll('#notifyChannelSubmenu [data-notify-level]').forEach((button) => {
+    const selected = button.dataset.notifyLevel === settings.notify;
+    button.classList.toggle('selected', selected);
+    button.setAttribute('aria-checked', String(selected));
+  });
+  buildMoveChannelOptions();
+  closeChannelSubmenus();
 }
 
 function openChannelMenu(event, channel) {
   const state = serverState(activeServerId);
   if (!channel || !state?.you?.owner || state.status !== 'online') return;
-  event.preventDefault();
-  event.stopPropagation();
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
   menuChannelId = channel.id;
+  updateChannelMenu();
   const menu = $('channelMenu');
   menu.hidden = false;
   const rect = menu.getBoundingClientRect();
-  const x = Math.max(8, Math.min(event.clientX, window.innerWidth - rect.width - 8));
-  const y = Math.max(8, Math.min(event.clientY, window.innerHeight - rect.height - 8));
+  const anchor = event?.currentTarget?.getBoundingClientRect?.();
+  let x = Number(event?.clientX) || (anchor ? anchor.right + 6 : 280);
+  let y = Number(event?.clientY) || (anchor ? anchor.top - 4 : 120);
+  x = Math.max(8, Math.min(x, window.innerWidth - rect.width - 8));
+  y = Math.max(8, Math.min(y, window.innerHeight - rect.height - 8));
   menu.style.left = `${x}px`;
   menu.style.top = `${y}px`;
-  $('deleteChannelBtn').focus();
+  if (event?.type === 'keydown') {
+    const first = menu.querySelector('button:not([disabled])');
+    if (first) requestAnimationFrame(() => first.focus({ preventScroll: true }));
+  }
 }
 
 function closeChannelMenu() {
   menuChannelId = null;
+  closeChannelSubmenus();
   const menu = $('channelMenu');
   if (menu) menu.hidden = true;
+}
+
+function setChannelNotifyLevel(level) {
+  if (!['all', 'mentions', 'none'].includes(level)) return;
+  const state = serverState(activeServerId);
+  const channel = currentMenuChannel();
+  if (!state || !channel) {
+    closeChannelMenu();
+    return;
+  }
+  setChannelSettings(state.server.id, channel.id, { notify: level });
+  closeChannelMenu();
+  toast(t('Powiadomienia kanału: {level}', { level: channelNotifyLabel(level) }));
+}
+
+function moveChannelTo(targetId) {
+  const state = serverState(activeServerId);
+  const channel = currentMenuChannel();
+  closeChannelMenu();
+  if (!state || !channel || !canManageChannels()) return;
+  try {
+    state.ws.send(JSON.stringify({ type: 'server:channel:move', channelId: channel.id, targetId }));
+  } catch {
+    toast(t('Nie udało się przenieść kanału.'));
+  }
+}
+
+function handlePinChannel(channel) {
+  const state = serverState(activeServerId);
+  if (!state || !channel) return;
+  const settings = channelSettings(state.server.id, channel.id);
+  setChannelSettings(state.server.id, channel.id, { pinned: !settings.pinned });
+  closeChannelMenu();
+  renderSidebar();
+  toast(settings.pinned
+    ? t('Odpięto kanał „{name}”.', { name: channel.name })
+    : t('Przypięto kanał „{name}” na górze.', { name: channel.name }));
+}
+
+function handleMuteChannel(channel) {
+  const state = serverState(activeServerId);
+  if (!state || !channel) return;
+  const settings = channelSettings(state.server.id, channel.id);
+  setChannelSettings(state.server.id, channel.id, { muted: !settings.muted });
+  closeChannelMenu();
+  renderSidebar();
+  toast(settings.muted
+    ? t('Włączono powiadomienia dla kanału „{name}”.', { name: channel.name })
+    : t('Wyciszono kanał „{name}”.', { name: channel.name }));
+}
+
+function handleChannelAction(action) {
+  const state = serverState(activeServerId);
+  const channel = currentMenuChannel();
+  if (!state || !channel) {
+    closeChannelMenu();
+    return;
+  }
+  if (action === 'invite') {
+    closeChannelMenu();
+    void openInviteModal(channel);
+    return;
+  }
+  if (action === 'pin') {
+    handlePinChannel(channel);
+    return;
+  }
+  if (action === 'copy') {
+    const link = channelShareLink(state, channel);
+    closeChannelMenu();
+    copyText(link)
+      .then(() => toast(t('Skopiowano link do kanału.')))
+      .catch(() => toast(t('Nie udało się skopiować linku.')));
+    return;
+  }
+  if (action === 'mute') {
+    handleMuteChannel(channel);
+    return;
+  }
+  if (action === 'edit') {
+    closeChannelMenu();
+    openChannelEdit(channel);
+    return;
+  }
+  if (action === 'duplicate') {
+    closeChannelMenu();
+    if (!canManageChannels()) return;
+    try {
+      state.ws.send(JSON.stringify({ type: 'server:channel:duplicate', channelId: channel.id }));
+    } catch {
+      toast(t('Nie udało się powielić kanału.'));
+    }
+    return;
+  }
+  if (action === 'create-text') {
+    closeChannelMenu();
+    openChannelModal();
+    return;
+  }
+  if (action === 'delete') {
+    closeChannelMenu();
+    openChannelDelete(channel);
+    return;
+  }
 }
 
 function updateChannelDeleteCopy() {
@@ -2862,6 +3246,7 @@ async function joinServer() {
       closeServerModal();
       selectServer(known.id);
       connectServer(known);
+      focusInvitedChannel(known.id, parsed.channelId);
       toast(t('Już należysz do tego serwera'));
       return;
     }
@@ -2879,6 +3264,7 @@ async function joinServer() {
     closeServerModal();
     selectServer(result.server.id);
     connectServer(result.server);
+    focusInvitedChannel(result.server.id, parsed.channelId);
     toast(t('Dołączono do „{name}”', { name: result.server.name }));
     errorEl.textContent = '';
   } catch (err) {
@@ -3275,21 +3661,51 @@ function createChannelFromForm(e) {
   e.preventDefault();
 }
 
-async function openInviteModal() {
+function serverShareBase(state) {
+  return state.server.shareLink || `chill://${state.server.address}/${state.server.invite}`;
+}
+
+function appendChannelToLink(link, channel) {
+  const base = String(link || '');
+  if (!base || !channel?.id) return base;
+  return `${base}${base.includes('?') ? '&' : '?'}channel=${encodeURIComponent(channel.id)}`;
+}
+
+function channelShareLink(state, channel) {
+  return appendChannelToLink(serverShareBase(state), channel);
+}
+
+function focusInvitedChannel(serverId, channelId) {
+  if (!channelId) return;
+  const state = serverState(serverId);
+  if (!state) return;
+  state.pendingChannelId = channelId;
+  if (state.channels.some((channel) => channel.id === channelId)) {
+    state.pendingChannelId = '';
+    selectChannel(channelId);
+  }
+}
+
+async function openInviteModal(channel = null) {
   const state = serverState(activeServerId);
   if (!state) return;
+  const invitedChannel = channel?.id ? channel : null;
   $('inviteOverlay').hidden = false;
-  $('inviteServerName').textContent = state.server.name;
+  if ($('inviteTitle')) $('inviteTitle').textContent = invitedChannel ? t('Zaproś do kanału') : t('Zaproś do serwera');
+  $('inviteServerName').textContent = invitedChannel
+    ? `${state.server.name} • #${invitedChannel.name}`
+    : state.server.name;
   $('inviteSaved').textContent = '';
   $('leaveServerBtn').textContent = state.you?.owner ? t('Usuń serwer') : t('Opuść serwer');
   resetLeaveConfirm();
-  $('inviteLink').textContent = state.server.shareLink || `chill://${state.server.address}/${state.server.invite}`;
+  const link = (base) => invitedChannel ? appendChannelToLink(base, invitedChannel) : base;
+  $('inviteLink').textContent = link(serverShareBase(state));
   if (CHILL.servers?.invite) {
     try {
       const result = await CHILL.servers.invite({ id: state.server.id });
       if (result?.ok && result.shareLink) {
         state.server.shareLink = result.shareLink;
-        $('inviteLink').textContent = result.shareLink;
+        $('inviteLink').textContent = link(result.shareLink);
       }
     } catch { /* ignore */ }
   }
@@ -3420,6 +3836,7 @@ function ensureServerState(server) {
       reconnectTimer: null,
       attempts: 0,
       lastChannelId: null,
+      pendingChannelId: '',
       fatal: false,
     };
     serverStates.set(server.id, state);
@@ -3592,7 +4009,14 @@ function renderChannels() {
     return;
   }
   const query = $('conversationSearch').value.trim().toLowerCase();
-  const list = state.channels.filter((channel) => !query || channel.name.toLowerCase().includes(query));
+  const list = state.channels
+    .filter((channel) => !query || channel.name.toLowerCase().includes(query))
+    .map((channel, index) => ({
+      channel,
+      index,
+      settings: channelSettings(state.server.id, channel.id),
+    }))
+    .sort((a, b) => Number(b.settings.pinned) - Number(a.settings.pinned) || a.index - b.index);
   container.innerHTML = '';
 
   if (!list.length) {
@@ -3600,24 +4024,41 @@ function renderChannels() {
     return;
   }
 
-  for (const channel of list) {
+  for (const entry of list) {
+    const { channel, settings } = entry;
     const key = `server:${state.server.id}:${channel.id}`;
     const isActive = current.kind === 'server' && current.serverId === state.server.id && current.id === channel.id;
     const count = isActive ? 0 : unread.get(key) || 0;
     const voice = channel.type === 'voice';
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `nav-item${voice ? ' voice-channel' : ''}${isActive ? ' active' : ''}${count ? ' unread' : ''}`;
+    button.className = `nav-item${voice ? ' voice-channel' : ''}${isActive ? ' active' : ''}${count ? ' unread' : ''}${settings.pinned ? ' pinned' : ''}${settings.muted ? ' muted' : ''}`;
     button.title = voice ? t('Kanał głosowy') : `#${channel.name}`;
+    if (state.you?.owner) button.setAttribute('aria-haspopup', 'menu');
     button.innerHTML = `
       <span class="nav-icon${voice ? ' voice-icon' : ''}">${voice ? '🔊' : '#'}</span>
       <span class="nav-label">${esc(channel.name)}</span>
+      ${settings.pinned ? `<span class="nav-pin" title="${esc(t('Przypięty'))}" aria-hidden="true">📌</span>` : ''}
+      ${settings.muted ? `<span class="nav-muted" title="${esc(t('Wyciszony'))}" aria-hidden="true">🔇</span>` : ''}
       ${count ? `<span class="nav-badge">${count > 99 ? '99+' : count}</span>` : ''}
     `;
-    button.addEventListener('click', () => selectChannel(channel.id));
+    button.addEventListener('click', (event) => {
+      if (!state.you?.owner) {
+        selectChannel(channel.id);
+        return;
+      }
+      openChannelMenu(event, channel);
+      selectChannel(channel.id);
+    });
     button.addEventListener('contextmenu', (e) => {
       if (!state.you?.owner) return;
       openChannelMenu(e, channel);
+    });
+    button.addEventListener('keydown', (event) => {
+      if (!state.you?.owner) return;
+      if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+        openChannelMenu(event, channel);
+      }
     });
     container.appendChild(button);
   }
@@ -5266,11 +5707,16 @@ function isMention(text) {
     || lower.includes('@everyone');
 }
 
-function notifyIncoming(message, where, isCurrent) {
+function notifyIncoming(message, where, isCurrent, channelContext = null) {
+  const settings = channelContext
+    ? channelSettings(channelContext.serverId, channelContext.channelId)
+    : null;
+  if (settings && (settings.muted || settings.notify === 'none')) return;
   if (!prefs.notify && !prefs.sound) return;
   if (document.hasFocus() && isCurrent) return;
 
   const mention = isMention(message.text);
+  if (settings?.notify === 'mentions' && !mention) return;
   if (prefs.mentionsOnly && !mention) return;
   const sticker = stickerMessageDescriptor(message.text);
   const voice = voiceMessageDescriptor(message.text);
