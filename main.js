@@ -48,6 +48,11 @@ let updateCheckInterval = null;
 let wss = null;
 let httpServer = null;
 let internetTunnel = null;
+let pendingScreenSource = null;
+
+const VOICE_FRAME_MAX = 32 * 1024;
+const SCREEN_FRAME_MAX = 220 * 1024;
+const SCREEN_FRAME_MAGIC = Buffer.from([0x43, 0x53, 0x53, 0x01]);
 
 function tunnelEndpoint() {
   return internetTunnel?.endpoint || null;
@@ -71,6 +76,139 @@ const languagePath = () => path.join(dataDir(), 'language.json');
 const discordPath = () => path.join(dataDir(), 'discord.json');
 const voiceDir = () => path.join(dataDir(), 'voice');
 const voiceIndexPath = () => path.join(voiceDir(), 'index.json');
+
+// ---------- Profil: banery, avatary, odznaki i kolekcja gier ----------
+const PROFILE_BADGE_IDS = new Set(['piwo', 'chill', 'og', 'vip', 'dev']);
+const BANNER_PRESET_IDS = new Set(['black', 'mint', 'ocean', 'sunset', 'forest', 'neon']);
+const BANNER_PATTERNS = new Set(['none', 'dots', 'grid', 'waves', 'stars', 'diagonal']);
+const PROFILE_IMAGE_RE = /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i;
+const PROFILE_AVATAR_MAX = 260_000;
+const PROFILE_BANNER_MAX = 720_000;
+const PROFILE_HANDLE_RE = /^[a-z0-9_.]{3,32}$/;
+const PROFILE_GAME_PLATFORMS = new Set(['medal', 'steam', 'roblox', 'epic', 'other']);
+
+function safeHex(value, fallback = '') {
+  return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value).toLowerCase() : fallback;
+}
+
+function safeProfileImage(value, maxLength) {
+  const text = String(value || '');
+  if (!text || text.length > maxLength || !PROFILE_IMAGE_RE.test(text)) return '';
+  return text;
+}
+
+function safeProfileEmoji(value) {
+  const text = String(value || '').trim();
+  if (!text || text.length > 24 || /[\u0000-\u001f<>"'&]/u.test(text)) return '';
+  return text;
+}
+
+function handleForAccount(account) {
+  if (!account) return '';
+  const stored = String(account.handle || '').trim().toLowerCase();
+  if (PROFILE_HANDLE_RE.test(stored)) return stored;
+  const base = String(account.username || account.name || 'osoba')
+    .toLowerCase()
+    .replace(/[^a-z0-9_.]/g, '')
+    .slice(0, 20) || 'osoba';
+  const digits = String(account.id || '').replace(/\D/g, '');
+  const suffix = (digits.slice(-5) || String(Date.now()).slice(-5)).padStart(5, '0');
+  return `${base}_${suffix}`.slice(0, 32);
+}
+
+function sanitizeHandle(value) {
+  const text = String(value || '').trim().toLowerCase();
+  return PROFILE_HANDLE_RE.test(text) ? text : '';
+}
+
+function sanitizeAvatar(value) {
+  const text = String(value || '');
+  if (!text) return '';
+  const image = safeProfileImage(text, PROFILE_AVATAR_MAX);
+  if (image) return image;
+  return safeProfileEmoji(text);
+}
+
+const DEFAULT_BANNER = { kind: 'preset', preset: 'black' };
+
+function sanitizeBanner(value) {
+  if (!value || typeof value !== 'object') return { ...DEFAULT_BANNER };
+  if (value.kind === 'preset') {
+    const preset = String(value.preset || '').toLowerCase();
+    return BANNER_PRESET_IDS.has(preset) ? { kind: 'preset', preset } : { ...DEFAULT_BANNER };
+  }
+  if (value.kind === 'image') {
+    const image = safeProfileImage(value.image, PROFILE_BANNER_MAX);
+    return image ? { kind: 'image', image } : { ...DEFAULT_BANNER };
+  }
+  if (value.kind === 'custom') {
+    const colors = Array.isArray(value.colors) ? value.colors : [];
+    const pattern = String(value.pattern || 'none').toLowerCase();
+    return {
+      kind: 'custom',
+      colors: [safeHex(colors[0], '#07110d'), safeHex(colors[1], '#3ee0a3')],
+      pattern: BANNER_PATTERNS.has(pattern) ? pattern : 'none',
+      emoji: safeProfileEmoji(value.emoji),
+    };
+  }
+  return { ...DEFAULT_BANNER };
+}
+
+function sanitizeBadges(value, fallback = ['piwo']) {
+  if (!Array.isArray(value)) return fallback.slice();
+  return [...new Set(value
+    .map((item) => String(item || '').trim().toLowerCase())
+    .filter((item) => PROFILE_BADGE_IDS.has(item)))].slice(0, 5);
+}
+
+function sanitizeGames(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of value) {
+    if (!item || typeof item !== 'object') continue;
+    const title = String(item.title || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+    if (!title) continue;
+    const key = title.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const platform = String(item.platform || 'medal').toLowerCase();
+    out.push({
+      title,
+      platform: PROFILE_GAME_PLATFORMS.has(platform) ? platform : 'other',
+      color: safeHex(item.color, ''),
+    });
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+function profilePatchFromMessage(msg) {
+  const patch = {};
+  if (typeof msg.handle === 'string') patch.handle = sanitizeHandle(msg.handle);
+  if (typeof msg.avatar === 'string') patch.avatar = sanitizeAvatar(msg.avatar);
+  if (Object.prototype.hasOwnProperty.call(msg, 'banner')) patch.banner = sanitizeBanner(msg.banner);
+  if (Array.isArray(msg.badges)) patch.badges = sanitizeBadges(msg.badges, []);
+  if (Array.isArray(msg.games)) patch.games = sanitizeGames(msg.games);
+  if (typeof msg.about === 'string') patch.about = msg.about.trim().slice(0, 160);
+  if (typeof msg.playing === 'string' || msg.playing === null) {
+    const title = typeof msg.playing === 'string' ? msg.playing.trim().slice(0, 40) : '';
+    patch.playing = title || null;
+    const since = Number(msg.playingSince ?? msg.since);
+    patch.playingSince = title && Number.isFinite(since) && since > 0 ? since : null;
+  }
+  return patch;
+}
+
+function memberProfileValue(member, key, fallback) {
+  if (!member) return fallback;
+  if (key === 'handle') return sanitizeHandle(member.handle) || handleForAccount({ id: member.id, username: member.name });
+  if (key === 'avatar') return sanitizeAvatar(member.avatar);
+  if (key === 'banner') return sanitizeBanner(member.banner);
+  if (key === 'badges') return sanitizeBadges(member.badges);
+  if (key === 'games') return sanitizeGames(member.games);
+  return fallback;
+}
 
 let appLanguage = null;
 
@@ -125,8 +263,13 @@ function publicUser(u) {
     email: u.email || '',
     username: u.username,
     displayName: u.displayName || u.username,
+    handle: handleForAccount(u),
     color: u.color || '#3ee0a3',
     about: u.about || '',
+    avatar: sanitizeAvatar(u.avatar),
+    banner: sanitizeBanner(u.banner),
+    badges: sanitizeBadges(u.badges),
+    games: sanitizeGames(u.games),
     createdAt: u.createdAt,
   };
 }
@@ -241,6 +384,7 @@ function dmKey(a, b) {
 const users = new Map();
 const userSockets = new Map();
 const serverSessions = new Map();
+const voiceRooms = new Map();
 const joinFailures = new Map();
 const JOIN_FAILURE_LIMIT = 30;
 const JOIN_FAILURE_WINDOW = 60_000;
@@ -633,14 +777,25 @@ function serverMembersPayload(server) {
     if (ws && ws._serverSession) online.add(ws._serverSession.memberId);
   }
   return server.members
-    .map((member) => ({
-      id: member.id,
-      name: member.name,
-      color: member.color,
-      owner: Boolean(member.owner),
-      online: online.has(member.id),
-      lastSeen: member.lastSeen || null,
-    }))
+    .map((member) => {
+      const isOnline = online.has(member.id);
+      return {
+        id: member.id,
+        name: member.name,
+        color: member.color,
+        owner: Boolean(member.owner),
+        online: isOnline,
+        lastSeen: member.lastSeen || null,
+        about: String(member.about || '').slice(0, 160),
+        handle: memberProfileValue(member, 'handle', ''),
+        avatar: memberProfileValue(member, 'avatar', ''),
+        banner: memberProfileValue(member, 'banner', null),
+        badges: memberProfileValue(member, 'badges', ['piwo']),
+        games: memberProfileValue(member, 'games', []),
+        playing: isOnline ? String(member.playing || '').slice(0, 40) || null : null,
+        playingSince: isOnline && member.playing && Number(member.playingSince) > 0 ? Number(member.playingSince) : null,
+      };
+    })
     .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'pl'));
 }
 
@@ -675,6 +830,119 @@ function broadcastServerMembers(server) {
   broadcastServer(server.id, { type: 'server:members', members: serverMembersPayload(server) });
 }
 
+// ---------- Kanały głosowe (obecność + przekaźnik audio) ----------
+function voiceRoomParticipants(room) {
+  if (!room) return [];
+  return [...room.values()]
+    .map(({ socket, ...participant }) => ({
+      ...participant,
+      sharing: Boolean(participant.sharing),
+      shareName: String(participant.shareName || '').slice(0, 80),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name, 'pl'));
+}
+
+function voiceChannelPayload(serverId, channelId) {
+  const room = voiceRooms.get(serverId)?.get(channelId) || null;
+  return { channelId, participants: voiceRoomParticipants(room) };
+}
+
+function voiceRoomsPayload(serverId) {
+  const rooms = voiceRooms.get(serverId);
+  if (!rooms) return [];
+  return [...rooms.keys()]
+    .map((channelId) => voiceChannelPayload(serverId, channelId))
+    .filter((room) => room.participants.length > 0);
+}
+
+function broadcastVoiceChannel(serverId, channelId) {
+  broadcastServer(serverId, { type: 'server:voice', ...voiceChannelPayload(serverId, channelId) });
+}
+
+function leaveVoiceRoom(ws) {
+  const session = ws._serverSession;
+  const channelId = String(ws._voiceChannelId || '');
+  ws._voiceChannelId = null;
+  if (!session || !channelId) return null;
+  const rooms = voiceRooms.get(session.serverId);
+  const room = rooms?.get(channelId);
+  const participant = room?.get(session.memberId);
+  if (!participant || participant.socket !== ws) return channelId;
+  room.delete(session.memberId);
+  if (!room.size) rooms.delete(channelId);
+  if (!rooms.size) voiceRooms.delete(session.serverId);
+  broadcastVoiceChannel(session.serverId, channelId);
+  return channelId;
+}
+
+function removeVoiceChannel(serverId, channelId) {
+  const rooms = voiceRooms.get(serverId);
+  const room = rooms?.get(channelId);
+  if (!room) return;
+  for (const participant of room.values()) {
+    if (participant.socket) participant.socket._voiceChannelId = null;
+  }
+  rooms.delete(channelId);
+  if (!rooms.size) voiceRooms.delete(serverId);
+  broadcastServer(serverId, { type: 'server:voice', channelId, participants: [] });
+}
+
+function clearVoiceRooms(serverId) {
+  const rooms = voiceRooms.get(serverId);
+  if (!rooms) return;
+  for (const room of rooms.values()) {
+    for (const participant of room.values()) {
+      if (participant.socket) participant.socket._voiceChannelId = null;
+    }
+  }
+  voiceRooms.delete(serverId);
+}
+
+function relayVoiceFrame(ws, raw) {
+  const session = ws._serverSession;
+  const channelId = String(ws._voiceChannelId || '');
+  if (!session || !channelId) return;
+  const room = voiceRooms.get(session.serverId)?.get(channelId);
+  const participant = room?.get(session.memberId);
+  if (!participant || participant.socket !== ws) return;
+  if (!Buffer.isBuffer(raw) || raw.length < 2) return;
+
+  const screenFrame = raw.length > SCREEN_FRAME_MAGIC.length
+    && raw.subarray(0, SCREEN_FRAME_MAGIC.length).equals(SCREEN_FRAME_MAGIC);
+  let kind;
+  let payload;
+  if (screenFrame) {
+    if (!participant.sharing || raw.length > SCREEN_FRAME_MAX) return;
+    kind = 2;
+    payload = raw.subarray(SCREEN_FRAME_MAGIC.length);
+  } else {
+    if (participant.muted || raw.length > VOICE_FRAME_MAX) return;
+    kind = 1;
+    payload = raw;
+  }
+
+  const memberBytes = Buffer.from(session.memberId, 'utf8');
+  if (!memberBytes.length || memberBytes.length > 255) return;
+  const packet = Buffer.allocUnsafe(2 + memberBytes.length + payload.length);
+  packet[0] = kind;
+  packet[1] = memberBytes.length;
+  memberBytes.copy(packet, 2);
+  payload.copy(packet, 2 + memberBytes.length);
+
+  const sockets = serverSessions.get(session.serverId);
+  if (!sockets) return;
+  for (const target of sockets) {
+    if (target === ws || target.readyState !== 1) continue;
+    if (target._voiceChannelId !== channelId) continue;
+    if (target._serverSession?.serverId !== session.serverId) continue;
+    // Nie zapychamy kolejki wolnego odbiorcy klatkami ekranu.
+    if (kind === 2 && target.bufferedAmount > 1024 * 1024) continue;
+    try {
+      target.send(packet, { binary: true });
+    } catch { /* ignorujemy pojedyncze zerwane połączenie */ }
+  }
+}
+
 function closeServerSessions(serverId, payload) {
   const set = serverSessions.get(serverId);
   if (!set) return;
@@ -682,6 +950,7 @@ function closeServerSessions(serverId, payload) {
   for (const ws of set) {
     if (ws.readyState === 1) ws.send(raw);
   }
+  clearVoiceRooms(serverId);
   serverSessions.delete(serverId);
   setTimeout(() => {
     for (const ws of set) {
@@ -705,10 +974,16 @@ function usersPayload() {
       id: u.id,
       name: u.displayName || u.username,
       username: u.username,
+      handle: u.handle,
       color: u.color,
       about: u.about,
+      avatar: u.avatar,
+      banner: u.banner,
+      badges: u.badges,
+      games: u.games,
       status: online ? record.status : 'offline',
       playing: online ? record.playing : null,
+      playingSince: online && record.playing && Number(record.playingSince) > 0 ? Number(record.playingSince) : null,
       online,
       lastSeen: record ? record.lastSeen : null,
     };
@@ -830,6 +1105,7 @@ function clearJoinFailures(ip) {
 function detachServerSession(ws) {
   const session = ws._serverSession;
   if (!session) return;
+  leaveVoiceRoom(ws);
   ws._serverSession = null;
   revokeVoiceTokens(ws, 'server:');
   const set = serverSessions.get(session.serverId);
@@ -879,16 +1155,33 @@ function handleJoinServer(ws, msg, send) {
 
   const name = String(msg.name || '').trim().slice(0, 32) || 'Gość';
   const color = /^#[0-9a-f]{6}$/i.test(String(msg.color || '')) ? msg.color : '#3ee0a3';
+  const patch = profilePatchFromMessage(msg);
+  if (!patch.handle) patch.handle = handleForAccount({ id: memberId, username: name });
 
   let member = server.members.find((item) => item.id === memberId);
   if (!member) {
-    member = { id: memberId, name, color, owner, joinedAt: Date.now(), lastSeen: Date.now() };
+    member = {
+      id: memberId,
+      name,
+      color,
+      owner,
+      joinedAt: Date.now(),
+      lastSeen: Date.now(),
+      handle: patch.handle,
+      avatar: patch.avatar || '',
+      banner: patch.banner ?? null,
+      badges: patch.badges !== undefined ? patch.badges : ['piwo'],
+      games: patch.games || [],
+      playing: patch.playing ?? null,
+      playingSince: patch.playingSince ?? null,
+    };
     server.members.push(member);
   } else {
     member.name = name;
     member.color = color;
     member.owner = owner;
     member.lastSeen = Date.now();
+    Object.assign(member, patch);
   }
 
   ws._serverSession = { serverId: server.id, memberId, name, color, owner };
@@ -915,6 +1208,7 @@ function handleJoinServer(ws, msg, send) {
     messages,
     dms: serverDmsPayload(server, memberId),
     you: { memberId, owner },
+    voice: voiceRoomsPayload(server.id),
     voiceKey,
   });
   broadcastServerMembers(server);
@@ -1173,7 +1467,11 @@ function startChatServer(port = CHAT_PORT) {
       if (ws.readyState === 1) ws.send(JSON.stringify(payload));
     };
 
-    ws.on('message', (raw) => {
+    ws.on('message', (raw, isBinary) => {
+      if (isBinary) {
+        relayVoiceFrame(ws, raw);
+        return;
+      }
       try {
         const msg = JSON.parse(raw.toString('utf8'));
 
@@ -1193,14 +1491,20 @@ function startChatServer(port = CHAT_PORT) {
             }
 
             currentUserId = account.id;
+            const accountProfile = publicUser(account);
             const user = {
               id: account.id,
-              name: account.displayName || account.username,
+              name: accountProfile.displayName,
               color: account.color || userColorFor(account.username),
-              avatar: '',
+              handle: accountProfile.handle,
+              avatar: accountProfile.avatar,
+              banner: accountProfile.banner,
+              badges: accountProfile.badges,
+              games: accountProfile.games,
               about: account.about || '',
               status: 'online',
               playing: msg.playing || null,
+              playingSince: msg.playing ? Number(msg.playingSince || msg.since) || Date.now() : null,
               since: Date.now(),
               lastSeen: Date.now(),
             };
@@ -1354,6 +1658,99 @@ function startChatServer(port = CHAT_PORT) {
               name: session.name,
               typing: Boolean(msg.typing),
             }, ws);
+            break;
+          }
+
+          case 'voice:join': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const server = findHostedServer(session.serverId);
+            if (!server) return;
+            const channelId = String(msg.channelId || '');
+            const channel = server.channels.find((item) => item.id === channelId);
+            if (!channel || channel.type !== 'voice') {
+              send({ type: 'server:error', code: 'voice-channel', message: 'Ten kanał nie jest kanałem głosowym.' });
+              return;
+            }
+            if (ws._voiceChannelId && ws._voiceChannelId !== channelId) leaveVoiceRoom(ws);
+            let rooms = voiceRooms.get(server.id);
+            if (!rooms) {
+              rooms = new Map();
+              voiceRooms.set(server.id, rooms);
+            }
+            let room = rooms.get(channelId);
+            if (!room) {
+              room = new Map();
+              rooms.set(channelId, room);
+            }
+            const existing = room.get(session.memberId);
+            if (existing && existing.socket !== ws) existing.socket._voiceChannelId = null;
+            room.set(session.memberId, {
+              memberId: session.memberId,
+              name: session.name,
+              color: session.color,
+              muted: Boolean(msg.muted),
+              deafened: Boolean(msg.deafened),
+              sharing: false,
+              shareName: '',
+              socket: ws,
+            });
+            ws._voiceChannelId = channelId;
+            send({
+              type: 'voice:joined',
+              serverId: server.id,
+              channelId,
+              participants: voiceRoomParticipants(room),
+            });
+            broadcastVoiceChannel(server.id, channelId);
+            break;
+          }
+
+          case 'voice:leave': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const channelId = leaveVoiceRoom(ws);
+            if (channelId) send({ type: 'voice:left', serverId: session.serverId, channelId });
+            break;
+          }
+
+          case 'voice:update': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const channelId = String(ws._voiceChannelId || '');
+            const room = voiceRooms.get(session.serverId)?.get(channelId);
+            const participant = room?.get(session.memberId);
+            if (!participant || participant.socket !== ws) return;
+            if (typeof msg.muted === 'boolean') participant.muted = msg.muted;
+            if (typeof msg.deafened === 'boolean') participant.deafened = msg.deafened;
+            broadcastVoiceChannel(session.serverId, channelId);
+            break;
+          }
+
+          case 'voice:share': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const channelId = String(ws._voiceChannelId || '');
+            const room = voiceRooms.get(session.serverId)?.get(channelId);
+            const participant = room?.get(session.memberId);
+            if (!participant || participant.socket !== ws) return;
+            const sharing = Boolean(msg.sharing);
+            if (sharing) {
+              const busy = [...room.values()].some((item) => item !== participant && item.sharing);
+              if (busy) {
+                send({
+                  type: 'voice:share-denied',
+                  serverId: session.serverId,
+                  channelId,
+                  code: 'busy',
+                  message: 'Ktoś już udostępnia ekran na tym kanale.',
+                });
+                return;
+              }
+            }
+            participant.sharing = sharing;
+            participant.shareName = sharing ? String(msg.name || '').trim().slice(0, 80) : '';
+            broadcastVoiceChannel(session.serverId, channelId);
             break;
           }
 
@@ -1513,6 +1910,7 @@ function startChatServer(port = CHAT_PORT) {
             const [removed] = server.channels.splice(index, 1);
             const removedMessages = server.messages[removed.id] || [];
             delete server.messages[removed.id];
+            removeVoiceChannel(server.id, removed.id);
             const removedVoice = removeVoiceFromMessages(removedMessages);
             if (removedVoice) saveVoiceStore();
             scheduleServersSave();
@@ -1544,6 +1942,30 @@ function startChatServer(port = CHAT_PORT) {
               member.color = msg.color;
               session.color = member.color;
             }
+            Object.assign(member, profilePatchFromMessage(msg));
+            member.lastSeen = Date.now();
+            scheduleServersSave();
+            broadcastServerMembers(server);
+            const voiceChannelId = String(ws._voiceChannelId || '');
+            const voiceParticipant = voiceRooms.get(server.id)?.get(voiceChannelId)?.get(member.id);
+            if (voiceParticipant) {
+              voiceParticipant.name = member.name;
+              voiceParticipant.color = member.color;
+              broadcastVoiceChannel(server.id, voiceChannelId);
+            }
+            break;
+          }
+
+          case 'server:activity': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const server = findHostedServer(session.serverId);
+            if (!server) return;
+            const member = server.members.find((item) => item.id === session.memberId);
+            if (!member) return;
+            const patch = profilePatchFromMessage(msg);
+            member.playing = patch.playing ?? null;
+            member.playingSince = patch.playingSince ?? null;
             member.lastSeen = Date.now();
             scheduleServersSave();
             broadcastServerMembers(server);
@@ -1603,7 +2025,10 @@ function startChatServer(port = CHAT_PORT) {
             if (!local || !currentUserId) return;
             const user = users.get(currentUserId);
             if (!user) return;
-            user.playing = msg.playing || null;
+            const title = typeof msg.playing === 'string' ? msg.playing.trim().slice(0, 40) : '';
+            user.playing = title || null;
+            const since = Number(msg.playingSince ?? msg.since);
+            user.playingSince = title && Number.isFinite(since) && since > 0 ? since : (title ? Date.now() : null);
             user.lastSeen = Date.now();
             broadcastGlobal('user:update', { users: usersPayload() });
             break;
@@ -1637,6 +2062,9 @@ function startChatServer(port = CHAT_PORT) {
               account.about = msg.about.slice(0, 160);
               user.about = account.about;
             }
+            const patch = profilePatchFromMessage(msg);
+            Object.assign(account, patch);
+            Object.assign(user, patch);
             saveAccounts();
             broadcastGlobal('user:update', { users: usersPayload() });
             send({ type: 'profile:updated', user: publicUser(account) });
@@ -1904,13 +2332,19 @@ ipcMain.handle('chill:auth-register', (e, payload = {}) => {
   if (store.users.some((u) => u.username.toLowerCase() === username.toLowerCase())) return authError('Ta nazwa użytkownika jest już zajęta.');
 
   const { salt, hash } = hashPassword(password);
+  const id = crypto.randomUUID();
   const user = {
-    id: crypto.randomUUID(),
+    id,
     email: email || '',
     username,
     displayName: displayName.slice(0, 32),
+    handle: handleForAccount({ id, username }),
     color,
     about: '',
+    avatar: '',
+    banner: { ...DEFAULT_BANNER },
+    badges: ['piwo'],
+    games: [],
     salt,
     hash,
     createdAt: Date.now(),
@@ -1973,9 +2407,38 @@ ipcMain.handle('chill:auth-update-profile', (e, payload = {}) => {
   if (about.length > 160) return authError('Opis może mieć maksymalnie 160 znaków.');
   if (!/^#[0-9a-f]{6}$/i.test(color)) return authError('Wybierz poprawny kolor.');
 
+  let avatar = sanitizeAvatar(account.avatar);
+  if (payload.avatar !== undefined) {
+    avatar = sanitizeAvatar(payload.avatar);
+    if (String(payload.avatar || '') && !avatar) return authError('Nieprawidłowy avatar.');
+  }
+
+  let banner = sanitizeBanner(account.banner);
+  if (payload.banner !== undefined) {
+    banner = sanitizeBanner(payload.banner);
+    if (payload.banner && !banner) return authError('Nieprawidłowy baner profilu.');
+  }
+
+  let badges = sanitizeBadges(account.badges);
+  if (payload.badges !== undefined) {
+    if (!Array.isArray(payload.badges)) return authError('Nieprawidłowe odznaki.');
+    badges = sanitizeBadges(payload.badges, []);
+  }
+
+  let games = sanitizeGames(account.games);
+  if (payload.games !== undefined) {
+    if (!Array.isArray(payload.games)) return authError('Nieprawidłowa kolekcja gier.');
+    games = sanitizeGames(payload.games);
+  }
+
   account.displayName = displayName;
   account.about = about;
   account.color = color;
+  account.handle = handleForAccount(account);
+  account.avatar = avatar;
+  account.banner = banner;
+  account.badges = badges;
+  account.games = games;
   saveAccounts();
 
   const live = users.get(account.id);
@@ -1983,6 +2446,11 @@ ipcMain.handle('chill:auth-update-profile', (e, payload = {}) => {
     live.name = displayName;
     live.color = color;
     live.about = about;
+    live.handle = account.handle;
+    live.avatar = avatar;
+    live.banner = banner;
+    live.badges = badges;
+    live.games = games;
   }
 
   const serverStore = loadServersStore();
@@ -1992,6 +2460,11 @@ ipcMain.handle('chill:auth-update-profile', (e, payload = {}) => {
     if (!member) continue;
     member.name = displayName;
     member.color = color;
+    member.handle = account.handle;
+    member.avatar = avatar;
+    member.banner = banner;
+    member.badges = badges;
+    member.games = games;
     member.lastSeen = Date.now();
     touched = true;
     broadcastServerMembers(server);
@@ -2876,6 +3349,13 @@ ipcMain.on('chill:activity:ask', () => {
   if (win) win.webContents.send('chill:activity', lastGame);
 });
 
+ipcMain.on('chill:screen-pick', (e, id) => {
+  const value = String(id || '');
+  const ok = /^(screen|window):[^\s]+$/.test(value);
+  if (ok) pendingScreenSource = { id: value, at: Date.now() };
+  e.returnValue = ok;
+});
+
 ipcMain.handle('chill:screen-sources', async () => {
   const own = win && typeof win.getMediaSourceId === 'function' ? String(win.getMediaSourceId()).split(':').slice(0, 2).join(':') : '';
   const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcon: true });
@@ -2889,8 +3369,6 @@ ipcMain.handle('chill:screen-sources', async () => {
       icon: s.appIcon && !s.appIcon.isEmpty() ? s.appIcon.resize({ width: 32, height: 32 }).toDataURL() : null,
     }));
 });
-
-ipcMain.handle('chill:screen-pick', (e, id) => typeof id === 'string');
 
 // ---------- Aktualizacje (IPC) ----------
 ipcMain.handle('chill:update-check', async () => checkForUpdates());
@@ -3006,6 +3484,26 @@ if (!app.requestSingleInstanceLock()) {
     const ses = session.defaultSession;
     ses.setPermissionRequestHandler((wc, permission, cb) => cb(['media', 'notifications', 'display-capture', 'clipboard-read'].includes(permission)));
     ses.setPermissionCheckHandler(() => true);
+
+    ses.setDisplayMediaRequestHandler(async (request, callback) => {
+      const picked = pendingScreenSource;
+      pendingScreenSource = null;
+      if (!picked || Date.now() - picked.at > 20_000) {
+        callback({});
+        return;
+      }
+      try {
+        const sources = await desktopCapturer.getSources({ types: ['screen', 'window'] });
+        const source = sources.find((item) => item.id === picked.id);
+        if (!source) {
+          callback({});
+          return;
+        }
+        callback({ video: source });
+      } catch {
+        callback({});
+      }
+    });
 
     loadAccounts();
     loadChatStore();

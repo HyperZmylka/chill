@@ -6,11 +6,14 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 
 - **Własne serwery zamiast stałych pokoi** — na starcie nie ma żadnych pokoi ani kanałów. Tworzysz serwer, dostajesz kanał `ogólny` i zapraszasz znajomych.
 - **Kanały tekstowe i głosowe** — właściciel serwera tworzy kanały do pisania albo głosowe, a następnie może je usuwać prawym przyciskiem myszy. Serwer może mieć zero kanałów.
+- **Rozmowy głosowe na żywo** — wejście na kanał głosowy od razu łączy mikrofon i słuchawki z pozostałymi osobami w kanale. Wyciszenie mikrofonu i słuchawek oraz mówienie są widoczne na liście obecnych.
+- **Udostępnianie ekranu** — w kanale głosowym można pokazać cały ekran albo okno wybranej aplikacji. Podgląd działa na żywo, a w jednym kanale udostępnia ekran jedna osoba naraz.
 - **Zaproszenia linkiem** — `chill://adres:port/kod`. Link działa od razu przez internet (tunel Cloudflare), bez przekierowywania portów; w sieci lokalnej nadal można użyć adresu IP hosta.
 - **Role** — właściciel i członkowie. Tylko właściciel tworzy i usuwa kanały oraz usuwa serwer.
 - **Lista obecnych** — status online/offline i oznaczenie właściciela.
 - **Wiadomości prywatne** — rozmowy 1:1 z kontami lokalnymi oraz ze znajomymi dodanymi z serwerów.
 - **Znajomi** — kliknij profil innego członka serwera, dodaj go do znajomych i pisz bezpośrednio.
+- **Profile z banerem i kolekcją gier** — własny avatar (emoji lub zdjęcie), baner (czarny preset, gotowe wzory, własny gradient/wzór/emoji albo obraz), odznaki, handle, wspólni znajomi i serwery oraz kolekcja do 12 gier z kartą aktualnie uruchomionej gry i akcjami Medal.
 - **Trwała historia** — wiadomości serwera zapisują się u osoby, która go hostuje; DM-y lokalne w `chat-data.json`, a DM-y serwerowe u hosta w `servers.json`.
 - **Emoji** — picker z wyszukiwarką i listą ostatnio używanych.
 - **Naklejki** — wbudowany zestaw Chill Pack (24 grafiki SVG), kategorie i wyszukiwarka; wybrana naklejka pojawia się bezpośrednio w rozmowie.
@@ -46,7 +49,7 @@ Przy pierwszym zaproszeniu Chill pobiera mały program tunelujący Cloudflare (`
 - **Kopiuj link** i **Zaproś do kanału** tworzą adres `chill://host:port/KOD?channel=<id>`, który po dołączeniu otwiera właściwy kanał.
 - **Edytuj kanał** zmienia nazwę bez utraty historii. **Powiel kanał** tworzy kopię z nazwą `-kopia` i przenosi do niej do 300 ostatnich wiadomości (nowe identyfikatory, wspólne pliki głosowe są bezpiecznie współdzielone). **Przenieś do…** zmienia kolejność kanałów widoczną dla wszystkich członków. **Usuń kanał** usuwa kanał wraz z historią wiadomości tekstowych.
 - Uprawnienia są sprawdzane także po stronie hosta — członek serwera nie widzi menu i nie może utworzyć, zmienić nazwy, powielić, przenieść ani usunąć kanału nawet przez bezpośrednie wywołanie protokołu.
-- Kanały głosowe są oznaczone ikoną głośnika i służą do organizowania rozmów. Ta wersja nie prowadzi transmisji audio — w kanale głosowym nie można wysyłać wiadomości tekstowych.
+- Kanały głosowe są oznaczone ikoną głośnika. Po wejściu na kanał mikrofon i słuchawki łączą się z pozostałymi osobami na żywo, a host serwera przesyła dźwięk między uczestnikami. Rozmowa działa, dopóki host jest online. W kanale głosowym nie można wysyłać wiadomości tekstowych.
 - Ikony mikrofonu i słuchawek w dolnym pasku zapisują lokalnie stan wyciszenia oraz wybór urządzenia audio. Wyciszenie słuchawek wyłącza też dźwięk powiadomień.
 - Po usunięciu wszystkich kanałów serwer pozostaje pusty; właściciel nadal może dodać nowy kanał. Ten stan jest zapisywany w `servers.json`.
 
@@ -59,6 +62,16 @@ Przy pierwszym zaproszeniu Chill pobiera mały program tunelujący Cloudflare (`
 Znajomi z serwera są zapisani dla Twojego konta lokalnie, a ich wiadomości prywatne przechodzą przez serwer hosta. Rozmowa działa, gdy host jest online; historia DM-ów serwerowych jest przechowywana w `servers.json` na komputerze hosta. Konto, które otrzyma wiadomość prywatną z serwera, automatycznie dodaje nadawcę do znajomych.
 
 Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach prywatnych** od razu — bez dodawania do znajomych.
+
+## Profile, banery i kolekcja gier
+
+- Kliknięcie nazwy, avatara albo wiadomości członka serwera otwiera kartę profilu: pełnowymiarowy baner, avatar nachodzący na baner, nazwa, `@handle`, odznaki, status, opis, liczba wspólnych znajomych i serwerów oraz kolekcja gier.
+- Kolekcja pokazuje do sześciu kafelków, a pozostałe gry są schowane pod **+N**. Kliknięcie kafelka zmienia kartę gry. Karta pokazuje aktualnie uruchomioną grę (albo pierwszą z kolekcji), czas grania liczony od rozpoczęcia sesji oraz przyciski **Obserwuj na Medal** i **Pobierz Medal**. Obserwowanie zapisuje się lokalnie dla konta.
+- W **Ustawieniach → Profil** zmienisz nazwę wyświetlaną i opis, wybierzesz avatar z gotowych emoji (np. kota) albo wgrasz własny obraz PNG/JPEG/WebP. Avatar jest przycinany do kwadratu, a obraz trafia do danych konta.
+- Baner ma domyślnie czarny preset. Możesz wybrać inny gotowy wzór, zbudować własny gradient z dwóch kolorów, wzorem i emoji albo wgrać obraz. Podgląd w edytorze i karta profilu aktualizują się od razu.
+- Odznaki **PIWO** i **CHILL** są przyznawane kontu; nowe konta zaczynają z PIWO. Kolekcja pozwala dodać do 12 gier z nazwą i platformą (Steam, Epic, Medal, Roblox lub inna).
+- Profil konta jest zapisywany w `accounts.json`. Kopia pól profilu członka (handle, avatar, baner, odznaki, gry) trafia do `servers.json` hosta i jest rozsyłana do wszystkich połączonych osób, więc zmiany widać także po ponownym połączeniu.
+- Wykrywanie gier działa lokalnie na każdym komputerze. Aktywność **Gra w …** jest przekazywana do serwera jako stan członka i nie nadpisuje lokalnego stanu innych kont.
 
 ## GIF-y
 
@@ -89,6 +102,15 @@ Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach p
 - Dostęp do pliku jest powiązany z aktywną sesją i członkostwem w serwerze. Token jest ważny przez 7 dni i jest unieważniany po rozłączeniu, więc odtwarzanie wymaga połączenia z serwerem, do którego należy rozmowa.
 - Do nagrywania potrzebny jest mikrofon. Jeśli w dolnym pasku wybrano konkretne urządzenie wejściowe, nagrywanie użyje właśnie jego (z bezpiecznym powrotem do domyślnego mikrofonu).
 - Wyszukiwarka wiadomości znajduje głosówki po słowach `głosówka`, `nagranie`, `audio`, `voice message` i pokrewnych, również bez polskich znaków diakrytycznych.
+
+## Rozmowy głosowe i udostępnianie ekranu
+
+- Kliknij kanał głosowy, aby dołączyć. Na dole po lewej pojawi się panel połączenia z przyciskami mikrofonu, słuchawek, udostępniania ekranu, ustawień, zaproszenia i rozłączenia. Te same akcje są dostępne pod listą uczestników.
+- Dźwięk jest przesyłany na żywo przez połączenie z hostem serwera — działa w sieci lokalnej i przez tunel Cloudflare. Host musi być online, a jego łącze musi mieć zapas przepustowości dla rozmowy i ewentualnego udostępniania ekranu.
+- Kliknij ikonę monitora, wybierz zakładkę **Cały ekran** albo **Aplikacja**, a następnie wskaż konkretny ekran lub okno. Podgląd pojawia się od razu u wszystkich osób w kanale, a w panelu i na liście obecnych widać, kto udostępnia.
+- Udostępniany obraz jest wysyłany jako seria klatek JPEG (do 10 na sekundę, maksymalnie 1280×720). Dźwięk systemowy nie jest przesyłany — udostępniany jest tylko obraz.
+- W jednym kanale może udostępniać ekran tylko jedna osoba. Druga osoba zobaczy komunikat **Ktoś już udostępnia ekran na tym kanale.** Udostępnianie kończy się po kliknięciu monitora, zatrzymaniu go w systemowym pasku udostępniania, rozłączeniu z kanałem albo utracie dostępu do przechwytywanego okna.
+- Klatki ekranu nie są zapisywane na dysku. Host przekazuje je wyłącznie osobom aktualnie przebywającym na tym samym kanale głosowym.
 
 ## Wygląd, dostępność i dźwięk
 

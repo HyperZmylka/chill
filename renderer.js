@@ -105,6 +105,11 @@ let myId = '';
 let myName = 'Ty';
 let myColor = '#3ee0a3';
 let myAbout = '';
+let myProfileHandle = '';
+let myAvatar = '';
+let myBanner = null;
+let myBadges = ['piwo'];
+let myGames = [];
 let ws = null;
 let reconnectTimer = null;
 let servers = [];
@@ -113,15 +118,32 @@ const serverStates = new Map();
 let allUsers = [];
 let friends = [];
 let profileTarget = null;
+let profileSelectedGame = '';
+let profileGamesExpanded = false;
+let profileTimer = null;
+let profileGameSince = 0;
 let playing = null;
+let playingSince = null;
 let searchQuery = '';
 let localVoiceKey = '';
 let voiceSession = null;
 let voiceStarting = false;
 let voiceAudio = null;
 let voicePlayback = { messageId: '', url: '', duration: 0, playing: false };
+let liveVoice = null;
+let liveVoicePlayback = null;
+let liveVoiceCaptureToken = 0;
+let liveVoiceShareToken = 0;
+let liveVoiceScreen = null;
+let screenSharePicker = { sources: [], tab: 'screen', loading: false, busy: false, error: '' };
+const liveVoiceSpeaking = new Map();
 let current = { kind: 'home' };
 let profileColor = '#3ee0a3';
+let profileAvatar = '';
+let profileBanner = null;
+let profileBadges = ['piwo'];
+let profileGames = [];
+let bannerDraft = null;
 let regColor = '#3ee0a3';
 let serverColor = '#3ee0a3';
 let downloadingUpdate = false;
@@ -327,6 +349,49 @@ const I18N_EN = {
   'Ładowanie urządzeń…': 'Loading devices…',
   'Urządzenie {n}': 'Device {n}',
   'Ustawienie zapisuje się lokalnie.': 'This setting is saved locally.',
+  'Nawiązano połączenie': 'Voice connected',
+  'Łączenie z kanałem głosowym…': 'Connecting to voice channel…',
+  'Dołącz do kanału głosowego': 'Join voice channel',
+  'Przenieś się tutaj': 'Move here',
+  '1 osoba na kanale': '1 person in the channel',
+  '{count} osoby na kanale': '{count} people in the channel',
+  '{count} osób na kanale': '{count} people in the channel',
+  'Kanał jest pusty': 'The channel is empty',
+  'Jesteś na kanale {name}': 'You are in {name}',
+  'Zaproś na kanał głosowy': 'Invite to voice channel',
+  'Brak dostępu do mikrofonu. Dołączono w trybie słuchania.': 'No microphone access. Joined in listen-only mode.',
+  'Nie udało się dołączyć do kanału głosowego.': 'Could not join the voice channel.',
+  'Kanał głosowy został usunięty.': 'The voice channel was deleted.',
+  'Rozłączono z kanałem głosowym.': 'Disconnected from the voice channel.',
+  'Mikrofon wyłączony': 'Microphone off',
+  'Słuchawki wyłączone': 'Headphones off',
+  'Nikt nie jest teraz na tym kanale': 'No one is in this channel right now',
+  'Dołącz i zacznij rozmowę.': 'Join and start talking.',
+  'Ustawienia głosu': 'Voice settings',
+  'Otwórz kanał głosowy': 'Open voice channel',
+  'Udostępnij ekran': 'Share screen',
+  'Zakończ udostępnianie': 'Stop sharing',
+  'Udostępniasz ekran': 'You are sharing your screen',
+  'Udostępnia ekran': 'Sharing screen',
+  '{name} udostępnia ekran': '{name} is sharing a screen',
+  'Udostępniony ekran': 'Shared screen',
+  'Udostępniony ekran: {name}': 'Shared screen: {name}',
+  'Oczekiwanie na obraz…': 'Waiting for video…',
+  'Wybierz cały ekran albo okno aplikacji.': 'Choose an entire screen or an application window.',
+  'Cały ekran': 'Entire screen',
+  'Aplikacja': 'Application',
+  'Brak dostępnych ekranów.': 'No screens available.',
+  'Brak dostępnych okien.': 'No windows available.',
+  'Ładowanie źródeł…': 'Loading sources…',
+  'Wybierz ekran lub okno aplikacji.': 'Choose a screen or application window.',
+  'Odśwież': 'Refresh',
+  'Nie udało się pobrać listy ekranów.': 'Could not load the screen list.',
+  'Nie udało się rozpocząć udostępniania ekranu.': 'Could not start screen sharing.',
+  'Udostępnianie ekranu zakończone.': 'Screen sharing ended.',
+  'Udostępnianie ekranu nie jest dostępne.': 'Screen sharing is not available.',
+  'Najpierw dołącz do kanału głosowego.': 'Join a voice channel first.',
+  'Ktoś już udostępnia ekran na tym kanale.': 'Someone is already sharing a screen in this channel.',
+  'Ty': 'You',
   'Konto': 'Account',
   'Wyloguj się': 'Log out',
   'Wylogowanie kończy sesję na tym urządzeniu. Konto i historia pozostaną zapisane.': 'Logging out ends the session on this device. Your account and history stay saved.',
@@ -718,6 +783,53 @@ const I18N_EN = {
   'Automatyczna aktualizacja nie powiodła się. Pobierz instalator ręcznie.': 'Automatic update failed. Download the installer manually.',
   'Nie udało się pobrać aktualizacji. Spróbuj ponownie.': 'Could not download the update. Try again.',
 
+  // Profil — baner, avatar, odznaki i gry
+  'Avatar': 'Avatar',
+  'Wgraj avatar': 'Upload avatar',
+  'Domyślny avatar': 'Default avatar',
+  'Baner profilu': 'Profile banner',
+  'Wgraj baner': 'Upload banner',
+  'Własny baner': 'Custom banner',
+  'Kolor 1': 'Color 1',
+  'Kolor 2': 'Color 2',
+  'Wzór': 'Pattern',
+  'Brak': 'None',
+  'Kropki': 'Dots',
+  'Siatka': 'Grid',
+  'Fale': 'Waves',
+  'Gwiazdy': 'Stars',
+  'Skos': 'Diagonal',
+  'Zastosuj własny baner': 'Apply custom banner',
+  'Odznaki': 'Badges',
+  'Kolekcja gier': 'Game collection',
+  'Dodaj grę': 'Add game',
+  'Nazwa gry': 'Game name',
+  'Usuń grę': 'Remove game',
+  'Wpisz nazwę gry.': 'Enter a game name.',
+  'Kolekcja może mieć maksymalnie 12 gier.': 'The collection can contain at most 12 games.',
+  'Ta gra jest już w kolekcji.': 'This game is already in the collection.',
+  'Możesz wybrać maksymalnie 5 odznak.': 'You can select at most 5 badges.',
+  'Nie udało się odczytać obrazu.': 'Could not read the image.',
+  'Brak gier w kolekcji.': 'No games in the collection.',
+  'Pokaż wszystkie gry': 'Show all games',
+  'Clipping {game}': 'Clipping {game}',
+  'Obserwuj na Medal': 'Follow on Medal',
+  'Obserwujesz na Medal': 'Following on Medal',
+  'Obserwujesz {game} na Medal': 'Following {game} on Medal',
+  'Przestano obserwować {game}': 'Stopped following {game}',
+  'Pobierz Medal': 'Download Medal',
+  'Brak wspólnych znajomych i serwerów': 'No mutual friends or servers',
+  'Serwer jest offline - spróbuj ponownie po połączeniu.': 'The server is offline - try again once connected.',
+  'Ten kanał nie jest kanałem głosowym.': 'This channel is not a voice channel.',
+  'Inne': 'Other',
+  'Mięta': 'Mint',
+  'Ocean': 'Ocean',
+  'Zachód': 'Sunset',
+  'Neon': 'Neon',
+  'Chill': 'Chill',
+  'Discord': 'Discord',
+  'Minimal': 'Minimal',
+
   // Daty / statusy
   'Dzisiaj': 'Today',
   'Wczoraj': 'Yesterday',
@@ -1076,6 +1188,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindVoice();
   bindSettings();
   bindAudioControls();
+  bindLiveVoice();
   bindUserProfile();
   bindShortcuts();
   boot();
@@ -1274,7 +1387,13 @@ function enterApp(user) {
   myName = user.displayName || user.username;
   myColor = user.color || '#3ee0a3';
   myAbout = user.about || '';
+  myProfileHandle = user.handle || handleForProfile(user);
+  myAvatar = safeProfileAvatar(user.avatar);
+  myBanner = safeProfileBanner(user.banner);
+  myBadges = safeBadges(user.badges);
+  myGames = Array.isArray(user.games) ? user.games : [];
   playing = null;
+  playingSince = null;
   localVoiceKey = '';
   current = { kind: 'home' };
   servers = [];
@@ -1321,6 +1440,7 @@ function enterApp(user) {
 }
 
 function logout() {
+  stopLiveVoice({ silent: true, localOnly: true });
   resetVoiceSession();
   localVoiceKey = '';
   closeAudioMenus();
@@ -1374,18 +1494,16 @@ function logout() {
 
 function renderIdentity() {
   if (!currentUser) return;
-  $('myAvatar').textContent = initial(myName);
-  $('myAvatar').style.background = myColor;
+  applyAvatar($('myAvatar'), myName, myColor, myAvatar);
   $('myName').textContent = myName;
-  const handle = currentUser.username || mentionHandle(myName);
+  const handle = myProfileHandle || currentUser.handle || currentUser.username || mentionHandle(myName);
   $('myHandle').textContent = handle ? `@${handle}` : '';
   const status = prefs.status || 'online';
   const statusText = statusLabel(status) + (playing ? ` • ${t('Gra w {game}', { game: playing })}` : '');
   $('myStatusDot').className = `status-dot ${status}`;
   $('myStatusDot').title = statusText;
   $('myProfileBtn').setAttribute('aria-label', `${t('Edytuj profil')} • ${statusText}`);
-  $('settingsAvatar').textContent = initial(myName);
-  $('settingsAvatar').style.background = myColor;
+  applyAvatar($('settingsAvatar'), myName, myColor, myAvatar);
   $('settingsName').textContent = myName;
   renderAudioState();
 }
@@ -1558,18 +1676,32 @@ function chooseAudioDevice(kind, id) {
   savePrefs();
   closeAudioMenus(true);
   renderSettingsAudioDevices();
+  if (kind === 'mic' && liveVoice) restartLiveVoiceCapture();
+  if (kind === 'output' && liveVoicePlayback?.context && typeof liveVoicePlayback.context.setSinkId === 'function') {
+    void liveVoicePlayback.context.setSinkId(prefs.audioOutput).catch(() => {});
+  }
 }
 
 function setMicMuted(muted) {
   prefs.micMuted = Boolean(muted);
   savePrefs();
   renderAudioState();
+  if (liveVoice) {
+    if (!prefs.micMuted && !liveVoice.captureNode) void startLiveVoiceCapture();
+    sendLiveVoiceUpdate();
+    syncLiveVoiceButtons();
+  }
 }
 
 function setDeafened(deafened) {
   prefs.deafened = Boolean(deafened);
   savePrefs();
   renderAudioState();
+  if (liveVoice) {
+    updateLiveVoiceOutputGain();
+    sendLiveVoiceUpdate();
+    syncLiveVoiceButtons();
+  }
 }
 
 function renderAudioState() {
@@ -1611,6 +1743,7 @@ function renderAudioState() {
     outputToggle.classList.toggle('on', deafened);
     outputToggle.setAttribute('aria-checked', String(deafened));
   }
+  syncLiveVoiceButtons();
 }
 
 function refreshMicTestUi() {
@@ -1796,6 +1929,1071 @@ function bindAudioControls() {
       refreshAudioDevices();
     });
   }
+}
+
+// ============================================================
+// KANAŁY GŁOSOWE
+// ============================================================
+const LIVE_VOICE_RATE = 24000;
+const LIVE_SCREEN_FPS = 10;
+const LIVE_SCREEN_MAX_WIDTH = 1280;
+const LIVE_SCREEN_MAX_HEIGHT = 720;
+const LIVE_SCREEN_QUALITY = 0.6;
+const LIVE_SCREEN_MAX_BYTES = 190 * 1024;
+const LIVE_SCREEN_MAGIC = new Uint8Array([0x43, 0x53, 0x53, 0x01]);
+const VOICE_SVGS = {
+  mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><path d="M12 19v3"></path><path d="M8 22h8"></path></svg>',
+  micOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><path d="M12 19v3"></path><path d="M8 22h8"></path><path d="M3 3 21 21"></path></svg>',
+  headphones: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"></path></svg>',
+  headphonesOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 14h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-7a9 9 0 0 1 18 0v7a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3"></path><path d="M3 3 21 21"></path></svg>',
+  phoneOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"></path><path d="M22 2 2 22"></path></svg>',
+  signal: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5 12.55a11 11 0 0 1 14 0"></path><path d="M8.5 16.03a6 6 0 0 1 7 0"></path><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"></circle></svg>',
+  invite: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg>',
+  settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>',
+  open: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>',
+  voice: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>',
+  screen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="19" height="13" rx="2"></rect><path d="M8 21h8"></path><path d="M12 16.5V21"></path></svg>',
+  screenOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="19" height="13" rx="2"></rect><path d="M8 21h8"></path><path d="M12 16.5V21"></path><path d="M3 3 21 21"></path></svg>',
+};
+
+function normalizeVoiceParticipant(raw) {
+  const memberId = String(raw?.memberId || raw?.id || '').slice(0, 64);
+  if (!memberId) return null;
+  return {
+    memberId,
+    name: String(raw?.name || 'Gość').slice(0, 32),
+    color: safeColor(raw?.color, '#3ee0a3'),
+    muted: Boolean(raw?.muted),
+    deafened: Boolean(raw?.deafened),
+    sharing: Boolean(raw?.sharing),
+    shareName: String(raw?.shareName || '').slice(0, 80),
+  };
+}
+
+function voiceParticipants(state, channelId) {
+  if (!state?.voiceRooms || !channelId) return [];
+  const list = state.voiceRooms.get(channelId);
+  return Array.isArray(list) ? list : [];
+}
+
+function voiceChannelFor(serverId, channelId) {
+  return serverState(serverId)?.channels.find((channel) => channel.id === channelId) || null;
+}
+
+function liveVoiceConnectedHere(serverId, channelId) {
+  return Boolean(liveVoice && liveVoice.serverId === serverId && liveVoice.channelId === channelId);
+}
+
+function voiceSocket(serverId) {
+  const state = serverState(serverId);
+  if (!state?.ws || state.ws.readyState !== WebSocket.OPEN) return null;
+  return state.ws;
+}
+
+function sendLiveVoiceJoin() {
+  if (!liveVoice) return false;
+  const socket = voiceSocket(liveVoice.serverId);
+  if (!socket) return false;
+  try {
+    socket.send(JSON.stringify({
+      type: 'voice:join',
+      channelId: liveVoice.channelId,
+      muted: Boolean(prefs.micMuted),
+      deafened: Boolean(prefs.deafened),
+    }));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function sendLiveVoiceUpdate() {
+  if (!liveVoice) return;
+  const socket = voiceSocket(liveVoice.serverId);
+  if (!socket) return;
+  try {
+    socket.send(JSON.stringify({
+      type: 'voice:update',
+      muted: Boolean(prefs.micMuted),
+      deafened: Boolean(prefs.deafened),
+    }));
+  } catch { /* ignore */ }
+}
+
+function stopLiveVoiceCapture(call) {
+  if (!call) return;
+  if (liveVoice === call) liveVoiceCaptureToken += 1;
+  try { if (call.captureNode) call.captureNode.onaudioprocess = null; } catch { /* ignore */ }
+  try { call.captureSource?.disconnect(); } catch { /* ignore */ }
+  try { call.captureNode?.disconnect(); } catch { /* ignore */ }
+  try { call.captureSink?.disconnect(); } catch { /* ignore */ }
+  try { call.stream?.getTracks().forEach((track) => track.stop()); } catch { /* ignore */ }
+  try { call.processing?.stream?.getTracks().forEach((track) => track.stop()); } catch { /* ignore */ }
+  try { call.processing?.context?.close?.(); } catch { /* ignore */ }
+  try { call.captureContext?.close?.(); } catch { /* ignore */ }
+  call.stream = null;
+  call.processing = null;
+  call.captureContext = null;
+  call.captureSource = null;
+  call.captureNode = null;
+  call.captureSink = null;
+  call.micReady = false;
+}
+
+async function startLiveVoiceCapture() {
+  const call = liveVoice;
+  if (!call || call.captureNode) return;
+  if (!navigator.mediaDevices?.getUserMedia) return;
+  const token = ++liveVoiceCaptureToken;
+  let stream = null;
+  let processing = null;
+  let context = null;
+  try {
+    stream = await requestMicrophone();
+    if (liveVoice !== call || token !== liveVoiceCaptureToken) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    processing = createVoiceProcessing(stream);
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) throw new Error('no audio context');
+    context = new Ctx({ sampleRate: 24000, latencyHint: 'interactive' });
+    if (context.state === 'suspended') await context.resume().catch(() => {});
+    const source = context.createMediaStreamSource(processing.stream || stream);
+    const node = context.createScriptProcessor(1024, 1, 1);
+    const sink = context.createGain();
+    const sourceRate = context.sampleRate;
+    sink.gain.value = 0;
+    node.onaudioprocess = (event) => {
+      if (liveVoice !== call || token !== liveVoiceCaptureToken) return;
+      if (prefs.micMuted) return;
+      const input = event.inputBuffer.getChannelData(0);
+      if (!input.length) return;
+      // Kontekst może działać z inną częstotliwością niż 24 kHz — zawsze
+      // resamplujemy do formatu przesyłanego przez serwer.
+      const ratio = sourceRate / LIVE_VOICE_RATE;
+      const length = ratio === 1 ? input.length : Math.max(1, Math.round(input.length / ratio));
+      let sum = 0;
+      const pcm = new Int16Array(length);
+      for (let i = 0; i < length; i += 1) {
+        const position = i * ratio;
+        const index = Math.floor(position);
+        const fraction = position - index;
+        const first = input[index] || 0;
+        const second = input[Math.min(input.length - 1, index + 1)] || first;
+        const value = Math.max(-1, Math.min(1, first + (second - first) * fraction));
+        sum += value * value;
+        pcm[i] = value < 0 ? value * 0x8000 : value * 0x7fff;
+      }
+      if (Math.sqrt(sum / length) > 0.012) {
+        const selfId = serverState(call.serverId)?.you?.memberId;
+        if (selfId) markVoiceSpeaking(selfId);
+      }
+      const socket = voiceSocket(call.serverId);
+      if (call.status !== 'offline' && socket) {
+        try { socket.send(pcm.buffer); } catch { /* ignore */ }
+      }
+    };
+    source.connect(node);
+    node.connect(sink);
+    sink.connect(context.destination);
+    call.stream = stream;
+    call.processing = processing;
+    call.captureContext = context;
+    call.captureSource = source;
+    call.captureNode = node;
+    call.captureSink = sink;
+    call.micReady = true;
+    stream = null;
+    processing = null;
+    context = null;
+  } catch {
+    try { stream?.getTracks().forEach((track) => track.stop()); } catch { /* ignore */ }
+    try { processing?.stream?.getTracks().forEach((track) => track.stop()); } catch { /* ignore */ }
+    try { processing?.context?.close?.(); } catch { /* ignore */ }
+    try { context?.close?.(); } catch { /* ignore */ }
+    if (liveVoice !== call || token !== liveVoiceCaptureToken) return;
+    call.micReady = false;
+    if (!prefs.micMuted) {
+      setMicMuted(true);
+      toast(t('Brak dostępu do mikrofonu. Dołączono w trybie słuchania.'));
+    }
+  }
+}
+
+function restartLiveVoiceCapture() {
+  if (!liveVoice) return;
+  const call = liveVoice;
+  stopLiveVoiceCapture(call);
+  void startLiveVoiceCapture();
+}
+
+function ensureLiveVoicePlayback() {
+  if (liveVoicePlayback) return liveVoicePlayback;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  try {
+    const context = new Ctx({ sampleRate: 24000, latencyHint: 'interactive' });
+    if (context.state === 'suspended') void context.resume().catch(() => {});
+    const gain = context.createGain();
+    const volume = Math.max(0, Math.min(100, Number(prefs.outputVolume) || 0)) / 100;
+    gain.gain.value = prefs.deafened ? 0 : volume;
+    gain.connect(context.destination);
+    if (prefs.audioOutput && typeof context.setSinkId === 'function') {
+      void context.setSinkId(prefs.audioOutput).catch(() => {});
+    }
+    liveVoicePlayback = { context, gain, members: new Map() };
+    return liveVoicePlayback;
+  } catch {
+    return null;
+  }
+}
+
+function updateLiveVoiceOutputGain() {
+  if (!liveVoicePlayback) return;
+  const volume = Math.max(0, Math.min(100, Number(prefs.outputVolume) || 0)) / 100;
+  try {
+    liveVoicePlayback.gain.gain.value = prefs.deafened ? 0 : volume;
+  } catch { /* ignore */ }
+}
+
+function teardownLiveVoicePlayback() {
+  const playback = liveVoicePlayback;
+  liveVoicePlayback = null;
+  if (!playback) return;
+  try { playback.context.close(); } catch { /* ignore */ }
+  playback.members.clear();
+}
+
+function markVoiceSpeaking(memberId) {
+  const key = String(memberId || '');
+  if (!key) return;
+  let entry = liveVoiceSpeaking.get(key);
+  if (!entry) {
+    entry = { timer: 0, active: false };
+    liveVoiceSpeaking.set(key, entry);
+  }
+  if (!entry.active) {
+    entry.active = true;
+    setVoiceSpeakingUi(key, true);
+  }
+  clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => {
+    entry.active = false;
+    entry.timer = 0;
+    setVoiceSpeakingUi(key, false);
+    liveVoiceSpeaking.delete(key);
+  }, 280);
+}
+
+function setVoiceSpeakingUi(memberId, speaking) {
+  document.querySelectorAll('[data-voice-member]').forEach((el) => {
+    if (el.dataset.voiceMember === memberId) el.classList.toggle('speaking', speaking);
+  });
+}
+
+function clearLiveVoiceSpeaking() {
+  for (const entry of liveVoiceSpeaking.values()) clearTimeout(entry.timer);
+  document.querySelectorAll('[data-voice-member].speaking').forEach((el) => el.classList.remove('speaking'));
+  liveVoiceSpeaking.clear();
+}
+
+function handleLiveVoiceAudio(serverId, data) {
+  if (!liveVoice || liveVoice.serverId !== serverId) return;
+  if (!(data instanceof ArrayBuffer)) return;
+  const bytes = new Uint8Array(data);
+  if (bytes.length < 4 || bytes[0] !== 1) return;
+  const idLength = bytes[1];
+  if (!idLength || bytes.length < 2 + idLength + 2) return;
+  const memberId = new TextDecoder().decode(bytes.subarray(2, 2 + idLength));
+  const state = serverState(serverId);
+  if (!memberId || memberId === state?.you?.memberId) return;
+  const offset = 2 + idLength;
+  const sampleCount = Math.floor((bytes.length - offset) / 2);
+  if (!sampleCount) return;
+  const view = new DataView(bytes.buffer, bytes.byteOffset + offset, sampleCount * 2);
+  let sum = 0;
+  const samples = new Float32Array(sampleCount);
+  for (let i = 0; i < sampleCount; i += 1) {
+    const value = view.getInt16(i * 2, true) / 32768;
+    samples[i] = value;
+    sum += value * value;
+  }
+  if (Math.sqrt(sum / sampleCount) > 0.012) markVoiceSpeaking(memberId);
+  if (prefs.deafened) return;
+
+  const playback = ensureLiveVoicePlayback();
+  if (!playback) return;
+  const { context } = playback;
+  if (context.state === 'suspended') void context.resume().catch(() => {});
+  let source;
+  try {
+    const buffer = context.createBuffer(1, sampleCount, LIVE_VOICE_RATE);
+    buffer.getChannelData(0).set(samples);
+    source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(playback.gain);
+    const entry = playback.members.get(memberId) || { nextTime: 0 };
+    const now = context.currentTime;
+    let when = Math.max(now + 0.06, entry.nextTime || 0);
+    if (when > now + 0.4) when = now + 0.06;
+    source.start(when);
+    entry.nextTime = when + buffer.duration;
+    playback.members.set(memberId, entry);
+  } catch { /* ignore */ }
+}
+
+// ---------- Udostępnianie ekranu ----------
+function resetLiveVoiceScreen(sharerId = '') {
+  liveVoiceScreen = sharerId ? { sharerId, decoding: false, lastAt: 0 } : null;
+  const canvas = $('voiceScreenCanvas');
+  if (canvas) {
+    try {
+      canvas.width = 16;
+      canvas.height = 9;
+      canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+    } catch { /* ignore */ }
+  }
+  const placeholder = $('voiceScreenPlaceholder');
+  if (placeholder) placeholder.hidden = false;
+}
+
+function paintVoiceScreenFrame(source, sharerId) {
+  if (sharerId && liveVoiceScreen?.sharerId !== sharerId) return;
+  const section = $('voiceViewScreen');
+  const canvas = $('voiceScreenCanvas');
+  if (!section || section.hidden || !canvas) return;
+  const width = Number(source.width || source.videoWidth || 0);
+  const height = Number(source.height || source.videoHeight || 0);
+  if (!width || !height) return;
+  try {
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.drawImage(source, 0, 0, width, height);
+    const placeholder = $('voiceScreenPlaceholder');
+    if (placeholder) placeholder.hidden = true;
+  } catch { /* ignore */ }
+}
+
+function handleLiveVoiceScreen(serverId, data) {
+  if (!liveVoice || liveVoice.serverId !== serverId) return;
+  if (!(data instanceof ArrayBuffer)) return;
+  const bytes = new Uint8Array(data);
+  if (bytes.length < 6 || bytes[0] !== 2) return;
+  const idLength = bytes[1];
+  if (!idLength || bytes.length < 2 + idLength + 2) return;
+  const memberId = new TextDecoder().decode(bytes.subarray(2, 2 + idLength));
+  const state = serverState(serverId);
+  if (!memberId || memberId === state?.you?.memberId) return;
+  if (!liveVoiceScreen || liveVoiceScreen.sharerId !== memberId) return;
+  const participant = voiceParticipants(state, liveVoice.channelId)
+    .find((item) => item.memberId === memberId);
+  if (!participant?.sharing) return;
+  const section = $('voiceViewScreen');
+  if (!section || section.hidden) return;
+  if (current.kind !== 'server' || current.serverId !== serverId || current.id !== liveVoice.channelId) return;
+  if (liveVoiceScreen.decoding) return;
+  liveVoiceScreen.decoding = true;
+  const offset = 2 + idLength;
+  const blob = new Blob([bytes.subarray(offset)], { type: 'image/jpeg' });
+  if (typeof createImageBitmap !== 'function') {
+    liveVoiceScreen.decoding = false;
+    return;
+  }
+  createImageBitmap(blob).then((bitmap) => {
+    if (!liveVoiceScreen || liveVoiceScreen.sharerId !== memberId) {
+      bitmap.close?.();
+      return;
+    }
+    liveVoiceScreen.decoding = false;
+    liveVoiceScreen.lastAt = Date.now();
+    paintVoiceScreenFrame(bitmap, memberId);
+    bitmap.close?.();
+  }).catch(() => {
+    if (liveVoiceScreen) liveVoiceScreen.decoding = false;
+  });
+}
+
+function syncVoiceScreenView(state, channel) {
+  const section = $('voiceViewScreen');
+  const view = $('voiceView');
+  if (!section || !view) return;
+  const connectedHere = liveVoiceConnectedHere(state.server.id, channel.id);
+  const participants = voiceParticipants(state, channel.id);
+  const selfId = state.you?.memberId;
+  let sharer = participants.find((item) => item.sharing) || null;
+  const localSharing = Boolean(connectedHere && liveVoice?.sharing);
+  if (localSharing && (!sharer || sharer.memberId === selfId)) {
+    sharer = {
+      memberId: selfId || 'self',
+      name: state.you?.name || myName || t('Ty'),
+      sharing: true,
+      shareName: liveVoice.shareName || '',
+      self: true,
+    };
+  }
+  if (!sharer) {
+    section.hidden = true;
+    view.classList.remove('sharing');
+    resetLiveVoiceScreen();
+    return;
+  }
+  const isSelf = localSharing && (!sharer.memberId || sharer.memberId === selfId || sharer.self);
+  if (!isSelf) {
+    if (!liveVoiceScreen || liveVoiceScreen.sharerId !== sharer.memberId) {
+      resetLiveVoiceScreen(sharer.memberId);
+    }
+  } else {
+    liveVoiceScreen = null;
+    const placeholder = $('voiceScreenPlaceholder');
+    if (placeholder) placeholder.hidden = Boolean(liveVoice?.screenLastFrameAt);
+  }
+  section.hidden = false;
+  view.classList.add('sharing');
+  const tag = $('voiceScreenTagText');
+  if (tag) {
+    tag.textContent = isSelf
+      ? t('Udostępniasz ekran')
+      : t('{name} udostępnia ekran', { name: sharer.name });
+  }
+  const label = $('voiceScreenCanvas');
+  if (label) {
+    label.setAttribute('aria-label', isSelf
+      ? t('Udostępniasz ekran')
+      : t('Udostępniony ekran: {name}', { name: sharer.name }));
+  }
+}
+
+function sendVoiceShareState(call, sharing) {
+  const socket = voiceSocket(call.serverId);
+  if (!socket) return;
+  try {
+    socket.send(JSON.stringify({
+      type: 'voice:share',
+      sharing: Boolean(sharing),
+      name: sharing ? call.shareName : '',
+    }));
+  } catch { /* ignore */ }
+}
+
+function stopScreenCapture(call) {
+  if (!call) return;
+  if (liveVoice === call) liveVoiceShareToken += 1;
+  if (call.shareTimer) clearInterval(call.shareTimer);
+  call.shareTimer = 0;
+  call.shareEncoding = false;
+  try { call.shareStream?.getTracks().forEach((track) => track.stop()); } catch { /* ignore */ }
+  try {
+    if (call.shareVideo) {
+      call.shareVideo.pause?.();
+      call.shareVideo.srcObject = null;
+    }
+  } catch { /* ignore */ }
+  call.shareStream = null;
+  call.shareVideo = null;
+  call.shareCanvas = null;
+  call.sharing = false;
+  call.shareName = '';
+  call.screenLastFrameAt = 0;
+}
+
+function stopScreenShare({ silent = false, localOnly = false } = {}) {
+  const call = liveVoice;
+  if (!call) return;
+  const wasSharing = Boolean(call.sharing);
+  stopScreenCapture(call);
+  if (!localOnly) sendVoiceShareState(call, false);
+  if (activeServerId === call.serverId) {
+    renderChannels();
+    renderVoiceConnectedPanel();
+    if (current.kind === 'server' && current.serverId === call.serverId && current.id === call.channelId) {
+      renderMessages(false);
+    }
+  }
+  if (!silent && wasSharing) toast(t('Udostępnianie ekranu zakończone.'));
+}
+
+async function sendScreenFrameBlob(call, blob) {
+  if (!call || liveVoice !== call || !call.sharing) return;
+  const socket = voiceSocket(call.serverId);
+  if (!socket || socket.bufferedAmount > 2 * 1024 * 1024) return;
+  let data;
+  try {
+    data = await blob.arrayBuffer();
+  } catch {
+    return;
+  }
+  if (!call.sharing || liveVoice !== call) return;
+  const frame = new Uint8Array(LIVE_SCREEN_MAGIC.length + data.byteLength);
+  frame.set(LIVE_SCREEN_MAGIC, 0);
+  frame.set(new Uint8Array(data), LIVE_SCREEN_MAGIC.length);
+  try {
+    const socketNow = voiceSocket(call.serverId);
+    if (socketNow && socketNow.bufferedAmount <= 2 * 1024 * 1024) socketNow.send(frame.buffer);
+  } catch { /* ignore */ }
+}
+
+function encodeScreenFrame(canvas, quality = LIVE_SCREEN_QUALITY) {
+  return new Promise((resolve) => {
+    try {
+      canvas.toBlob((blob) => {
+        if (!blob) {
+          resolve(null);
+          return;
+        }
+        if (blob.size > LIVE_SCREEN_MAX_BYTES) {
+          if (quality > 0.3) {
+            resolve(encodeScreenFrame(canvas, Math.max(0.3, quality - 0.14)));
+          } else {
+            resolve(null);
+          }
+          return;
+        }
+        resolve(blob);
+      }, 'image/jpeg', quality);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function queueScreenFrame(call) {
+  if (!call || liveVoice !== call || !call.sharing || call.shareEncoding) return;
+  const video = call.shareVideo;
+  const canvas = call.shareCanvas;
+  if (!video || !canvas || video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+  const scale = Math.min(1, LIVE_SCREEN_MAX_WIDTH / video.videoWidth, LIVE_SCREEN_MAX_HEIGHT / video.videoHeight);
+  const width = Math.max(2, Math.round((video.videoWidth * scale) / 2) * 2);
+  const height = Math.max(2, Math.round((video.videoHeight * scale) / 2) * 2);
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  const context = canvas.getContext('2d');
+  if (!context) return;
+  try {
+    context.drawImage(video, 0, 0, width, height);
+  } catch {
+    return;
+  }
+  call.screenLastFrameAt = Date.now();
+  if (current.kind === 'server' && current.serverId === call.serverId && current.id === call.channelId) {
+    paintVoiceScreenFrame(canvas);
+  }
+  call.shareEncoding = true;
+  const blob = await encodeScreenFrame(canvas);
+  call.shareEncoding = false;
+  if (!blob || liveVoice !== call || !call.sharing) return;
+  await sendScreenFrameBlob(call, blob);
+}
+
+async function startScreenShare(source) {
+  const call = liveVoice;
+  if (!call || call.status !== 'connected') {
+    toast(t('Najpierw dołącz do kanału głosowego.'));
+    return false;
+  }
+  if (call.sharing) return true;
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    toast(t('Udostępnianie ekranu nie jest dostępne.'));
+    return false;
+  }
+  const token = ++liveVoiceShareToken;
+  let stream = null;
+  let video = null;
+  try {
+    if (source?.id && CHILL.app?.pickScreenSource) {
+      const picked = CHILL.app.pickScreenSource(source.id);
+      if (!picked) throw new Error('source');
+    }
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: { ideal: LIVE_SCREEN_FPS, max: LIVE_SCREEN_FPS } },
+      audio: false,
+    });
+    if (liveVoice !== call || token !== liveVoiceShareToken) {
+      stream.getTracks().forEach((track) => track.stop());
+      return false;
+    }
+    const track = stream.getVideoTracks()[0];
+    if (!track) throw new Error('no-track');
+    video = document.createElement('video');
+    video.muted = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+    if (liveVoice !== call || token !== liveVoiceShareToken) {
+      stream.getTracks().forEach((item) => item.stop());
+      return false;
+    }
+    call.shareStream = stream;
+    call.shareVideo = video;
+    call.shareCanvas = document.createElement('canvas');
+    call.shareName = String(source?.name || track.label || '').slice(0, 80);
+    call.sharing = true;
+    call.screenLastFrameAt = 0;
+    call.shareEncoding = false;
+    track.addEventListener('ended', () => {
+      if (liveVoice === call && call.sharing) {
+        stopScreenShare({ silent: true });
+        toast(t('Udostępnianie ekranu zakończone.'));
+      }
+    });
+    sendVoiceShareState(call, true);
+    call.shareTimer = setInterval(() => { void queueScreenFrame(call); }, Math.round(1000 / LIVE_SCREEN_FPS));
+    void queueScreenFrame(call);
+    if (liveVoice === call) {
+      if (activeServerId === call.serverId) {
+        renderChannels();
+        renderVoiceConnectedPanel();
+        if (current.kind === 'server' && current.serverId === call.serverId && current.id === call.channelId) {
+          renderMessages(false);
+        }
+      }
+    }
+    stream = null;
+    video = null;
+    return true;
+  } catch {
+    try { stream?.getTracks().forEach((track) => track.stop()); } catch { /* ignore */ }
+    try {
+      if (video) {
+        video.pause?.();
+        video.srcObject = null;
+      }
+    } catch { /* ignore */ }
+    if (liveVoice === call && token === liveVoiceShareToken) {
+      call.shareStream = null;
+      call.shareVideo = null;
+      call.shareCanvas = null;
+      call.sharing = false;
+      call.shareName = '';
+      call.screenLastFrameAt = 0;
+    }
+    toast(t('Nie udało się rozpocząć udostępniania ekranu.'));
+    return false;
+  }
+}
+
+function closeScreenSharePicker() {
+  const overlay = $('screenShareOverlay');
+  if (overlay) overlay.hidden = true;
+  screenSharePicker.busy = false;
+}
+
+function renderScreenSharePicker() {
+  const overlay = $('screenShareOverlay');
+  if (!overlay || overlay.hidden) return;
+  overlay.querySelectorAll('[data-screen-tab]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.screenTab === screenSharePicker.tab);
+  });
+  const grid = $('screenShareGrid');
+  const note = $('screenShareNote');
+  if (note) {
+    note.textContent = screenSharePicker.error
+      || (screenSharePicker.loading ? t('Ładowanie źródeł…') : t('Wybierz ekran lub okno aplikacji.'));
+    note.classList.toggle('error', Boolean(screenSharePicker.error));
+  }
+  if (!grid) return;
+  if (screenSharePicker.loading) {
+    grid.innerHTML = `<div class="screen-share-loading">${esc(t('Ładowanie źródeł…'))}</div>`;
+    return;
+  }
+  const sources = screenSharePicker.sources.filter((item) => item.kind === screenSharePicker.tab);
+  if (!sources.length) {
+    grid.innerHTML = `<div class="screen-share-empty">${esc(t(screenSharePicker.tab === 'screen' ? 'Brak dostępnych ekranów.' : 'Brak dostępnych okien.'))}</div>`;
+    return;
+  }
+  grid.innerHTML = sources.map((source) => {
+    const thumb = source.thumb
+      ? `<img src="${esc(source.thumb)}" alt="" loading="lazy">`
+      : `<span class="screen-source-fallback" aria-hidden="true">${screenSharePicker.tab === 'screen' ? '🖥' : '🪟'}</span>`;
+    return `
+      <button type="button" class="screen-source${screenSharePicker.busy ? ' busy' : ''}" data-screen-source="${esc(source.id)}"${screenSharePicker.busy ? ' disabled' : ''} title="${esc(source.name || (screenSharePicker.tab === 'screen' ? t('Cały ekran') : t('Aplikacja')))}">
+        <span class="screen-source-thumb">${thumb}</span>
+        <span class="screen-source-name">${source.icon ? `<img class="screen-source-icon" src="${esc(source.icon)}" alt="">` : ''}${esc(source.name || (screenSharePicker.tab === 'screen' ? t('Cały ekran') : t('Aplikacja')))}</span>
+      </button>
+    `;
+  }).join('');
+}
+
+async function loadScreenShareSources() {
+  screenSharePicker.loading = true;
+  screenSharePicker.error = '';
+  renderScreenSharePicker();
+  try {
+    if (!CHILL.app?.screenSources) throw new Error('unsupported');
+    const sources = await CHILL.app.screenSources();
+    if (!Array.isArray(sources)) throw new Error('invalid');
+    screenSharePicker.sources = sources
+      .filter((source) => source && source.id)
+      .map((source) => ({
+        id: String(source.id),
+        name: String(source.name || '').slice(0, 120),
+        kind: source.kind === 'screen' ? 'screen' : 'window',
+        thumb: source.thumb || null,
+        icon: source.icon || null,
+      }))
+      .sort((a, b) => a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name, prefs.lang === 'en' ? 'en' : 'pl'));
+  } catch {
+    screenSharePicker.sources = [];
+    screenSharePicker.error = t('Nie udało się pobrać listy ekranów.');
+  } finally {
+    screenSharePicker.loading = false;
+    renderScreenSharePicker();
+  }
+}
+
+async function openScreenSharePicker() {
+  if (!liveVoice || liveVoice.status !== 'connected') {
+    toast(t('Najpierw dołącz do kanału głosowego.'));
+    return;
+  }
+  if (liveVoice.sharing) {
+    stopScreenShare();
+    return;
+  }
+  if (!CHILL.app?.screenSources) {
+    toast(t('Udostępnianie ekranu nie jest dostępne.'));
+    return;
+  }
+  const overlay = $('screenShareOverlay');
+  if (!overlay) return;
+  screenSharePicker = { sources: [], tab: 'screen', loading: true, busy: false, error: '' };
+  overlay.hidden = false;
+  renderScreenSharePicker();
+  await loadScreenShareSources();
+}
+
+async function chooseScreenShareSource(id) {
+  if (screenSharePicker.busy) return;
+  const source = screenSharePicker.sources.find((item) => item.id === id);
+  if (!source) return;
+  screenSharePicker.busy = true;
+  screenSharePicker.error = '';
+  renderScreenSharePicker();
+  const ok = await startScreenShare(source);
+  if (ok) {
+    closeScreenSharePicker();
+    return;
+  }
+  screenSharePicker.busy = false;
+  screenSharePicker.error = t('Nie udało się rozpocząć udostępniania ekranu.');
+  renderScreenSharePicker();
+}
+
+function joinLiveVoice(serverId, channelId) {
+  const state = serverState(serverId);
+  const channel = state?.channels.find((item) => item.id === channelId);
+  if (!state || state.status !== 'online') {
+    toast(t('Serwer jest offline - spróbuj ponownie po połączeniu.'));
+    return;
+  }
+  if (!channel || channel.type !== 'voice') {
+    toast(t('Ten kanał nie jest kanałem głosowym.'));
+    return;
+  }
+  if (liveVoice && liveVoice.serverId === serverId && liveVoice.channelId === channelId) {
+    renderVoiceConnectedPanel();
+    if (current.kind === 'server' && current.serverId === serverId && current.id === channelId) renderMessages(false);
+    return;
+  }
+  if (liveVoice) stopLiveVoice({ silent: true });
+  const call = {
+    serverId,
+    channelId,
+    status: 'connecting',
+    micReady: false,
+    stream: null,
+    processing: null,
+    captureContext: null,
+    captureSource: null,
+    captureNode: null,
+    captureSink: null,
+    sharing: false,
+    shareName: '',
+    shareStream: null,
+    shareVideo: null,
+    shareCanvas: null,
+    shareTimer: 0,
+    shareEncoding: false,
+    screenLastFrameAt: 0,
+  };
+  liveVoice = call;
+  renderSidebar();
+  renderVoiceConnectedPanel();
+  if (current.kind === 'server' && current.serverId === serverId && current.id === channelId) {
+    renderHeader();
+    renderMessages(false);
+  }
+  updateComposer();
+  if (!sendLiveVoiceJoin()) {
+    stopLiveVoice({ silent: true, localOnly: true });
+    toast(t('Nie udało się dołączyć do kanału głosowego.'));
+    return;
+  }
+  void startLiveVoiceCapture();
+}
+
+function stopLiveVoice({ silent = false, localOnly = false, reason = '' } = {}) {
+  const call = liveVoice;
+  if (!call) return;
+  liveVoiceShareToken += 1;
+  if (call.sharing) stopScreenCapture(call);
+  liveVoice = null;
+  if (!localOnly) {
+    const socket = voiceSocket(call.serverId);
+    if (socket) {
+      try { socket.send(JSON.stringify({ type: 'voice:leave' })); } catch { /* ignore */ }
+    }
+  }
+  stopLiveVoiceCapture(call);
+  resetLiveVoiceScreen();
+  closeScreenSharePicker();
+  teardownLiveVoicePlayback();
+  clearLiveVoiceSpeaking();
+  if (activeServerId === call.serverId) renderSidebar();
+  renderVoiceConnectedPanel();
+  if (current.kind === 'server' && current.serverId === call.serverId && current.id === call.channelId) {
+    renderHeader();
+    renderMessages(false);
+  }
+  updateComposer();
+  if (!silent) toast(reason || t('Rozłączono z kanałem głosowym.'));
+}
+
+function renderVoiceConnectedPanel() {
+  const panel = $('voiceConnectPanel');
+  if (!panel) return;
+  if (!liveVoice) {
+    panel.hidden = true;
+    return;
+  }
+  const state = serverState(liveVoice.serverId);
+  const channel = state?.channels.find((item) => item.id === liveVoice.channelId);
+  if (!state || !channel) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  panel.classList.toggle('connecting', liveVoice.status === 'connecting');
+  panel.classList.toggle('sharing', Boolean(liveVoice.sharing));
+  const status = $('voiceConnectStatus');
+  if (status) {
+    status.textContent = liveVoice.status === 'connecting'
+      ? t('Łączenie z kanałem głosowym…')
+      : liveVoice.sharing
+        ? t('Udostępniasz ekran')
+        : t('Nawiązano połączenie');
+  }
+  const label = $('voiceConnectChannel');
+  if (label) label.textContent = `${state.server.name} / ${channel.name}`;
+  const shareButton = $('voiceConnectShare');
+  if (shareButton) {
+    const shareLabel = t(liveVoice.sharing ? 'Zakończ udostępnianie' : 'Udostępnij ekran');
+    shareButton.classList.toggle('active', Boolean(liveVoice.sharing));
+    shareButton.title = shareLabel;
+    shareButton.setAttribute('aria-label', shareLabel);
+  }
+}
+
+function voiceControlButton(action, icon, label, extraClass = '') {
+  return `<button type="button" class="voice-ctrl${extraClass}" data-voice-action="${action}" title="${esc(label)}" aria-label="${esc(label)}">${icon}<span class="voice-ctrl-label">${esc(label)}</span></button>`;
+}
+
+function renderVoiceView(state, channel) {
+  const view = $('voiceView');
+  if (!view || !state || !channel) return;
+  document.body.classList.add('voice-stage');
+  const participants = voiceParticipants(state, channel.id);
+  const connectedHere = liveVoiceConnectedHere(state.server.id, channel.id);
+  const otherCall = liveVoice && !connectedHere
+    ? voiceChannelFor(liveVoice.serverId, liveVoice.channelId)
+    : null;
+  $('voiceViewName').textContent = channel.name;
+
+  let summary;
+  if (connectedHere && liveVoice.status === 'connecting') {
+    summary = t('Łączenie z kanałem głosowym…');
+  } else if (participants.length === 1) {
+    summary = t('1 osoba na kanale');
+  } else if (participants.length > 1) {
+    const count = participants.length;
+    const mod10 = count % 10;
+    const mod100 = count % 100;
+    const few = mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14);
+    summary = few
+      ? t('{count} osoby na kanale', { count })
+      : t('{count} osób na kanale', { count });
+  } else {
+    summary = t('Kanał jest pusty');
+  }
+  if (otherCall) summary = `${summary} • ${t('Jesteś na kanale {name}', { name: otherCall.name })}`;
+  $('voiceViewSub').textContent = summary;
+
+  const tiles = participants.map((participant) => {
+    const speaking = liveVoiceSpeaking.get(participant.memberId)?.active;
+    const self = participant.memberId === state.you?.memberId;
+    const flags = [
+      participant.sharing ? `<span class="voice-tile-flag sharing" title="${esc(t('Udostępnia ekran'))}" aria-label="${esc(t('Udostępnia ekran'))}">${VOICE_SVGS.screen}</span>` : '',
+      participant.muted ? `<span class="voice-tile-flag" title="${esc(t('Mikrofon wyłączony'))}" aria-label="${esc(t('Mikrofon wyłączony'))}">${VOICE_SVGS.micOff}</span>` : '',
+      participant.deafened ? `<span class="voice-tile-flag" title="${esc(t('Słuchawki wyłączone'))}" aria-label="${esc(t('Słuchawki wyłączone'))}">${VOICE_SVGS.headphonesOff}</span>` : '',
+    ].join('');
+    return `
+      <button type="button" class="voice-tile${speaking ? ' speaking' : ''}${self ? ' self' : ''}" data-voice-member="${esc(participant.memberId)}" data-voice-profile-member="${esc(participant.memberId)}" style="--voice-color:${esc(participant.color)}" title="${esc(participant.name)}">
+        <span class="voice-tile-avatar">${esc(initial(participant.name))}</span>
+        <span class="voice-tile-name">${esc(participant.name)}${self ? ` <span class="voice-you-pill">${esc(t('Ty'))}</span>` : ''}</span>
+        ${flags ? `<span class="voice-tile-flags">${flags}</span>` : ''}
+      </button>
+    `;
+  }).join('');
+  $('voiceViewTiles').innerHTML = tiles;
+  $('voiceViewEmpty').hidden = participants.length > 0 || connectedHere;
+
+  const muted = Boolean(prefs.micMuted);
+  const deafened = Boolean(prefs.deafened);
+  const sharing = Boolean(liveVoice?.sharing);
+  let controls;
+  if (connectedHere) {
+    controls = [
+      voiceControlButton('mic', muted ? VOICE_SVGS.micOff : VOICE_SVGS.mic, t(muted ? 'Włącz mikrofon' : 'Wycisz mikrofon'), muted ? ' muted' : ''),
+      voiceControlButton('deafen', deafened ? VOICE_SVGS.headphonesOff : VOICE_SVGS.headphones, t(deafened ? 'Włącz dźwięk' : 'Wycisz dźwięk'), deafened ? ' muted' : ''),
+      voiceControlButton('screen', sharing ? VOICE_SVGS.screenOff : VOICE_SVGS.screen, t(sharing ? 'Zakończ udostępnianie' : 'Udostępnij ekran'), sharing ? ' sharing' : ''),
+      voiceControlButton('settings', VOICE_SVGS.settings, t('Ustawienia głosu')),
+      voiceControlButton('invite', VOICE_SVGS.invite, t('Zaproś na kanał głosowy')),
+      `<button type="button" class="voice-ctrl leave" data-voice-action="leave" title="${esc(t('Rozłącz'))}" aria-label="${esc(t('Rozłącz'))}">${VOICE_SVGS.phoneOff}<span class="voice-ctrl-label">${esc(t('Rozłącz'))}</span></button>`,
+    ].join('');
+  } else {
+    const label = otherCall ? t('Przenieś się tutaj') : t('Dołącz do kanału głosowego');
+    controls = [
+      `<button type="button" class="voice-ctrl join" data-voice-action="join" title="${esc(label)}" aria-label="${esc(label)}">${VOICE_SVGS.voice}<span class="voice-ctrl-label">${esc(label)}</span></button>`,
+      voiceControlButton('invite', VOICE_SVGS.invite, t('Zaproś na kanał głosowy')),
+    ].join('');
+  }
+  $('voiceViewControls').innerHTML = controls;
+  $('voiceViewInvite').hidden = state.status !== 'online';
+  syncVoiceScreenView(state, channel);
+}
+
+function syncLiveVoiceButtons() {
+  const mic = document.querySelector('#voiceViewControls [data-voice-action="mic"]');
+  if (mic) {
+    const muted = Boolean(prefs.micMuted);
+    mic.classList.toggle('muted', muted);
+    mic.innerHTML = `${muted ? VOICE_SVGS.micOff : VOICE_SVGS.mic}<span class="voice-ctrl-label">${esc(t(muted ? 'Włącz mikrofon' : 'Wycisz mikrofon'))}</span>`;
+    mic.title = t(muted ? 'Włącz mikrofon' : 'Wycisz mikrofon');
+    mic.setAttribute('aria-label', mic.title);
+  }
+  const deafen = document.querySelector('#voiceViewControls [data-voice-action="deafen"]');
+  if (deafen) {
+    const deafened = Boolean(prefs.deafened);
+    deafen.classList.toggle('muted', deafened);
+    deafen.innerHTML = `${deafened ? VOICE_SVGS.headphonesOff : VOICE_SVGS.headphones}<span class="voice-ctrl-label">${esc(t(deafened ? 'Włącz dźwięk' : 'Wycisz dźwięk'))}</span>`;
+    deafen.title = t(deafened ? 'Włącz dźwięk' : 'Wycisz dźwięk');
+    deafen.setAttribute('aria-label', deafen.title);
+  }
+  const screen = document.querySelector('#voiceViewControls [data-voice-action="screen"]');
+  if (screen) {
+    const sharing = Boolean(liveVoice?.sharing);
+    screen.classList.toggle('sharing', sharing);
+    screen.innerHTML = `${sharing ? VOICE_SVGS.screenOff : VOICE_SVGS.screen}<span class="voice-ctrl-label">${esc(t(sharing ? 'Zakończ udostępnianie' : 'Udostępnij ekran'))}</span>`;
+    screen.title = t(sharing ? 'Zakończ udostępnianie' : 'Udostępnij ekran');
+    screen.setAttribute('aria-label', screen.title);
+  }
+}
+
+function openLiveVoiceChannel() {
+  if (!liveVoice) return;
+  const { serverId, channelId } = liveVoice;
+  if (activeServerId !== serverId) selectServer(serverId);
+  selectChannel(channelId);
+}
+
+function handleVoiceAction(action) {
+  if (!action) return;
+  if (action === 'mic') {
+    setMicMuted(!prefs.micMuted);
+    return;
+  }
+  if (action === 'deafen') {
+    setDeafened(!prefs.deafened);
+    return;
+  }
+  if (action === 'screen') {
+    if (liveVoice?.sharing) stopScreenShare();
+    else void openScreenSharePicker();
+    return;
+  }
+  if (action === 'settings') {
+    openSettings('voice');
+    return;
+  }
+  if (action === 'invite') {
+    const state = current.kind === 'server' ? serverState(current.serverId) : null;
+    const channel = state?.channels.find((item) => item.id === current.id);
+    if (channel) void openInviteModal(channel);
+    return;
+  }
+  if (action === 'leave') {
+    stopLiveVoice({ reason: t('Rozłączono z kanałem głosowym.') });
+    return;
+  }
+  if (action === 'join' && current.kind === 'server') {
+    joinLiveVoice(current.serverId, current.id);
+  }
+}
+
+function bindLiveVoice() {
+  $('voiceConnectLeave')?.addEventListener('click', () => {
+    stopLiveVoice({ reason: t('Rozłączono z kanałem głosowym.') });
+  });
+  $('voiceConnectOpen')?.addEventListener('click', openLiveVoiceChannel);
+  $('voiceConnectInvite')?.addEventListener('click', () => {
+    if (!liveVoice) return;
+    const channel = voiceChannelFor(liveVoice.serverId, liveVoice.channelId);
+    if (channel) void openInviteModal(channel);
+  });
+  $('voiceConnectSettings')?.addEventListener('click', () => openSettings('voice'));
+  $('voiceConnectShare')?.addEventListener('click', () => {
+    if (liveVoice?.sharing) stopScreenShare();
+    else void openScreenSharePicker();
+  });
+  $('closeScreenShare')?.addEventListener('click', closeScreenSharePicker);
+  $('screenShareOverlay')?.addEventListener('click', (event) => {
+    if (event.target === $('screenShareOverlay')) closeScreenSharePicker();
+  });
+  $('screenShareRefresh')?.addEventListener('click', () => { void loadScreenShareSources(); });
+  $('screenShareTabs')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-screen-tab]');
+    if (!button) return;
+    screenSharePicker.tab = button.dataset.screenTab === 'window' ? 'window' : 'screen';
+    renderScreenSharePicker();
+  });
+  $('screenShareGrid')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-screen-source]');
+    if (!button) return;
+    void chooseScreenShareSource(button.dataset.screenSource);
+  });
+  $('voiceViewInvite')?.addEventListener('click', () => {
+    if (current.kind !== 'server') return;
+    const channel = serverState(current.serverId)?.channels.find((item) => item.id === current.id);
+    if (channel) void openInviteModal(channel);
+  });
+  $('voiceViewControls')?.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-voice-action]');
+    if (button) handleVoiceAction(button.dataset.voiceAction);
+  });
+  $('voiceViewTiles')?.addEventListener('click', (event) => {
+    const tile = event.target.closest('[data-voice-profile-member]');
+    if (!tile || current.kind !== 'server') return;
+    const participant = voiceParticipants(serverState(current.serverId), current.id)
+      .find((item) => item.memberId === tile.dataset.voiceProfileMember);
+    openServerProfile(current.serverId, tile.dataset.voiceProfileMember, participant || {});
+  });
 }
 
 // ============================================================
@@ -1987,9 +3185,17 @@ function bindChat() {
 
   if (CHILL.chat?.onActivity) {
     CHILL.chat.onActivity((name) => {
-      playing = prefs.gameDetect ? (name || null) : null;
+      const next = prefs.gameDetect ? (String(name || '').trim() || null) : null;
+      if (next !== playing) playingSince = next ? Date.now() : null;
+      playing = next;
       renderIdentity();
-      if (wsReady()) ws.send(JSON.stringify({ type: 'activity', playing }));
+      if (!$('userProfileOverlay').hidden) renderUserProfile();
+      if (wsReady()) ws.send(JSON.stringify({ type: 'activity', playing, playingSince }));
+      for (const state of serverStates.values()) {
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+          state.ws.send(JSON.stringify({ type: 'server:activity', playing, playingSince }));
+        }
+      }
     });
   }
 
@@ -2035,7 +3241,14 @@ function connect() {
       userId: myId,
       name: myName,
       color: myColor,
+      handle: myProfileHandle,
+      avatar: myAvatar,
+      banner: myBanner,
+      badges: myBadges,
+      games: myGames,
+      about: myAbout,
       playing: prefs.gameDetect ? playing : null,
+      playingSince: prefs.gameDetect ? playingSince : null,
     }));
   };
 
@@ -2079,8 +3292,9 @@ function handleMessage(msg) {
       updateBadges();
       if (wsReady()) {
         ws.send(JSON.stringify({ type: 'status', status: prefs.status }));
-        if (prefs.gameDetect && playing) ws.send(JSON.stringify({ type: 'activity', playing }));
+        if (prefs.gameDetect && playing) ws.send(JSON.stringify({ type: 'activity', playing, playingSince }));
       }
+      if (!$('userProfileOverlay').hidden) renderUserProfile();
       break;
     }
 
@@ -2111,6 +3325,7 @@ function handleMessage(msg) {
         renderDmList();
         renderMembers();
         if (current.kind === 'dm') renderHeader();
+        if (!$('userProfileOverlay').hidden) renderUserProfile();
       }
       break;
     }
@@ -2138,7 +3353,14 @@ function handleMessage(msg) {
         currentUser = { ...currentUser, ...msg.user };
         myName = currentUser.displayName;
         myColor = currentUser.color;
+        myAbout = currentUser.about || '';
+        myProfileHandle = currentUser.handle || myProfileHandle;
+        myAvatar = safeProfileAvatar(currentUser.avatar);
+        myBanner = safeProfileBanner(currentUser.banner);
+        myBadges = safeBadges(currentUser.badges);
+        myGames = Array.isArray(currentUser.games) ? currentUser.games : [];
         renderIdentity();
+        if (!$('settingsOverlay').hidden) fillProfileForm();
       }
       break;
     }
@@ -2205,6 +3427,7 @@ function connectServer(server) {
     return;
   }
   state.ws = socket;
+  socket.binaryType = 'arraybuffer';
 
   socket.onopen = () => {
     if (state.ws !== socket) return;
@@ -2215,12 +3438,28 @@ function connectServer(server) {
       memberId,
       name: myName,
       color: myColor,
+      handle: myProfileHandle,
+      avatar: myAvatar,
+      banner: myBanner,
+      badges: myBadges,
+      games: myGames,
+      about: myAbout,
+      playing: prefs.gameDetect ? playing : null,
+      playingSince: prefs.gameDetect ? playingSince : null,
       ownerKey: server.owner ? server.ownerKey : undefined,
     }));
   };
 
   socket.onmessage = (event) => {
     if (state.ws !== socket) return;
+    if (typeof event.data !== 'string') {
+      if (event.data instanceof ArrayBuffer) {
+        const kind = event.data.byteLength ? new Uint8Array(event.data, 0, 1)[0] : 0;
+        if (kind === 2) handleLiveVoiceScreen(server.id, event.data);
+        else handleLiveVoiceAudio(server.id, event.data);
+      }
+      return;
+    }
     try {
       handleServerFrame(server.id, JSON.parse(event.data));
     } catch { /* ignore */ }
@@ -2230,6 +3469,7 @@ function connectServer(server) {
     if (state.ws !== socket) return;
     state.ws = null;
     state.voiceKey = '';
+    if (liveVoice?.serverId === server.id) stopLiveVoice({ silent: true, localOnly: true });
     if ((current.kind === 'server' && current.serverId === server.id)
       || (current.kind === 'dm' && String(current.id).startsWith(`srv:${server.id}:`))) {
       resetVoicePlayback();
@@ -2275,6 +3515,15 @@ function handleServerFrame(serverId, msg) {
       state.attempts = 0;
       state.you = msg.you || null;
       state.voiceKey = String(msg.voiceKey || '');
+      state.voiceRooms = new Map();
+      for (const room of Array.isArray(msg.voice) ? msg.voice : []) {
+        const channelId = String(room?.channelId || '');
+        if (!channelId) continue;
+        const participants = (Array.isArray(room.participants) ? room.participants : [])
+          .map(normalizeVoiceParticipant)
+          .filter(Boolean);
+        if (participants.length) state.voiceRooms.set(channelId, participants);
+      }
       state.channels = (Array.isArray(msg.server?.channels) ? msg.server.channels : []).map((channel) => ({
         ...channel,
         type: channel.type === 'voice' ? 'voice' : 'text',
@@ -2347,6 +3596,32 @@ function handleServerFrame(serverId, msg) {
       break;
     }
 
+    case 'voice:joined': {
+      const channelId = String(msg.channelId || '');
+      if (!liveVoice || liveVoice.serverId !== serverId || liveVoice.channelId !== channelId) return;
+      liveVoice.status = 'connected';
+      const participants = (Array.isArray(msg.participants) ? msg.participants : [])
+        .map(normalizeVoiceParticipant)
+        .filter(Boolean);
+      if (participants.length) state.voiceRooms.set(channelId, participants);
+      if (activeServerId === serverId) {
+        renderChannels();
+        if (current.kind === 'server' && current.serverId === serverId && current.id === channelId) {
+          renderHeader();
+          renderMessages(false);
+        }
+      }
+      renderVoiceConnectedPanel();
+      break;
+    }
+
+    case 'voice:share-denied': {
+      if (!liveVoice || liveVoice.serverId !== serverId) return;
+      stopScreenShare({ silent: true, localOnly: true });
+      toast(t('Ktoś już udostępnia ekran na tym kanale.'));
+      break;
+    }
+
     case 'server:members': {
       state.members = Array.isArray(msg.members) ? msg.members : [];
       syncServerFriends(serverId);
@@ -2359,6 +3634,34 @@ function handleServerFrame(serverId, msg) {
         renderHeader();
         updateComposer();
       }
+      if (!$('userProfileOverlay').hidden) renderUserProfile();
+      break;
+    }
+
+    case 'server:voice': {
+      const channelId = String(msg.channelId || '');
+      if (!channelId) return;
+      const participants = (Array.isArray(msg.participants) ? msg.participants : [])
+        .map(normalizeVoiceParticipant)
+        .filter(Boolean);
+      if (participants.length) state.voiceRooms.set(channelId, participants);
+      else state.voiceRooms.delete(channelId);
+      if (liveVoice && liveVoice.serverId === serverId && liveVoice.channelId === channelId) {
+        const selfId = state.you?.memberId;
+        if (selfId && !participants.some((participant) => participant.memberId === selfId)) {
+          stopLiveVoice({ silent: true });
+        } else if (liveVoice.status === 'connecting' && selfId) {
+          liveVoice.status = 'connected';
+        }
+      }
+      if (activeServerId === serverId) {
+        renderChannels();
+        if (current.kind === 'server' && current.serverId === serverId && current.id === channelId) {
+          renderHeader();
+          renderMessages(false);
+        }
+      }
+      renderVoiceConnectedPanel();
       break;
     }
 
@@ -2440,6 +3743,10 @@ function handleServerFrame(serverId, msg) {
         $('confirmDeleteChannel').disabled = false;
       }
       if (menuChannelId === msg.channelId) closeChannelMenu();
+      if (liveVoice?.serverId === serverId && liveVoice.channelId === msg.channelId) {
+        stopLiveVoice({ silent: true });
+        toast(t('Kanał głosowy został usunięty.'));
+      }
       break;
     }
 
@@ -2542,6 +3849,9 @@ function handleServerFrame(serverId, msg) {
     case 'server:error': {
       state.error = translateError(msg.message || 'Wystąpił błąd serwera.');
       toast(state.error);
+      if (msg.code === 'voice-channel' && liveVoice?.serverId === serverId) {
+        stopLiveVoice({ silent: true });
+      }
       if (!$('channelOverlay').hidden && ['invalid-channel', 'channel-exists', 'forbidden', 'voice-channel'].includes(msg.code)) {
         $('channelError').textContent = state.error;
         $('createChannelBtn').disabled = false;
@@ -2580,6 +3890,7 @@ function handleServerFrame(serverId, msg) {
 }
 
 function removeServerLocally(serverId) {
+  if (liveVoice?.serverId === serverId) stopLiveVoice({ silent: true, localOnly: true });
   const state = serverState(serverId);
   if (state) {
     clearTimeout(state.reconnectTimer);
@@ -3695,12 +5006,24 @@ function channelShareLink(state, channel) {
   return appendChannelToLink(serverShareBase(state), channel);
 }
 
+async function resolveServerInviteWithin(state, timeoutMs) {
+  let timer = null;
+  const timeout = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ ok: false, timeout: true }), timeoutMs);
+  });
+  try {
+    return await Promise.race([resolveServerInvite(state), timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function copyChannelInvite(state, channel) {
   let base = serverShareBase(state);
   let internet = null;
   if (state.you?.owner && CHILL.servers?.invite) {
     toast(t('Przygotowuję link…'));
-    const result = await resolveServerInvite(state);
+    const result = await resolveServerInviteWithin(state, 15_000);
     if (result?.ok && result.shareLink) {
       base = result.shareLink;
       internet = Boolean(result.internet);
@@ -3914,6 +5237,7 @@ function ensureServerState(server) {
       channels: [],
       members: [],
       you: null,
+      voiceRooms: new Map(),
       voiceKey: '',
       error: '',
       reconnectTimer: null,
@@ -4050,6 +5374,7 @@ function renderSidebar() {
     renderDmList();
   }
   renderServers();
+  renderVoiceConnectedPanel();
 }
 
 function renderServers() {
@@ -4126,6 +5451,11 @@ function renderChannels() {
       ${count ? `<span class="nav-badge">${count > 99 ? '99+' : count}</span>` : ''}
     `;
     button.addEventListener('click', (event) => {
+      if (voice) {
+        selectChannel(channel.id);
+        joinLiveVoice(state.server.id, channel.id);
+        return;
+      }
       if (!state.you?.owner) {
         selectChannel(channel.id);
         return;
@@ -4144,6 +5474,48 @@ function renderChannels() {
       }
     });
     container.appendChild(button);
+
+    if (voice) {
+      const participants = voiceParticipants(state, channel.id);
+      const connectedHere = liveVoiceConnectedHere(state.server.id, channel.id);
+      if (participants.length || connectedHere) {
+        const group = document.createElement('div');
+        group.className = 'voice-members';
+        for (const participant of participants) {
+          const speaking = liveVoiceSpeaking.get(participant.memberId)?.active;
+          const row = document.createElement('button');
+          row.type = 'button';
+          row.className = `voice-member${speaking ? ' speaking' : ''}`;
+          row.dataset.voiceMember = participant.memberId;
+          row.title = participant.name;
+          const flags = [
+            participant.sharing ? `<span class="voice-member-flag sharing" title="${esc(t('Udostępnia ekran'))}">${VOICE_SVGS.screen}</span>` : '',
+            participant.muted ? `<span class="voice-member-flag" title="${esc(t('Mikrofon wyłączony'))}">${VOICE_SVGS.micOff}</span>` : '',
+            participant.deafened ? `<span class="voice-member-flag" title="${esc(t('Słuchawki wyłączone'))}">${VOICE_SVGS.headphonesOff}</span>` : '',
+          ].join('');
+          row.innerHTML = `
+            <span class="voice-member-avatar" style="background:${esc(participant.color)}">${esc(initial(participant.name))}</span>
+            <span class="voice-member-name">${esc(participant.name)}</span>
+            ${flags ? `<span class="voice-member-flags">${flags}</span>` : ''}
+          `;
+          row.addEventListener('click', () => {
+            openServerProfile(state.server.id, participant.memberId, participant);
+          });
+          group.appendChild(row);
+        }
+        const invite = document.createElement('button');
+        invite.type = 'button';
+        invite.className = 'voice-invite-row';
+        invite.innerHTML = `
+          <span class="voice-invite-ico" aria-hidden="true">+</span>
+          <span>${esc(t('Zaproś na kanał głosowy'))}</span>
+          <span class="voice-invite-arrow" aria-hidden="true">›</span>
+        `;
+        invite.addEventListener('click', () => { void openInviteModal(channel); });
+        group.appendChild(invite);
+        container.appendChild(group);
+      }
+    }
   }
 }
 
@@ -4402,6 +5774,212 @@ function renderMembers() {
   }
 }
 
+const PROFILE_BADGES = {
+  piwo: { label: 'PIWO', icon: '🍺' },
+  chill: { label: 'CHILL', icon: '❄️' },
+  og: { label: 'OG', icon: '🌿' },
+  vip: { label: 'VIP', icon: '💎' },
+  dev: { label: 'DEV', icon: '🛠️' },
+};
+
+const BANNER_PRESETS = {
+  black: { label: 'Czarny', colors: ['#000000', '#050807'] },
+  mint: { label: 'Mięta', colors: ['#06241b', '#3ee0a3'] },
+  ocean: { label: 'Ocean', colors: ['#071a33', '#2f9fe0'] },
+  sunset: { label: 'Zachód', colors: ['#2b142b', '#ff7aa2'] },
+  forest: { label: 'Las', colors: ['#071e14', '#7fb069'] },
+  neon: { label: 'Neon', colors: ['#150a2a', '#b8a1ff'] },
+};
+
+const PROFILE_IMAGE_RE = /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i;
+const AVATAR_PRESETS = ['🐱', '🦊', '🐼', '🐸', '🦉', '🐺', '🦄', '👾'];
+const GAME_ICON_RULES = [
+  [/roblox/i, '🧱'], [/minecraft/i, '⛏️'], [/counter-strike|\bcs2\b|cs:go/i, '🔫'],
+  [/fortnite/i, '🪂'], [/valorant/i, '🎯'], [/league of legends/i, '⚔️'],
+  [/grand theft auto|\bgta\b/i, '🚗'], [/rocket league/i, '⚽'], [/among us/i, '👾'],
+  [/genshin/i, '🌸'], [/elden ring/i, '🗡️'], [/cyberpunk/i, '🌆'], [/\bosu!/i, '🎵'],
+  [/apex/i, '🪂'], [/overwatch/i, '🛡️'], [/\brust\b/i, '⛏️'], [/dota/i, '🛡️'],
+  [/palworld/i, '🐾'], [/medal/i, '🏅'],
+];
+
+function safeProfileAvatar(value) {
+  const text = String(value || '');
+  if (!text) return '';
+  if (text.length <= 260_000 && PROFILE_IMAGE_RE.test(text)) return text;
+  if (text.length <= 24 && !/[\u0000-\u001f<>"'&]/u.test(text)) return text;
+  return '';
+}
+
+const DEFAULT_PROFILE_BANNER = { kind: 'preset', preset: 'black' };
+
+function safeProfileBanner(value) {
+  if (!value || typeof value !== 'object') return { ...DEFAULT_PROFILE_BANNER };
+  if (value.kind === 'preset' && BANNER_PRESETS[value.preset]) {
+    return { kind: 'preset', preset: value.preset };
+  }
+  if (value.kind === 'image' && value.image && String(value.image).length <= 720_000 && PROFILE_IMAGE_RE.test(String(value.image))) {
+    return { kind: 'image', image: String(value.image) };
+  }
+  if (value.kind === 'custom') {
+    const colors = Array.isArray(value.colors) ? value.colors : [];
+    const pattern = ['none', 'dots', 'grid', 'waves', 'stars', 'diagonal'].includes(value.pattern) ? value.pattern : 'none';
+    const emoji = String(value.emoji || '').trim().slice(0, 24);
+    return {
+      kind: 'custom',
+      colors: [safeColor(colors[0], '#07110d'), safeColor(colors[1], '#3ee0a3')],
+      pattern,
+      emoji: /[\u0000-\u001f<>"'&]/u.test(emoji) ? '' : emoji,
+    };
+  }
+  return { ...DEFAULT_PROFILE_BANNER };
+}
+
+function handleForProfile(user) {
+  const stored = String(user?.handle || '').trim().toLowerCase();
+  if (/^[a-z0-9_.]{3,32}$/.test(stored)) return stored;
+  const base = String(user?.username || user?.name || 'osoba').toLowerCase().replace(/[^a-z0-9_.]/g, '').slice(0, 20) || 'osoba';
+  const digits = String(user?.id || '').replace(/\D/g, '');
+  const suffix = (digits.slice(-5) || String(Date.now()).slice(-5)).padStart(5, '0');
+  return `${base}_${suffix}`.slice(0, 32);
+}
+
+function applyAvatar(el, name, color, avatar) {
+  if (!el) return;
+  const value = safeProfileAvatar(avatar);
+  el.classList.toggle('avatar-photo', Boolean(value && PROFILE_IMAGE_RE.test(value)));
+  el.classList.toggle('avatar-emoji', Boolean(value && !PROFILE_IMAGE_RE.test(value)));
+  el.style.backgroundImage = '';
+  el.style.background = safeColor(color, '#3ee0a3');
+  if (value && PROFILE_IMAGE_RE.test(value)) {
+    el.textContent = '';
+    el.style.backgroundImage = `url("${value}")`;
+  } else if (value) {
+    el.textContent = value;
+  } else {
+    el.textContent = initial(name);
+  }
+}
+
+function applyBanner(el, banner) {
+  if (!el) return;
+  const patternEl = el.querySelector('.banner-pattern');
+  const emojiEl = el.querySelector('.banner-emoji');
+  const safe = safeProfileBanner(banner);
+  el.dataset.pattern = 'none';
+  el.style.background = '#000';
+  el.style.backgroundImage = '';
+  el.style.backgroundSize = '';
+  el.style.backgroundPosition = '';
+  if (emojiEl) emojiEl.textContent = '';
+  if (!safe) return;
+  if (safe.kind === 'image' && safe.image) {
+    el.style.backgroundImage = `url("${safe.image}")`;
+    el.style.backgroundSize = 'cover';
+    el.style.backgroundPosition = 'center';
+    return;
+  }
+  if (safe.kind === 'preset') {
+    const preset = BANNER_PRESETS[safe.preset] || BANNER_PRESETS.black;
+    el.style.background = `linear-gradient(135deg, ${preset.colors[0]}, ${preset.colors[1]})`;
+    return;
+  }
+  if (safe.kind === 'custom') {
+    el.style.background = `linear-gradient(135deg, ${safe.colors[0]}, ${safe.colors[1]})`;
+    el.dataset.pattern = safe.pattern || 'none';
+    if (emojiEl) emojiEl.textContent = safe.emoji || '';
+  }
+}
+
+function safeBadges(list) {
+  if (!Array.isArray(list)) return ['piwo'];
+  return [...new Set(list.map((item) => String(item || '').toLowerCase()).filter((item) => PROFILE_BADGES[item]))].slice(0, 5);
+}
+
+function gameIconFor(title) {
+  const text = String(title || '');
+  for (const [re, icon] of GAME_ICON_RULES) if (re.test(text)) return icon;
+  return initial(text) || '🎮';
+}
+
+function gameColorFor(title) {
+  let hash = 0;
+  for (let i = 0; i < String(title).length; i += 1) hash = (hash * 31 + String(title).charCodeAt(i)) | 0;
+  return `hsl(${Math.abs(hash) % 360} 54% 42%)`;
+}
+
+function platformLabel(platform) {
+  return { medal: 'Medal', steam: 'Steam', roblox: 'Roblox', epic: 'Epic Games', other: t('Inne') }[platform] || 'Medal';
+}
+
+function formatPlaytime(ms) {
+  const total = Math.max(0, Math.floor(Number(ms || 0) / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function sharedServersFor(userId) {
+  const result = [];
+  for (const state of serverStates.values()) {
+    if (!state?.members?.some((member) => member.id === userId)) continue;
+    result.push(state.server.id);
+  }
+  return result;
+}
+
+function mutualFriendsFor(sharedServers, targetId) {
+  const seen = new Set();
+  for (const serverId of sharedServers) {
+    const state = serverState(serverId);
+    for (const member of state?.members || []) {
+      if (member.id === targetId || member.id === myId) continue;
+      if (friendByServerMember(serverId, member.id)) seen.add(member.id);
+    }
+  }
+  return seen.size;
+}
+
+function followedGamesKey() {
+  return `chill.followedGames.${myId || 'anon'}`;
+}
+
+function followedGames() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(followedGamesKey()) || '[]');
+    return new Set(Array.isArray(saved) ? saved.map((item) => String(item)) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function toggleFollowedGame(title) {
+  const set = followedGames();
+  const key = String(title || '');
+  if (set.has(key)) set.delete(key);
+  else set.add(key);
+  try { localStorage.setItem(followedGamesKey(), JSON.stringify([...set])); } catch { /* ignore */ }
+  return set.has(key);
+}
+
+function gameUrlFor(game) {
+  const title = String(game?.title || '').trim();
+  const query = encodeURIComponent(title);
+  switch (game?.platform) {
+    case 'steam': return `https://store.steampowered.com/search/?term=${query}`;
+    case 'roblox': return `https://www.roblox.com/discover/?Keyword=${query}`;
+    case 'epic': return `https://store.epicgames.com/en-US/browse?q=${query}`;
+    case 'medal': return `https://medal.tv/search?query=${query}`;
+    default: return `https://www.google.com/search?q=${query}`;
+  }
+}
+
+function renderGameTile(game, compact = false) {
+  const title = String(game?.title || '');
+  const color = safeColor(game?.color, '') || gameColorFor(title);
+  return `<button type="button" class="profile-game-tile${compact ? ' compact' : ''}" data-game-title="${esc(title)}" title="${esc(title)}" style="--game-color:${esc(color)}"><span aria-hidden="true">${esc(gameIconFor(title))}</span>${compact ? '' : `<small>${esc(title)}</small>`}</button>`;
+}
+
 function openLocalProfile(userId, fallback = {}) {
   if (!userId) return;
   if (userId === myId) {
@@ -4412,12 +5990,15 @@ function openLocalProfile(userId, fallback = {}) {
     id: userId,
     name: fallback.name || t('Użytkownik'),
     username: fallback.username || mentionHandle(fallback.name),
+    handle: handleForProfile({ id: userId, username: fallback.username || fallback.name }),
     color: fallback.color || '#3ee0a3',
     about: '',
     online: false,
     status: 'offline',
   };
   profileTarget = { kind: 'local', user };
+  profileSelectedGame = '';
+  profileGamesExpanded = false;
   $('userProfileError').textContent = '';
   renderUserProfile();
   $('userProfileOverlay').hidden = false;
@@ -4435,8 +6016,11 @@ function openServerProfile(serverId, memberId, fallback = {}) {
     color: fallback.color || '#3ee0a3',
     owner: Boolean(fallback.owner),
     online: false,
+    handle: handleForProfile({ id: memberId, username: fallback.name }),
   };
   profileTarget = { kind: 'server', serverId, member };
+  profileSelectedGame = '';
+  profileGamesExpanded = false;
   $('userProfileError').textContent = '';
   renderUserProfile();
   $('userProfileOverlay').hidden = false;
@@ -4444,7 +6028,69 @@ function openServerProfile(serverId, memberId, fallback = {}) {
 
 function closeUserProfile() {
   $('userProfileOverlay').hidden = true;
+  stopProfileTimer();
   profileTarget = null;
+}
+
+function profileBadgesHtml(badges) {
+  return safeBadges(badges).map((id) => {
+    const badge = PROFILE_BADGES[id];
+    return `<span class="profile-badge" data-badge="${id}"><span aria-hidden="true">${badge.icon}</span>${esc(badge.label)}</span>`;
+  }).join('');
+}
+
+function profileGameList(profile) {
+  const games = (Array.isArray(profile.games) ? profile.games : [])
+    .map((game) => ({
+      title: String(game?.title || '').trim(),
+      platform: ['medal', 'steam', 'roblox', 'epic', 'other'].includes(game?.platform) ? game.platform : 'medal',
+      color: safeColor(game?.color, '') || gameColorFor(String(game?.title || '')),
+    }))
+    .filter((game) => game.title);
+  const playing = String(profile.playing || '').trim();
+  if (playing) {
+    const existing = games.find((game) => game.title.toLowerCase() === playing.toLowerCase());
+    if (existing) existing.playing = true;
+    else games.unshift({ title: playing, platform: 'medal', color: gameColorFor(playing), playing: true });
+  }
+  if (profileSelectedGame) {
+    const selected = games.find((game) => game.title.toLowerCase() === String(profileSelectedGame).toLowerCase());
+    if (selected) selected.selected = true;
+  }
+  return games;
+}
+
+function profileSharedSummary(friends, servers) {
+  if (!friends && !servers) return t('Brak wspólnych znajomych i serwerów');
+  const friendText = prefs.lang === 'en'
+    ? (friends === 1 ? '1 mutual friend' : `${friends} mutual friends`)
+    : (friends === 1 ? '1 wspólny znajomy' : `${friends} wspólnych znajomych`);
+  const serverText = prefs.lang === 'en'
+    ? (servers === 1 ? '1 shared server' : `${servers} shared servers`)
+    : (servers === 1 ? '1 wspólny serwer' : (servers >= 2 && servers <= 4 ? `${servers} wspólne serwery` : `${servers} wspólnych serwerów`));
+  return `${friendText} • ${serverText}`;
+}
+
+function profileStatusText(profile, online) {
+  if (!online) return t('Offline');
+  if (profile.owner) return t('Właściciel serwera');
+  return statusLabel(profile.status || 'online');
+}
+
+function updateProfileGameTime() {
+  const el = $('userProfileGameTime');
+  if (!el) return;
+  el.textContent = profileGameSince > 0 ? formatPlaytime(Date.now() - profileGameSince) : '0:00:00';
+}
+
+function startProfileTimer() {
+  if (profileTimer) return;
+  profileTimer = setInterval(updateProfileGameTime, 1000);
+}
+
+function stopProfileTimer() {
+  if (profileTimer) clearInterval(profileTimer);
+  profileTimer = null;
 }
 
 function renderUserProfile() {
@@ -4452,29 +6098,47 @@ function renderUserProfile() {
   if (!target) return;
 
   const isServer = target.kind === 'server';
-  const name = isServer ? target.member.name : target.user.name;
-  const color = isServer ? target.member.color : target.user.color;
-  const online = isServer ? Boolean(target.member.online) : Boolean(target.user.online);
-  const friend = isServer ? friendByServerMember(target.serverId, target.member.id) : null;
+  if (isServer) {
+    const live = serverState(target.serverId)?.members.find((item) => item.id === target.member.id);
+    if (live) target.member = { ...target.member, ...live };
+  } else {
+    const live = allUsers.find((item) => item.id === target.user.id);
+    if (live) target.user = { ...target.user, ...live };
+  }
+
+  const source = isServer ? target.member : target.user;
+  const name = source.name || (isServer ? t('Gość') : t('Użytkownik'));
+  const handle = source.handle || handleForProfile({ id: source.id, username: source.username || source.name });
+  const online = Boolean(source.online);
+  const color = safeColor(source.color, '#3ee0a3');
+  const about = String(source.about || '').trim();
+  const games = profileGameList(source);
+  const shared = sharedServersFor(source.id);
+  const mutual = mutualFriendsFor(shared, source.id);
   const serverStateEntry = isServer ? serverState(target.serverId) : null;
   const serverName = serverStateEntry?.server?.name || t('Serwer');
-  const statusText = isServer
-    ? target.member.owner ? t('Właściciel serwera') : online ? t('Online') : t('Offline')
-    : online ? statusLabel(target.user.status) : t('Offline');
+  const statusText = profileStatusText({ owner: source.owner, status: source.status }, online);
+  const friend = isServer ? friendByServerMember(target.serverId, source.id) : null;
 
-  $('userProfileAvatar').textContent = initial(name);
-  $('userProfileAvatar').style.background = safeColor(color, '#3ee0a3');
+  applyBanner($('userProfileBanner'), source.banner || { kind: 'preset', preset: 'black' });
+  applyAvatar($('userProfileAvatar'), name, color, source.avatar);
+  const presence = $('userProfilePresence');
+  presence.className = `profile-presence ${online ? 'online' : 'offline'}`;
+  presence.title = online ? t('Online') : t('Offline');
   $('userProfileName').textContent = name;
-  $('userProfileHandle').textContent = isServer
-    ? `@${mentionHandle(name) || 'osoba'}`
-    : `@${target.user.username || mentionHandle(name)}`;
-  $('userProfileStatus').textContent = target.user?.playing && !isServer
-    ? `${statusText} • ${t('Gra w {game}', { game: target.user.playing })}`
-    : statusText;
+  $('userProfileHandle').textContent = `@${handle}`;
+  $('userProfileStatus').textContent = statusText;
   $('userProfileStatus').classList.toggle('offline', !online);
-  $('userProfileAbout').textContent = isServer
+  const badges = safeBadges(source.badges);
+  $('userProfileBadges').innerHTML = profileBadgesHtml(badges);
+  $('userProfileBadges').hidden = badges.length === 0;
+
+  const fallbackAbout = isServer
     ? (online ? t('Ta osoba jest teraz online na serwerze.') : t('Ta osoba jest teraz offline.'))
-    : (target.user.about || t('Brak opisu profilu.'));
+    : t('Brak opisu profilu.');
+  $('userProfileAbout').textContent = about || fallbackAbout;
+  $('userProfileShared').textContent = profileSharedSummary(mutual, shared.length);
+  $('userProfileShared').classList.toggle('empty', mutual === 0 && shared.length === 0);
 
   const serverBox = $('userProfileServer');
   if (isServer) {
@@ -4483,6 +6147,50 @@ function renderUserProfile() {
   } else {
     serverBox.hidden = true;
     serverBox.textContent = '';
+  }
+
+  $('userProfileGameCount').textContent = games.length ? `${games.length}` : '';
+  const strip = $('userProfileGameStrip');
+  const empty = $('userProfileGamesEmpty');
+  empty.hidden = games.length > 0;
+  strip.hidden = games.length === 0;
+  if (games.length) {
+    const visible = profileGamesExpanded ? games : games.slice(0, 6);
+    const hiddenCount = games.length - visible.length;
+    strip.innerHTML = visible.map((game) => renderGameTile(game, true)).join('')
+      + (hiddenCount > 0 ? `<button type="button" class="profile-game-tile more" data-game-more="${hiddenCount}" title="${esc(t('Pokaż wszystkie gry'))}">+${hiddenCount}</button>` : '');
+  } else {
+    strip.innerHTML = '';
+  }
+
+  let activeGame = null;
+  if (profileSelectedGame) {
+    activeGame = games.find((game) => game.title.toLowerCase() === String(profileSelectedGame).toLowerCase()) || null;
+  }
+  if (!activeGame) activeGame = games.find((game) => game.playing) || games[0] || null;
+
+  const card = $('userProfileGameCard');
+  if (activeGame) {
+    const baseTitle = activeGame.title.replace(/\s+with\s+Medal$/i, '');
+    const displayTitle = `${baseTitle} with Medal`;
+    const isPlaying = Boolean(activeGame.playing || (source.playing && String(source.playing).toLowerCase() === activeGame.title.toLowerCase()));
+    profileGameSince = isPlaying ? (Number(source.playingSince) || 0) : 0;
+    card.hidden = false;
+    $('userProfileGameIcon').textContent = gameIconFor(activeGame.title);
+    $('userProfileGameIcon').style.background = safeColor(activeGame.color, '') || gameColorFor(activeGame.title);
+    $('userProfileGameTitle').textContent = displayTitle;
+    $('userProfileGameDesc').textContent = t('Clipping {game}', { game: displayTitle });
+    const follow = $('profileGameFollow');
+    const followed = followedGames().has(activeGame.title);
+    follow.dataset.gameTitle = activeGame.title;
+    follow.textContent = followed ? t('Obserwujesz na Medal') : t('Obserwuj na Medal');
+    follow.classList.toggle('active', followed);
+    updateProfileGameTime();
+    startProfileTimer();
+  } else {
+    profileGameSince = 0;
+    card.hidden = true;
+    stopProfileTimer();
   }
 
   const addBtn = $('addFriendBtn');
@@ -4537,6 +6245,29 @@ function bindUserProfile() {
   });
   $('addFriendBtn').addEventListener('click', addProfileFriend);
   $('dmFriendBtn').addEventListener('click', messageProfileFriend);
+  $('userProfileGameStrip').addEventListener('click', (e) => {
+    const more = e.target.closest('[data-game-more]');
+    if (more) {
+      profileGamesExpanded = true;
+      renderUserProfile();
+      return;
+    }
+    const tile = e.target.closest('[data-game-title]');
+    if (!tile) return;
+    profileSelectedGame = tile.dataset.gameTitle;
+    renderUserProfile();
+  });
+  $('profileGameFollow').addEventListener('click', () => {
+    const title = $('profileGameFollow').dataset.gameTitle;
+    if (!title) return;
+    const followed = toggleFollowedGame(title);
+    $('profileGameFollow').textContent = followed ? t('Obserwujesz na Medal') : t('Obserwuj na Medal');
+    $('profileGameFollow').classList.toggle('active', followed);
+    toast(followed ? t('Obserwujesz {game} na Medal', { game: title }) : t('Przestano obserwować {game}', { game: title }));
+  });
+  $('profileGameDownload').addEventListener('click', () => {
+    CHILL.app?.openExternal?.('https://medal.tv/download');
+  });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !$('userProfileOverlay').hidden) {
       e.preventDefault();
@@ -4642,6 +6373,10 @@ function addEmptyAction(wrap, label, className, handler) {
 function renderMessages(scroll = true) {
   const container = $('messages');
   if (!container) return;
+  const voiceView = $('voiceView');
+  if (voiceView) voiceView.hidden = true;
+  document.body.classList.remove('voice-stage');
+  container.hidden = false;
   const key = conversationKey();
   let list = history.get(key) || [];
 
@@ -4711,14 +6446,11 @@ function renderMessages(scroll = true) {
     }
     const activeChannel = state.channels.find((item) => item.id === current.id);
     if (activeChannel?.type === 'voice') {
-      const wrap = document.createElement('div');
-      wrap.className = 'empty-chat voice-empty';
-      wrap.innerHTML = `
-        <div class="empty-ico">🔊</div>
-        <h3>${esc(t('Kanał głosowy'))}</h3>
-        <p>${esc(t('Ten kanał jest przeznaczony na rozmowy głosowe.'))}</p>
-      `;
-      container.appendChild(wrap);
+      container.hidden = true;
+      if (voiceView) {
+        voiceView.hidden = false;
+        renderVoiceView(state, activeChannel);
+      }
       updateComposer();
       return;
     }
@@ -6405,12 +8137,98 @@ function bindSettings() {
   $('profileAbout').addEventListener('input', () => {
     $('aboutCount').textContent = `${$('profileAbout').value.length}/160`;
   });
+  $('profileDisplayName').addEventListener('input', renderProfileEditorPreview);
   $('profileColors').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-color]');
     if (!btn) return;
     profileColor = btn.dataset.color;
     markColorSelection($('profileColors'), profileColor);
-    $('settingsAvatar').style.background = profileColor;
+    renderProfileEditorPreview();
+  });
+
+  $('avatarPresets').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-avatar-emoji]');
+    if (!btn) return;
+    profileAvatar = btn.dataset.avatarEmoji;
+    renderProfileEditorPreview();
+  });
+  $('avatarResetBtn').addEventListener('click', () => {
+    profileAvatar = '';
+    renderProfileEditorPreview();
+  });
+  $('avatarUploadBtn').addEventListener('click', () => $('avatarUpload').click());
+  $('avatarUpload').addEventListener('change', async () => {
+    const file = $('avatarUpload').files?.[0];
+    if (!file) return;
+    try {
+      profileAvatar = await readProfileImage(file, 'avatar');
+      $('profileError').textContent = '';
+      renderProfileEditorPreview();
+    } catch {
+      $('profileError').textContent = t('Nie udało się odczytać obrazu.');
+    } finally {
+      $('avatarUpload').value = '';
+    }
+  });
+
+  $('bannerPresets').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-banner-preset]');
+    if (!btn) return;
+    profileBanner = { kind: 'preset', preset: btn.dataset.bannerPreset };
+    renderProfileEditorPreview();
+  });
+  $('bannerUploadBtn').addEventListener('click', () => $('bannerUpload').click());
+  $('bannerUpload').addEventListener('change', async () => {
+    const file = $('bannerUpload').files?.[0];
+    if (!file) return;
+    try {
+      const image = await readProfileImage(file, 'banner');
+      profileBanner = { kind: 'image', image };
+      $('profileError').textContent = '';
+      renderProfileEditorPreview();
+    } catch {
+      $('profileError').textContent = t('Nie udało się odczytać obrazu.');
+    } finally {
+      $('bannerUpload').value = '';
+    }
+  });
+  $('bannerCustomApply').addEventListener('click', () => {
+    profileBanner = safeProfileBanner({
+      kind: 'custom',
+      colors: [$('bannerColorOne').value, $('bannerColorTwo').value],
+      pattern: $('bannerPattern').value,
+      emoji: $('bannerEmoji').value,
+    }) || { kind: 'preset', preset: 'black' };
+    renderProfileEditorPreview();
+  });
+
+  $('badgeChoices').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-badge]');
+    if (!btn) return;
+    const id = btn.dataset.badge;
+    if (!PROFILE_BADGES[id]) return;
+    if (profileBadges.includes(id)) profileBadges = profileBadges.filter((item) => item !== id);
+    else if (profileBadges.length >= 5) {
+      toast(t('Możesz wybrać maksymalnie 5 odznak.'));
+      return;
+    } else profileBadges = [...profileBadges, id];
+    renderProfileEditorPreview();
+  });
+
+  $('addGameBtn').addEventListener('click', addGameFromEditor);
+  $('newGameTitle').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addGameFromEditor();
+    }
+  });
+  $('gameEditorList').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-remove-game]');
+    if (!btn) return;
+    const index = Number(btn.dataset.removeGame);
+    if (!Number.isInteger(index) || index < 0 || index >= profileGames.length) return;
+    profileGames.splice(index, 1);
+    renderProfileEditorPreview();
   });
 
   $('saveProfile').addEventListener('click', saveProfile);
@@ -6511,17 +8329,21 @@ function bindSettings() {
   $('noiseSuppressionToggle').addEventListener('change', () => {
     prefs.noiseSuppression = $('noiseSuppressionToggle').checked;
     savePrefs();
+    if (liveVoice) restartLiveVoiceCapture();
   });
   $('autoGainToggle').addEventListener('change', () => {
     prefs.autoGainControl = $('autoGainToggle').checked;
     savePrefs();
+    if (liveVoice) restartLiveVoiceCapture();
   });
   $('echoCancelToggle').addEventListener('change', () => {
     prefs.echoCancellation = $('echoCancelToggle').checked;
     savePrefs();
+    if (liveVoice) restartLiveVoiceCapture();
   });
   $('outputVolumeRange').addEventListener('input', () => {
     prefs.outputVolume = Number($('outputVolumeRange').value);
+    updateLiveVoiceOutputGain();
     $('outputVolumeValue').textContent = `${prefs.outputVolume}%`;
     applyVoiceVolume();
     savePrefs();
@@ -6546,8 +8368,14 @@ function bindSettings() {
     savePrefs();
     if (!prefs.gameDetect) {
       playing = null;
+      playingSince = null;
       renderIdentity();
-      if (wsReady()) ws.send(JSON.stringify({ type: 'activity', playing: null }));
+      if (wsReady()) ws.send(JSON.stringify({ type: 'activity', playing: null, playingSince: null }));
+      for (const state of serverStates.values()) {
+        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+          state.ws.send(JSON.stringify({ type: 'server:activity', playing: null, playingSince: null }));
+        }
+      }
     }
   });
 
@@ -6632,19 +8460,135 @@ function switchSettingsTab(tab) {
   }
 }
 
-function fillProfileForm() {
-  $('settingsAvatar').textContent = initial(myName);
-  $('settingsAvatar').style.background = profileColor && profileColor !== '' ? profileColor : myColor;
-  $('settingsName').textContent = myName;
+function renderGameEditor() {
+  const list = $('gameEditorList');
+  if (!list) return;
+  $('gamesCount').textContent = `${profileGames.length}/12`;
+  if (!profileGames.length) {
+    list.innerHTML = `<p class="profile-empty">${esc(t('Brak gier w kolekcji.'))}</p>`;
+    return;
+  }
+  list.innerHTML = profileGames.map((game, index) => {
+    const color = safeColor(game.color, '') || gameColorFor(game.title);
+    return `<div class="game-editor-row" data-game-index="${index}">
+      <span class="game-editor-icon" style="--game-color:${esc(color)}" aria-hidden="true">${esc(gameIconFor(game.title))}</span>
+      <span class="game-editor-title">${esc(game.title)}</span>
+      <small>${esc(platformLabel(game.platform))}</small>
+      <button type="button" class="icon-btn game-editor-remove" data-remove-game="${index}" title="${esc(t('Usuń grę'))}" aria-label="${esc(t('Usuń grę'))}">✕</button>
+    </div>`;
+  }).join('');
+}
+
+function renderProfileEditorPreview() {
+  if (!$('settingsAvatar')) return;
+  const draftName = String($('profileDisplayName')?.value || myName).trim() || myName;
+  applyAvatar($('settingsAvatar'), draftName, profileColor || myColor, profileAvatar);
+  applyBanner($('profileBannerPreview'), profileBanner || { kind: 'preset', preset: 'black' });
+  $('settingsName').textContent = draftName;
   $('settingsUsername').textContent = currentUser ? `@${currentUser.username}` : '';
+  $('settingsHandle').textContent = `@${myProfileHandle || handleForProfile(currentUser || { username: myName })}`;
+  $('settingsBadgesPreview').innerHTML = profileBadgesHtml(profileBadges);
+  document.querySelectorAll('#avatarPresets [data-avatar-emoji]').forEach((btn) => {
+    btn.classList.toggle('selected', profileAvatar === btn.dataset.avatarEmoji);
+  });
+  document.querySelectorAll('#bannerPresets [data-banner-preset]').forEach((btn) => {
+    btn.classList.toggle('selected', profileBanner?.kind === 'preset' && profileBanner.preset === btn.dataset.bannerPreset);
+  });
+  document.querySelectorAll('#badgeChoices [data-badge]').forEach((btn) => {
+    btn.classList.toggle('selected', profileBadges.includes(btn.dataset.badge));
+  });
+  if (profileBanner?.kind === 'custom') {
+    $('bannerColorOne').value = profileBanner.colors[0];
+    $('bannerColorTwo').value = profileBanner.colors[1];
+    $('bannerPattern').value = profileBanner.pattern;
+    $('bannerEmoji').value = profileBanner.emoji || '';
+  }
+  renderGameEditor();
+}
+
+function fillProfileForm() {
+  profileColor = myColor;
+  profileAvatar = myAvatar;
+  profileBanner = myBanner;
+  profileBadges = safeBadges(myBadges);
+  profileGames = (Array.isArray(myGames) ? myGames : []).map((game) => ({ ...game }));
   $('profileDisplayName').value = myName;
   $('profileAbout').value = myAbout || '';
   $('aboutCount').textContent = `${(myAbout || '').length}/160`;
-  profileColor = myColor;
   markColorSelection($('profileColors'), profileColor);
   document.querySelectorAll('#statusChoices [data-status]').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.status === prefs.status);
   });
+  renderProfileEditorPreview();
+}
+
+function readProfileImage(file, kind) {
+  return new Promise((resolve, reject) => {
+    if (!file || !/^image\//i.test(String(file.type || ''))) {
+      reject(new Error('format'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('read'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('image'));
+      img.onload = () => {
+        try {
+          const square = kind === 'avatar';
+          const maxWidth = square ? 256 : 960;
+          const maxHeight = square ? 256 : 320;
+          const ratio = Math.min(1, maxWidth / img.width, maxHeight / img.height);
+          const width = Math.max(1, Math.round(img.width * ratio));
+          const height = Math.max(1, Math.round(img.height * ratio));
+          const canvas = document.createElement('canvas');
+          canvas.width = square ? 256 : width;
+          canvas.height = square ? 256 : height;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#0b1210';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          if (square) {
+            const side = Math.min(img.width, img.height);
+            const sx = Math.max(0, (img.width - side) / 2);
+            const sy = Math.max(0, (img.height - side) / 2);
+            ctx.drawImage(img, sx, sy, side, side, 0, 0, 256, 256);
+          } else {
+            ctx.drawImage(img, 0, 0, width, height);
+          }
+          resolve(canvas.toDataURL('image/jpeg', square ? 0.87 : 0.82));
+        } catch {
+          reject(new Error('image'));
+        }
+      };
+      img.src = String(reader.result || '');
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function addGameFromEditor() {
+  const input = $('newGameTitle');
+  const title = String(input.value || '').trim().replace(/\s+/g, ' ').slice(0, 40);
+  if (!title) {
+    $('profileError').textContent = t('Wpisz nazwę gry.');
+    return;
+  }
+  if (profileGames.length >= 12) {
+    $('profileError').textContent = t('Kolekcja może mieć maksymalnie 12 gier.');
+    return;
+  }
+  if (profileGames.some((game) => game.title.toLowerCase() === title.toLowerCase())) {
+    $('profileError').textContent = t('Ta gra jest już w kolekcji.');
+    return;
+  }
+  profileGames.push({
+    title,
+    platform: $('newGamePlatform').value || 'medal',
+    color: gameColorFor(title),
+  });
+  input.value = '';
+  $('profileError').textContent = '';
+  renderProfileEditorPreview();
 }
 
 async function loadAutostart() {
@@ -6680,7 +8624,15 @@ async function saveProfile() {
 
   $('saveProfile').disabled = true;
   try {
-    const result = await CHILL.auth.updateProfile({ displayName, about, color: profileColor });
+    const result = await CHILL.auth.updateProfile({
+      displayName,
+      about,
+      color: profileColor,
+      avatar: profileAvatar,
+      banner: profileBanner,
+      badges: profileBadges,
+      games: profileGames,
+    });
     if (!result || !result.ok) {
       errorEl.textContent = result?.error ? translateError(result.error) : t('Nie udało się zapisać profilu.');
       return;
@@ -6689,16 +8641,33 @@ async function saveProfile() {
     myName = currentUser.displayName;
     myColor = currentUser.color;
     myAbout = currentUser.about;
+    myProfileHandle = currentUser.handle || myProfileHandle;
+    myAvatar = safeProfileAvatar(currentUser.avatar);
+    myBanner = safeProfileBanner(currentUser.banner);
+    myBadges = safeBadges(currentUser.badges);
+    myGames = Array.isArray(currentUser.games) ? currentUser.games : [];
     renderIdentity();
     fillProfileForm();
     $('profileSaved').textContent = t('Zapisano');
     toast(t('Profil zaktualizowany'));
-    if (wsReady()) ws.send(JSON.stringify({ type: 'profile', displayName: myName, color: myColor, about: myAbout }));
+    const patch = {
+      displayName: myName,
+      name: myName,
+      color: myColor,
+      about: myAbout,
+      handle: myProfileHandle,
+      avatar: myAvatar,
+      banner: myBanner,
+      badges: myBadges,
+      games: myGames,
+    };
+    if (wsReady()) ws.send(JSON.stringify({ type: 'profile', ...patch }));
     for (const state of serverStates.values()) {
       if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-        state.ws.send(JSON.stringify({ type: 'server:profile', name: myName, color: myColor }));
+        state.ws.send(JSON.stringify({ type: 'server:profile', ...patch }));
       }
     }
+    if (!$('userProfileOverlay').hidden) renderUserProfile();
   } catch {
     errorEl.textContent = t('Wystąpił błąd podczas zapisywania.');
   } finally {
@@ -6814,6 +8783,7 @@ async function startUpdateInstall(manual) {
 function bindShortcuts() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if ($('screenShareOverlay') && !$('screenShareOverlay').hidden) { closeScreenSharePicker(); return; }
       if (!$('serverOverlay').hidden) { closeServerModal(); return; }
       if (!$('inviteOverlay').hidden) { $('inviteOverlay').hidden = true; return; }
       if (!$('settingsOverlay').hidden) { closeSettings(); return; }

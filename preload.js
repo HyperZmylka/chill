@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld('chill', {
     installUpdate: () => ipcRenderer.invoke('chill:update-install'),
     openExternal: (url) => ipcRenderer.send('chill:shell-open-external', String(url)),
     screenSources: () => ipcRenderer.invoke('chill:screen-sources'),
-    pickScreenSource: (id) => ipcRenderer.invoke('chill:screen-pick', String(id ?? '')),
+    pickScreenSource: (id) => ipcRenderer.sendSync('chill:screen-pick', String(id ?? '')),
   },
 
   chat: {

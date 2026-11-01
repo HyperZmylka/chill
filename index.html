@@ -189,6 +189,37 @@
     <div class="sidebar-spacer"></div>
 
     <div class="me-panel">
+      <div class="voice-connect" id="voiceConnectPanel" hidden>
+        <div class="voice-connect-head">
+          <span class="voice-connect-badge" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 12.55a11 11 0 0 1 14 0"></path><path d="M8.5 16.03a6 6 0 0 1 7 0"></path><circle cx="12" cy="19" r="1" fill="currentColor" stroke="none"></circle></svg>
+          </span>
+          <span class="voice-connect-meta">
+            <strong id="voiceConnectStatus" data-i18n="Nawiązano połączenie">Nawiązano połączenie</strong>
+            <small><span class="voice-connect-channel-icon" aria-hidden="true">🔊</span> <span id="voiceConnectChannel">kanał</span></small>
+          </span>
+          <button type="button" class="voice-connect-hangup" id="voiceConnectLeave" title="Rozłącz" data-i18n-title="Rozłącz" aria-label="Rozłącz" data-i18n-aria-label="Rozłącz">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M10.68 13.31a16 16 0 0 0 3.41 2.6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.42 19.42 0 0 1-3.33-2.67m-2.67-3.34a19.79 19.79 0 0 1-3.07-8.63A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91"></path>
+              <path d="M22 2 2 22"></path>
+            </svg>
+          </button>
+        </div>
+        <div class="voice-connect-actions">
+          <button type="button" class="voice-connect-action" id="voiceConnectOpen" title="Otwórz kanał głosowy" data-i18n-title="Otwórz kanał głosowy" aria-label="Otwórz kanał głosowy" data-i18n-aria-label="Otwórz kanał głosowy">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"></rect><rect x="14" y="3" width="7" height="7" rx="1.5"></rect><rect x="3" y="14" width="7" height="7" rx="1.5"></rect><rect x="14" y="14" width="7" height="7" rx="1.5"></rect></svg>
+          </button>
+          <button type="button" class="voice-connect-action" id="voiceConnectInvite" title="Zaproś na kanał głosowy" data-i18n-title="Zaproś na kanał głosowy" aria-label="Zaproś na kanał głosowy" data-i18n-aria-label="Zaproś na kanał głosowy">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="8" cy="7" r="4"></circle><path d="M19 8v6"></path><path d="M22 11h-6"></path></svg>
+          </button>
+          <button type="button" class="voice-connect-action" id="voiceConnectShare" title="Udostępnij ekran" data-i18n-title="Udostępnij ekran" aria-label="Udostępnij ekran" data-i18n-aria-label="Udostępnij ekran">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="19" height="13" rx="2"></rect><path d="M8 21h8"></path><path d="M12 16.5V21"></path></svg>
+          </button>
+          <button type="button" class="voice-connect-action" id="voiceConnectSettings" title="Ustawienia głosu" data-i18n-title="Ustawienia głosu" aria-label="Ustawienia głosu" data-i18n-aria-label="Ustawienia głosu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+          </button>
+        </div>
+      </div>
       <div class="me-bar">
         <button type="button" class="me-card" id="myProfileBtn" title="Edytuj profil" data-i18n-title="Edytuj profil">
           <span class="me-avatar">
@@ -294,6 +325,36 @@
 
     <div class="chat-body">
       <div class="messages" id="messages"></div>
+      <section class="voice-view" id="voiceView" hidden aria-label="Kanał głosowy" data-i18n-aria-label="Kanał głosowy">
+        <header class="voice-view-head">
+          <span class="voice-view-icon" aria-hidden="true">🔊</span>
+          <div class="voice-view-title">
+            <h2 id="voiceViewName">Kanał głosowy</h2>
+            <p id="voiceViewSub"></p>
+          </div>
+          <button type="button" class="invite-btn" id="voiceViewInvite" title="Zaproś na kanał głosowy" data-i18n-title="Zaproś na kanał głosowy">Zaproś</button>
+        </header>
+        <div class="voice-view-screen" id="voiceViewScreen" hidden>
+          <div class="voice-screen-frame">
+            <canvas id="voiceScreenCanvas" width="16" height="9" aria-label="Udostępniony ekran" data-i18n-aria-label="Udostępniony ekran"></canvas>
+            <div class="voice-screen-placeholder" id="voiceScreenPlaceholder">
+              <span class="voice-screen-placeholder-icon" aria-hidden="true">🖥</span>
+              <span data-i18n="Oczekiwanie na obraz…">Oczekiwanie na obraz…</span>
+            </div>
+            <div class="voice-screen-tag">
+              <span class="voice-screen-live" aria-hidden="true"></span>
+              <span id="voiceScreenTagText"></span>
+            </div>
+          </div>
+        </div>
+        <div class="voice-view-tiles" id="voiceViewTiles"></div>
+        <div class="voice-view-empty" id="voiceViewEmpty" hidden>
+          <div class="voice-view-empty-icon" aria-hidden="true">🎧</div>
+          <h3 data-i18n="Nikt nie jest teraz na tym kanale">Nikt nie jest teraz na tym kanale</h3>
+          <p data-i18n="Dołącz i zacznij rozmowę.">Dołącz i zacznij rozmowę.</p>
+        </div>
+        <footer class="voice-view-controls" id="voiceViewControls"></footer>
+      </section>
       <div class="typing-bar" id="typingBar" hidden></div>
     </div>
 
@@ -393,24 +454,79 @@
 
   <!-- Profil innej osoby -->
   <div class="modal" id="userProfileOverlay" hidden>
-    <div class="modal-card user-card">
+    <div class="modal-card user-card profile-card">
       <button type="button" class="icon-btn modal-close" id="closeUserProfile" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
-      <div class="user-card-head">
-        <span class="avatar large" id="userProfileAvatar">?</span>
-        <div class="user-card-id">
-          <h2 id="userProfileName">—</h2>
+      <div class="profile-banner" id="userProfileBanner" aria-hidden="true">
+        <span class="banner-pattern"></span>
+        <span class="banner-emoji"></span>
+      </div>
+      <div class="profile-head">
+        <div class="profile-avatar-wrap">
+          <span class="avatar large profile-avatar" id="userProfileAvatar">?</span>
+          <span class="profile-presence" id="userProfilePresence"></span>
+        </div>
+        <div class="profile-id">
+          <div class="profile-name-row">
+            <h2 id="userProfileName">—</h2>
+            <div class="profile-badges" id="userProfileBadges"></div>
+          </div>
           <p id="userProfileHandle">@—</p>
           <span class="user-card-status" id="userProfileStatus">—</span>
         </div>
       </div>
-      <p class="user-card-about" id="userProfileAbout"></p>
-      <div class="user-card-server" id="userProfileServer" hidden></div>
-      <p class="saved-note" id="userProfileNote"></p>
-      <p class="form-error" id="userProfileError"></p>
-      <div class="user-card-actions">
-        <button type="button" class="btn-secondary" id="addFriendBtn" data-i18n="Dodaj do znajomych">Dodaj do znajomych</button>
-        <button type="button" class="btn-primary" id="dmFriendBtn" data-i18n="Napisz wiadomość">Napisz wiadomość</button>
+      <div class="profile-body">
+        <p class="user-card-about" id="userProfileAbout"></p>
+        <p class="profile-shared" id="userProfileShared"></p>
+        <div class="user-card-server" id="userProfileServer" hidden></div>
+        <section class="profile-collection" id="userProfileCollection">
+          <div class="profile-collection-head">
+            <h3 data-i18n="Kolekcja gier">Kolekcja gier</h3>
+            <span id="userProfileGameCount"></span>
+          </div>
+          <div class="profile-game-strip" id="userProfileGameStrip"></div>
+          <p class="profile-empty" id="userProfileGamesEmpty" hidden data-i18n="Brak gier w kolekcji.">Brak gier w kolekcji.</p>
+        </section>
+        <section class="profile-playing-card" id="userProfileGameCard" hidden>
+          <div class="profile-playing-head">
+            <span class="profile-playing-icon" id="userProfileGameIcon">🎮</span>
+            <div class="profile-playing-id">
+              <strong id="userProfileGameTitle">—</strong>
+              <small id="userProfileGameDesc"></small>
+            </div>
+            <span class="profile-playing-time" id="userProfileGameTime">0:00:00</span>
+          </div>
+          <div class="profile-playing-actions">
+            <button type="button" class="btn-secondary small" id="profileGameFollow" data-i18n="Obserwuj na Medal">Obserwuj na Medal</button>
+            <button type="button" class="btn-primary small" id="profileGameDownload" data-i18n="Pobierz Medal">Pobierz Medal</button>
+          </div>
+        </section>
+        <p class="saved-note" id="userProfileNote"></p>
+        <p class="form-error" id="userProfileError"></p>
+        <div class="user-card-actions">
+          <button type="button" class="btn-secondary" id="addFriendBtn" data-i18n="Dodaj do znajomych">Dodaj do znajomych</button>
+          <button type="button" class="btn-primary" id="dmFriendBtn" data-i18n="Napisz wiadomość">Napisz wiadomość</button>
+        </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Udostępnianie ekranu -->
+  <div class="modal" id="screenShareOverlay" hidden>
+    <div class="modal-card screen-share-card">
+      <button type="button" class="icon-btn modal-close" id="closeScreenShare" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      <header class="screen-share-head">
+        <h2 data-i18n="Udostępnij ekran">Udostępnij ekran</h2>
+        <p data-i18n="Wybierz cały ekran albo okno aplikacji.">Wybierz cały ekran albo okno aplikacji.</p>
+      </header>
+      <div class="screen-share-toolbar">
+        <div class="screen-share-tabs" id="screenShareTabs">
+          <button type="button" class="active" data-screen-tab="screen" data-i18n="Cały ekran">Cały ekran</button>
+          <button type="button" data-screen-tab="window" data-i18n="Aplikacja">Aplikacja</button>
+        </div>
+        <button type="button" class="screen-share-refresh" id="screenShareRefresh" title="Odśwież" data-i18n-title="Odśwież" aria-label="Odśwież" data-i18n-aria-label="Odśwież">↻</button>
+      </div>
+      <div class="screen-share-grid" id="screenShareGrid"></div>
+      <p class="screen-share-note" id="screenShareNote"></p>
     </div>
   </div>
 
@@ -435,11 +551,113 @@
           <h2 data-i18n="Twój profil">Twój profil</h2>
           <p class="settings-lead" data-i18n="Tak widzą Cię inni na serwerach i wiadomościach prywatnych.">Tak widzą Cię inni na serwerach i wiadomościach prywatnych.</p>
 
-          <div class="profile-preview">
-            <span class="avatar large" id="settingsAvatar">?</span>
-            <div>
-              <strong id="settingsName">—</strong>
-              <small id="settingsUsername">@—</small>
+          <div class="profile-editor">
+            <div class="profile-editor-banner" id="profileBannerPreview" aria-hidden="true">
+              <span class="banner-pattern"></span>
+              <span class="banner-emoji"></span>
+            </div>
+            <div class="profile-editor-head">
+              <div class="profile-avatar-wrap">
+                <span class="avatar large profile-avatar" id="settingsAvatar">?</span>
+                <span class="profile-presence online"></span>
+              </div>
+              <div class="profile-editor-id">
+                <strong id="settingsName">—</strong>
+                <small id="settingsUsername">@—</small>
+                <code id="settingsHandle">@—</code>
+                <div class="profile-badges" id="settingsBadgesPreview"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="setting-block">
+            <span class="setting-label" data-i18n="Avatar">Avatar</span>
+            <div class="avatar-choice-row" id="avatarPresets">
+              <button type="button" class="avatar-choice" data-avatar-emoji="🐱" aria-label="Kot">🐱</button>
+              <button type="button" class="avatar-choice" data-avatar-emoji="🦊" aria-label="Lis">🦊</button>
+              <button type="button" class="avatar-choice" data-avatar-emoji="🐼" aria-label="Panda">🐼</button>
+              <button type="button" class="avatar-choice" data-avatar-emoji="🐸" aria-label="Żaba">🐸</button>
+              <button type="button" class="avatar-choice" data-avatar-emoji="🦉" aria-label="Sowa">🦉</button>
+              <button type="button" class="avatar-choice" data-avatar-emoji="🐺" aria-label="Wilk">🐺</button>
+              <button type="button" class="avatar-choice" data-avatar-emoji="🦄" aria-label="Jednorożec">🦄</button>
+              <button type="button" class="avatar-choice" data-avatar-emoji="👾" aria-label="Obcy">👾</button>
+            </div>
+            <div class="inline-actions">
+              <button type="button" class="btn-secondary small" id="avatarUploadBtn" data-i18n="Wgraj avatar">Wgraj avatar</button>
+              <button type="button" class="btn-secondary small" id="avatarResetBtn" data-i18n="Domyślny avatar">Domyślny avatar</button>
+              <input type="file" id="avatarUpload" accept="image/png,image/jpeg,image/webp" hidden>
+            </div>
+          </div>
+
+          <div class="setting-block">
+            <span class="setting-label" data-i18n="Baner profilu">Baner profilu</span>
+            <div class="banner-choice-row" id="bannerPresets">
+              <button type="button" class="banner-choice" data-banner-preset="black" style="--banner-a:#000000;--banner-b:#050807" aria-label="Czarny"><span></span><small data-i18n="Czarny">Czarny</small></button>
+              <button type="button" class="banner-choice" data-banner-preset="mint" style="--banner-a:#06241b;--banner-b:#3ee0a3" aria-label="Mięta"><span></span><small data-i18n="Mięta">Mięta</small></button>
+              <button type="button" class="banner-choice" data-banner-preset="ocean" style="--banner-a:#071a33;--banner-b:#2f9fe0" aria-label="Ocean"><span></span><small data-i18n="Ocean">Ocean</small></button>
+              <button type="button" class="banner-choice" data-banner-preset="sunset" style="--banner-a:#2b142b;--banner-b:#ff7aa2" aria-label="Zachód"><span></span><small data-i18n="Zachód">Zachód</small></button>
+              <button type="button" class="banner-choice" data-banner-preset="forest" style="--banner-a:#071e14;--banner-b:#7fb069" aria-label="Las"><span></span><small data-i18n="Las">Las</small></button>
+              <button type="button" class="banner-choice" data-banner-preset="neon" style="--banner-a:#150a2a;--banner-b:#b8a1ff" aria-label="Neon"><span></span><small data-i18n="Neon">Neon</small></button>
+            </div>
+            <div class="inline-actions">
+              <button type="button" class="btn-secondary small" id="bannerUploadBtn" data-i18n="Wgraj baner">Wgraj baner</button>
+              <input type="file" id="bannerUpload" accept="image/png,image/jpeg,image/webp" hidden>
+            </div>
+            <details class="banner-custom-editor">
+              <summary data-i18n="Własny baner">Własny baner</summary>
+              <div class="banner-custom-grid">
+                <label class="field compact-field">
+                  <span data-i18n="Kolor 1">Kolor 1</span>
+                  <input type="color" id="bannerColorOne" value="#07110d">
+                </label>
+                <label class="field compact-field">
+                  <span data-i18n="Kolor 2">Kolor 2</span>
+                  <input type="color" id="bannerColorTwo" value="#3ee0a3">
+                </label>
+                <label class="field compact-field">
+                  <span data-i18n="Wzór">Wzór</span>
+                  <select id="bannerPattern">
+                    <option value="none" data-i18n="Brak">Brak</option>
+                    <option value="dots" data-i18n="Kropki">Kropki</option>
+                    <option value="grid" data-i18n="Siatka">Siatka</option>
+                    <option value="waves" data-i18n="Fale">Fale</option>
+                    <option value="stars" data-i18n="Gwiazdy">Gwiazdy</option>
+                    <option value="diagonal" data-i18n="Skos">Skos</option>
+                  </select>
+                </label>
+                <label class="field compact-field">
+                  <span data-i18n="Emoji">Emoji</span>
+                  <input type="text" id="bannerEmoji" maxlength="4" placeholder="🙂">
+                </label>
+              </div>
+              <button type="button" class="btn-secondary small" id="bannerCustomApply" data-i18n="Zastosuj własny baner">Zastosuj własny baner</button>
+            </details>
+          </div>
+
+          <div class="setting-block">
+            <span class="setting-label" data-i18n="Odznaki">Odznaki</span>
+            <div class="badge-choice-row" id="badgeChoices">
+              <button type="button" class="badge-choice" data-badge="piwo"><span>🍺</span> PIWO</button>
+              <button type="button" class="badge-choice" data-badge="chill"><span>❄️</span> CHILL</button>
+              <button type="button" class="badge-choice" data-badge="og"><span>🌿</span> OG</button>
+              <button type="button" class="badge-choice" data-badge="vip"><span>💎</span> VIP</button>
+              <button type="button" class="badge-choice" data-badge="dev"><span>🛠️</span> DEV</button>
+            </div>
+          </div>
+
+          <div class="setting-block">
+            <span class="setting-label"><span data-i18n="Kolekcja gier">Kolekcja gier</span> <small id="gamesCount">0/12</small></span>
+            <div class="game-editor-list" id="gameEditorList"></div>
+            <div class="game-editor-add">
+              <input type="text" id="newGameTitle" maxlength="40" placeholder="Nazwa gry" data-i18n-placeholder="Nazwa gry">
+              <select id="newGamePlatform">
+                <option value="medal">Medal</option>
+                <option value="steam">Steam</option>
+                <option value="roblox">Roblox</option>
+                <option value="epic">Epic Games</option>
+                <option value="other" data-i18n="Inne">Inne</option>
+              </select>
+              <button type="button" class="btn-secondary small" id="addGameBtn" data-i18n="Dodaj grę">Dodaj grę</button>
             </div>
           </div>
 
