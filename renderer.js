@@ -123,6 +123,8 @@ let profileGamesExpanded = false;
 let profileTimer = null;
 let profileGameSince = 0;
 let playing = null;
+let playingIcon = '';
+let playingPlatform = '';
 let playingSince = null;
 let searchQuery = '';
 let localVoiceKey = '';
@@ -633,6 +635,7 @@ const I18N_EN = {
   'Właściciel serwera': 'Server owner',
   '(Ty)': '(You)',
   'Gra w {game}': 'Playing {game}',
+  'Teraz grasz': 'Playing now',
   'Gra w {game} • {status}': 'Playing {game} • {status}',
   'Brak kanałów': 'No channels',
   'Łączę z serwerem…': 'Connecting to the server…',
@@ -1393,6 +1396,8 @@ function enterApp(user) {
   myBadges = safeBadges(user.badges);
   myGames = Array.isArray(user.games) ? user.games : [];
   playing = null;
+  playingIcon = '';
+  playingPlatform = '';
   playingSince = null;
   localVoiceKey = '';
   current = { kind: 'home' };
@@ -1474,6 +1479,9 @@ function logout() {
   unread.clear();
   typingUsers.clear();
   playing = null;
+  playingIcon = '';
+  playingPlatform = '';
+  playingSince = null;
   searchQuery = '';
   $('messages').innerHTML = '';
   $('serverList').innerHTML = '';
@@ -3184,18 +3192,19 @@ function bindChat() {
   });
 
   if (CHILL.chat?.onActivity) {
-    CHILL.chat.onActivity((name) => {
-      const next = prefs.gameDetect ? (String(name || '').trim() || null) : null;
+    CHILL.chat.onActivity((data) => {
+      const activity = normalizeActivity(data);
+      const next = prefs.gameDetect ? activity.name : null;
+      const nextIcon = next ? activity.icon : '';
+      const nextPlatform = next ? activity.platform : '';
+      const changed = next !== playing || nextIcon !== playingIcon || nextPlatform !== playingPlatform;
       if (next !== playing) playingSince = next ? Date.now() : null;
       playing = next;
+      playingIcon = nextIcon;
+      playingPlatform = nextPlatform;
       renderIdentity();
       if (!$('userProfileOverlay').hidden) renderUserProfile();
-      if (wsReady()) ws.send(JSON.stringify({ type: 'activity', playing, playingSince }));
-      for (const state of serverStates.values()) {
-        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-          state.ws.send(JSON.stringify({ type: 'server:activity', playing, playingSince }));
-        }
-      }
+      if (changed) broadcastActivity();
     });
   }
 
@@ -3220,6 +3229,26 @@ function resizeInput() {
 
 function wsReady() {
   return ws && ws.readyState === WebSocket.OPEN;
+}
+
+function currentActivityState() {
+  const active = prefs.gameDetect ? playing : null;
+  return {
+    playing: active || null,
+    playingIcon: active ? playingIcon || null : null,
+    playingPlatform: active ? playingPlatform || null : null,
+    playingSince: active ? playingSince : null,
+  };
+}
+
+function broadcastActivity() {
+  const activity = currentActivityState();
+  if (wsReady()) ws.send(JSON.stringify({ type: 'activity', ...activity }));
+  for (const state of serverStates.values()) {
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      state.ws.send(JSON.stringify({ type: 'server:activity', ...activity }));
+    }
+  }
 }
 
 function connect() {
@@ -3247,8 +3276,7 @@ function connect() {
       badges: myBadges,
       games: myGames,
       about: myAbout,
-      playing: prefs.gameDetect ? playing : null,
-      playingSince: prefs.gameDetect ? playingSince : null,
+      ...currentActivityState(),
     }));
   };
 
@@ -3292,7 +3320,7 @@ function handleMessage(msg) {
       updateBadges();
       if (wsReady()) {
         ws.send(JSON.stringify({ type: 'status', status: prefs.status }));
-        if (prefs.gameDetect && playing) ws.send(JSON.stringify({ type: 'activity', playing, playingSince }));
+        if (prefs.gameDetect && playing) ws.send(JSON.stringify({ type: 'activity', ...currentActivityState() }));
       }
       if (!$('userProfileOverlay').hidden) renderUserProfile();
       break;
@@ -3444,8 +3472,7 @@ function connectServer(server) {
       badges: myBadges,
       games: myGames,
       about: myAbout,
-      playing: prefs.gameDetect ? playing : null,
-      playingSince: prefs.gameDetect ? playingSince : null,
+      ...currentActivityState(),
       ownerKey: server.owner ? server.ownerKey : undefined,
     }));
   };
@@ -3629,8 +3656,8 @@ function handleServerFrame(serverId, msg) {
         renderMembers();
         renderHeader();
       }
+      renderDmList();
       if (current.kind === 'dm' && current.id.startsWith(`srv:${serverId}:`)) {
-        renderDmList();
         renderHeader();
         updateComposer();
       }
@@ -5555,23 +5582,27 @@ function friendByServerMember(serverId, memberId) {
 function serverFriendDisplay(friend) {
   const state = serverState(friend.serverId);
   const member = state?.members.find((item) => item.id === friend.memberId);
+  const online = Boolean(member?.online);
   return {
     dmId: friend.dmId,
     name: member?.name || friend.name || t('Znajomy'),
     color: safeColor(member?.color || friend.color, '#3ee0a3'),
-    online: Boolean(member?.online),
+    online,
     owner: Boolean(member?.owner),
     serverId: friend.serverId,
     memberId: friend.memberId,
     serverName: state?.server?.name || friend.serverName || t('Serwer'),
     serverOnline: state?.status === 'online',
+    playing: online ? String(member?.playing || '').trim() || null : null,
+    playingIcon: online ? safeGameIcon(member?.playingIcon) : '',
+    playingPlatform: online ? safeGamePlatform(member?.playingPlatform) : '',
   };
 }
 
 function dmEntry(dmId) {
   const friend = friendByDmId(dmId);
   if (friend) {
-    return { ...serverFriendDisplay(friend), kind: 'server', friend, username: '', about: '', playing: null };
+    return { ...serverFriendDisplay(friend), kind: 'server', friend, username: '', about: '' };
   }
   const user = allUsers.find((item) => item.id === dmId);
   if (!user) return null;
@@ -5585,7 +5616,9 @@ function dmEntry(dmId) {
     online: Boolean(user.online),
     status: user.online ? user.status : 'offline',
     about: user.about || '',
-    playing: user.playing || null,
+    playing: user.online ? String(user.playing || '').trim() || null : null,
+    playingIcon: user.online ? safeGameIcon(user.playingIcon) : '',
+    playingPlatform: user.online ? safeGamePlatform(user.playingPlatform) : '',
     serverName: '',
     serverOnline: true,
   };
@@ -5652,13 +5685,16 @@ function renderDmList() {
   for (const user of allUsers) {
     if (user.id === myId) continue;
     const status = user.online ? user.status : 'offline';
+    const playing = user.online ? String(user.playing || '').trim() : '';
     entries.push({
       dmId: user.id,
       name: user.name,
       color: user.color,
       online: Boolean(user.online),
       status,
-      sub: user.playing ? t('Gra w {game}', { game: user.playing }) : statusLabel(status),
+      playing: playing || null,
+      playingIcon: playing ? safeGameIcon(user.playingIcon) : '',
+      sub: playing ? t('Gra w {game}', { game: playing }) : statusLabel(status),
       search: `${user.name} ${user.username || ''}`,
     });
   }
@@ -5671,6 +5707,8 @@ function renderDmList() {
       color: info.color,
       online: info.online,
       status: info.online ? 'online' : 'offline',
+      playing: info.playing,
+      playingIcon: info.playingIcon,
       sub: `${info.serverName} • ${info.online ? t('Online') : t('Offline')}`,
       search: `${info.name} ${info.serverName}`,
     });
@@ -5690,6 +5728,7 @@ function renderDmList() {
     const key = `dm:${entry.dmId}`;
     const isActive = current.kind === 'dm' && current.id === entry.dmId;
     const count = isActive ? 0 : unread.get(key) || 0;
+    const subHtml = entry.playing ? activitySubHtml(entry.playing, entry.playingIcon) : esc(entry.sub);
     const button = document.createElement('button');
     button.type = 'button';
     button.className = `nav-item${isActive ? ' active' : ''}${count ? ' unread' : ''}`;
@@ -5698,7 +5737,7 @@ function renderDmList() {
         ${esc(initial(entry.name))}
         <span class="status-dot ${esc(entry.status)}"></span>
       </span>
-      <span class="nav-label">${esc(entry.name)}<span class="nav-sub">${esc(entry.sub)}</span></span>
+      <span class="nav-label">${esc(entry.name)}<span class="nav-sub${entry.playing ? ' playing' : ''}">${subHtml}</span></span>
       ${count ? `<span class="nav-badge">${count > 99 ? '99+' : count}</span>` : ''}
     `;
     button.addEventListener('click', () => selectConversation('dm', entry.dmId));
@@ -5723,7 +5762,9 @@ function renderMembers() {
     }
     for (const member of sorted) {
       const status = member.online ? 'online' : 'offline';
+      const playing = member.online ? String(member.playing || '').trim() : '';
       const sub = member.owner ? t('Właściciel serwera') : member.online ? t('Online') : t('Offline');
+      const subHtml = playing ? activitySubHtml(playing, member.playingIcon) : esc(sub);
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'member';
@@ -5734,7 +5775,7 @@ function renderMembers() {
         </span>
         <span class="member-info">
           <strong>${esc(member.name)}${member.id === state.you?.memberId ? ` ${esc(t('(Ty)'))}` : ''}</strong>
-          <small>${esc(sub)}</small>
+          <small class="${playing ? 'playing' : ''}">${subHtml}</small>
         </span>
       `;
       if (member.id === state.you?.memberId) item.addEventListener('click', () => openSettings('profile'));
@@ -5752,7 +5793,9 @@ function renderMembers() {
   container.innerHTML = '';
   for (const user of sorted) {
     const status = user.online ? user.status : 'offline';
-    const sub = user.playing ? t('Gra w {game}', { game: user.playing }) : statusLabel(status);
+    const playing = user.online ? String(user.playing || '').trim() : '';
+    const sub = playing ? t('Gra w {game}', { game: playing }) : statusLabel(status);
+    const subHtml = playing ? activitySubHtml(playing, user.playingIcon) : esc(sub);
     const item = document.createElement('button');
     item.type = 'button';
     item.className = 'member';
@@ -5763,7 +5806,7 @@ function renderMembers() {
       </span>
       <span class="member-info">
         <strong>${esc(user.name)}${user.id === myId ? ` ${esc(t('(Ty)'))}` : ''}</strong>
-        <small>${esc(sub)}</small>
+        <small class="${playing ? 'playing' : ''}">${subHtml}</small>
       </span>
     `;
     item.addEventListener('click', () => {
@@ -5792,6 +5835,12 @@ const BANNER_PRESETS = {
 };
 
 const PROFILE_IMAGE_RE = /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i;
+const GAME_ICON_RE = /^data:image\/png;base64,[a-z0-9+/=]+$/i;
+const GAME_ICON_MAX = 120_000;
+const GAME_PLATFORMS = new Set([
+  'medal', 'steam', 'roblox', 'epic', 'gog', 'xbox', 'ea', 'ubisoft',
+  'battlenet', 'riot', 'minecraft', 'itch', 'other',
+]);
 const AVATAR_PRESETS = ['🐱', '🦊', '🐼', '🐸', '🦉', '🐺', '🦄', '👾'];
 const GAME_ICON_RULES = [
   [/roblox/i, '🧱'], [/minecraft/i, '⛏️'], [/counter-strike|\bcs2\b|cs:go/i, '🔫'],
@@ -5808,6 +5857,31 @@ function safeProfileAvatar(value) {
   if (text.length <= 260_000 && PROFILE_IMAGE_RE.test(text)) return text;
   if (text.length <= 24 && !/[\u0000-\u001f<>"'&]/u.test(text)) return text;
   return '';
+}
+
+function safeGameIcon(value) {
+  const text = String(value || '');
+  if (!text || text.length > GAME_ICON_MAX || !GAME_ICON_RE.test(text)) return '';
+  return text;
+}
+
+function safeGamePlatform(value) {
+  const platform = String(value || '').toLowerCase();
+  return GAME_PLATFORMS.has(platform) ? platform : '';
+}
+
+function normalizeActivity(data) {
+  if (typeof data === 'string') {
+    const name = String(data).replace(/\s+/g, ' ').trim().slice(0, 40);
+    return { name: name || null, icon: '', platform: '' };
+  }
+  if (!data || typeof data !== 'object') return { name: null, icon: '', platform: '' };
+  const name = String(data.name || data.playing || '').replace(/\s+/g, ' ').trim().slice(0, 40);
+  return {
+    name: name || null,
+    icon: safeGameIcon(data.icon || data.playingIcon),
+    platform: safeGamePlatform(data.platform || data.playingPlatform),
+  };
 }
 
 const DEFAULT_PROFILE_BANNER = { kind: 'preset', preset: 'black' };
@@ -5901,6 +5975,17 @@ function gameIconFor(title) {
   return initial(text) || '🎮';
 }
 
+function activitySubHtml(title, icon, extra = '') {
+  const text = String(title || '').trim();
+  if (!text) return '';
+  const image = safeGameIcon(icon);
+  const visual = image
+    ? `<img class="member-game-icon" src="${esc(image)}" alt="">`
+    : `<span class="member-game-emoji" aria-hidden="true">${esc(gameIconFor(text))}</span>`;
+  const suffix = extra ? `<span class="member-game-extra">${esc(extra)}</span>` : '';
+  return `${visual}<span>${esc(t('Gra w {game}', { game: text }))}</span>${suffix}`;
+}
+
 function gameColorFor(title) {
   let hash = 0;
   for (let i = 0; i < String(title).length; i += 1) hash = (hash * 31 + String(title).charCodeAt(i)) | 0;
@@ -5908,7 +5993,21 @@ function gameColorFor(title) {
 }
 
 function platformLabel(platform) {
-  return { medal: 'Medal', steam: 'Steam', roblox: 'Roblox', epic: 'Epic Games', other: t('Inne') }[platform] || 'Medal';
+  return {
+    medal: 'Medal',
+    steam: 'Steam',
+    roblox: 'Roblox',
+    epic: 'Epic Games',
+    gog: 'GOG',
+    xbox: 'Xbox',
+    ea: 'EA',
+    ubisoft: 'Ubisoft',
+    battlenet: 'Battle.net',
+    riot: 'Riot Games',
+    minecraft: 'Minecraft',
+    itch: 'itch.io',
+    other: t('Inne'),
+  }[platform] || 'Medal';
 }
 
 function formatPlaytime(ms) {
@@ -5969,6 +6068,14 @@ function gameUrlFor(game) {
     case 'steam': return `https://store.steampowered.com/search/?term=${query}`;
     case 'roblox': return `https://www.roblox.com/discover/?Keyword=${query}`;
     case 'epic': return `https://store.epicgames.com/en-US/browse?q=${query}`;
+    case 'gog': return `https://www.gog.com/en/games?query=${query}`;
+    case 'xbox': return `https://www.xbox.com/en-US/search?q=${query}`;
+    case 'ea': return `https://www.ea.com/games?q=${query}`;
+    case 'ubisoft': return `https://store.ubisoft.com/search?q=${query}`;
+    case 'battlenet': return `https://shop.battle.net/search?q=${query}`;
+    case 'riot': return `https://www.riotgames.com/en/games`;
+    case 'minecraft': return 'https://www.minecraft.net/';
+    case 'itch': return `https://itch.io/search?q=${query}`;
     case 'medal': return `https://medal.tv/search?query=${query}`;
     default: return `https://www.google.com/search?q=${query}`;
   }
@@ -5977,7 +6084,11 @@ function gameUrlFor(game) {
 function renderGameTile(game, compact = false) {
   const title = String(game?.title || '');
   const color = safeColor(game?.color, '') || gameColorFor(title);
-  return `<button type="button" class="profile-game-tile${compact ? ' compact' : ''}" data-game-title="${esc(title)}" title="${esc(title)}" style="--game-color:${esc(color)}"><span aria-hidden="true">${esc(gameIconFor(title))}</span>${compact ? '' : `<small>${esc(title)}</small>`}</button>`;
+  const icon = safeGameIcon(game?.icon);
+  const visual = icon
+    ? `<img class="profile-game-img" src="${esc(icon)}" alt="">`
+    : `<span aria-hidden="true">${esc(gameIconFor(title))}</span>`;
+  return `<button type="button" class="profile-game-tile${compact ? ' compact' : ''}" data-game-title="${esc(title)}" title="${esc(title)}" style="--game-color:${esc(color)}">${visual}${compact ? '' : `<small>${esc(title)}</small>`}</button>`;
 }
 
 function openLocalProfile(userId, fallback = {}) {
@@ -6043,15 +6154,28 @@ function profileGameList(profile) {
   const games = (Array.isArray(profile.games) ? profile.games : [])
     .map((game) => ({
       title: String(game?.title || '').trim(),
-      platform: ['medal', 'steam', 'roblox', 'epic', 'other'].includes(game?.platform) ? game.platform : 'medal',
+      platform: GAME_PLATFORMS.has(String(game?.platform || '').toLowerCase()) ? String(game.platform).toLowerCase() : 'medal',
       color: safeColor(game?.color, '') || gameColorFor(String(game?.title || '')),
     }))
     .filter((game) => game.title);
   const playing = String(profile.playing || '').trim();
+  const playingIcon = safeGameIcon(profile.playingIcon);
+  const playingPlatform = safeGamePlatform(profile.playingPlatform) || 'other';
   if (playing) {
     const existing = games.find((game) => game.title.toLowerCase() === playing.toLowerCase());
-    if (existing) existing.playing = true;
-    else games.unshift({ title: playing, platform: 'medal', color: gameColorFor(playing), playing: true });
+    if (existing) {
+      existing.playing = true;
+      existing.icon = playingIcon;
+      if (existing.platform === 'medal' || !existing.platform) existing.platform = playingPlatform;
+    } else {
+      games.unshift({
+        title: playing,
+        platform: playingPlatform,
+        color: gameColorFor(playing),
+        playing: true,
+        icon: playingIcon,
+      });
+    }
   }
   if (profileSelectedGame) {
     const selected = games.find((game) => game.title.toLowerCase() === String(profileSelectedGame).toLowerCase());
@@ -6171,16 +6295,26 @@ function renderUserProfile() {
 
   const card = $('userProfileGameCard');
   if (activeGame) {
+    const isMedalGame = (activeGame.platform || 'medal') === 'medal';
     const baseTitle = activeGame.title.replace(/\s+with\s+Medal$/i, '');
-    const displayTitle = `${baseTitle} with Medal`;
+    const displayTitle = isMedalGame ? `${baseTitle} with Medal` : baseTitle;
     const isPlaying = Boolean(activeGame.playing || (source.playing && String(source.playing).toLowerCase() === activeGame.title.toLowerCase()));
+    const liveIcon = isPlaying ? safeGameIcon(activeGame.icon || source.playingIcon) : '';
     profileGameSince = isPlaying ? (Number(source.playingSince) || 0) : 0;
     card.hidden = false;
-    $('userProfileGameIcon').textContent = gameIconFor(activeGame.title);
-    $('userProfileGameIcon').style.background = safeColor(activeGame.color, '') || gameColorFor(activeGame.title);
+    const iconEl = $('userProfileGameIcon');
+    iconEl.classList.toggle('has-image', Boolean(liveIcon));
+    iconEl.innerHTML = liveIcon ? `<img src="${esc(liveIcon)}" alt="">` : '';
+    if (!liveIcon) iconEl.textContent = gameIconFor(activeGame.title);
+    iconEl.style.background = safeColor(activeGame.color, '') || gameColorFor(activeGame.title);
     $('userProfileGameTitle').textContent = displayTitle;
-    $('userProfileGameDesc').textContent = t('Clipping {game}', { game: displayTitle });
+    $('userProfileGameDesc').textContent = isMedalGame
+      ? t('Clipping {game}', { game: displayTitle })
+      : `${platformLabel(activeGame.platform)}${isPlaying ? ` • ${t('Teraz grasz')}` : ''}`;
     const follow = $('profileGameFollow');
+    const download = $('profileGameDownload');
+    follow.hidden = !isMedalGame;
+    download.hidden = !isMedalGame;
     const followed = followedGames().has(activeGame.title);
     follow.dataset.gameTitle = activeGame.title;
     follow.textContent = followed ? t('Obserwujesz na Medal') : t('Obserwuj na Medal');
@@ -6288,11 +6422,13 @@ function renderHeader() {
     if (!entry) {
       $('chatSub').textContent = t('Rozmowa niedostępna');
     } else if (entry.kind === 'server') {
-      $('chatSub').textContent = `${entry.serverName} • ${entry.online ? t('Online') : t('Offline')}`;
+      $('chatSub').innerHTML = entry.playing
+        ? activitySubHtml(entry.playing, entry.playingIcon, entry.serverName)
+        : esc(`${entry.serverName} • ${entry.online ? t('Online') : t('Offline')}`);
+    } else if (entry.playing) {
+      $('chatSub').innerHTML = `${activitySubHtml(entry.playing, entry.playingIcon)}<span class="member-game-extra"> • ${esc(statusLabel(status))}</span>`;
     } else {
-      $('chatSub').textContent = entry.playing
-        ? t('Gra w {game} • {status}', { game: entry.playing, status: statusLabel(status) })
-        : statusLabel(status);
+      $('chatSub').textContent = statusLabel(status);
     }
   } else if (current.kind === 'server') {
     const state = serverState(current.serverId);
@@ -8368,14 +8504,11 @@ function bindSettings() {
     savePrefs();
     if (!prefs.gameDetect) {
       playing = null;
+      playingIcon = '';
+      playingPlatform = '';
       playingSince = null;
       renderIdentity();
-      if (wsReady()) ws.send(JSON.stringify({ type: 'activity', playing: null, playingSince: null }));
-      for (const state of serverStates.values()) {
-        if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-          state.ws.send(JSON.stringify({ type: 'server:activity', playing: null, playingSince: null }));
-        }
-      }
+      broadcastActivity();
     }
   });
 

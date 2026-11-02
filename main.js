@@ -19,6 +19,7 @@ const {
 } = require('./discord-import');
 const voiceMessages = require('./voice');
 const { InternetTunnel } = require('./tunnel');
+const { createGameDetector } = require('./game-detect');
 
 app.setName('Chill');
 
@@ -84,8 +85,13 @@ const BANNER_PATTERNS = new Set(['none', 'dots', 'grid', 'waves', 'stars', 'diag
 const PROFILE_IMAGE_RE = /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i;
 const PROFILE_AVATAR_MAX = 260_000;
 const PROFILE_BANNER_MAX = 720_000;
+const GAME_ICON_RE = /^data:image\/png;base64,[a-z0-9+/=]+$/i;
+const GAME_ICON_MAX = 120_000;
 const PROFILE_HANDLE_RE = /^[a-z0-9_.]{3,32}$/;
-const PROFILE_GAME_PLATFORMS = new Set(['medal', 'steam', 'roblox', 'epic', 'other']);
+const PROFILE_GAME_PLATFORMS = new Set([
+  'medal', 'steam', 'roblox', 'epic', 'gog', 'xbox', 'ea', 'ubisoft',
+  'battlenet', 'riot', 'minecraft', 'itch', 'other',
+]);
 
 function safeHex(value, fallback = '') {
   return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value).toLowerCase() : fallback;
@@ -95,6 +101,17 @@ function safeProfileImage(value, maxLength) {
   const text = String(value || '');
   if (!text || text.length > maxLength || !PROFILE_IMAGE_RE.test(text)) return '';
   return text;
+}
+
+function sanitizeGameIcon(value) {
+  const text = String(value || '');
+  if (!text || text.length > GAME_ICON_MAX || !GAME_ICON_RE.test(text)) return '';
+  return text;
+}
+
+function sanitizeGamePlatform(value) {
+  const platform = String(value || '').toLowerCase();
+  return PROFILE_GAME_PLATFORMS.has(platform) ? platform : 'other';
 }
 
 function safeProfileEmoji(value) {
@@ -196,6 +213,8 @@ function profilePatchFromMessage(msg) {
     patch.playing = title || null;
     const since = Number(msg.playingSince ?? msg.since);
     patch.playingSince = title && Number.isFinite(since) && since > 0 ? since : null;
+    patch.playingIcon = title ? sanitizeGameIcon(msg.playingIcon) : null;
+    patch.playingPlatform = title ? sanitizeGamePlatform(msg.playingPlatform) : null;
   }
   return patch;
 }
@@ -779,6 +798,7 @@ function serverMembersPayload(server) {
   return server.members
     .map((member) => {
       const isOnline = online.has(member.id);
+      const playing = isOnline ? String(member.playing || '').trim().slice(0, 40) || null : null;
       return {
         id: member.id,
         name: member.name,
@@ -792,8 +812,10 @@ function serverMembersPayload(server) {
         banner: memberProfileValue(member, 'banner', null),
         badges: memberProfileValue(member, 'badges', ['piwo']),
         games: memberProfileValue(member, 'games', []),
-        playing: isOnline ? String(member.playing || '').slice(0, 40) || null : null,
-        playingSince: isOnline && member.playing && Number(member.playingSince) > 0 ? Number(member.playingSince) : null,
+        playing,
+        playingIcon: playing ? sanitizeGameIcon(member.playingIcon) : null,
+        playingPlatform: playing ? sanitizeGamePlatform(member.playingPlatform) : null,
+        playingSince: isOnline && playing && Number(member.playingSince) > 0 ? Number(member.playingSince) : null,
       };
     })
     .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, 'pl'));
@@ -970,6 +992,7 @@ function usersPayload() {
   return allPublicUsers().map((u) => {
     const record = live.get(u.id);
     const online = Boolean(record) && record.status !== 'invisible';
+    const playing = online ? String(record.playing || '').trim().slice(0, 40) || null : null;
     return {
       id: u.id,
       name: u.displayName || u.username,
@@ -982,8 +1005,10 @@ function usersPayload() {
       badges: u.badges,
       games: u.games,
       status: online ? record.status : 'offline',
-      playing: online ? record.playing : null,
-      playingSince: online && record.playing && Number(record.playingSince) > 0 ? Number(record.playingSince) : null,
+      playing,
+      playingIcon: playing ? sanitizeGameIcon(record.playingIcon) : null,
+      playingPlatform: playing ? sanitizeGamePlatform(record.playingPlatform) : null,
+      playingSince: online && playing && Number(record.playingSince) > 0 ? Number(record.playingSince) : null,
       online,
       lastSeen: record ? record.lastSeen : null,
     };
@@ -1173,6 +1198,8 @@ function handleJoinServer(ws, msg, send) {
       badges: patch.badges !== undefined ? patch.badges : ['piwo'],
       games: patch.games || [],
       playing: patch.playing ?? null,
+      playingIcon: patch.playingIcon ?? null,
+      playingPlatform: patch.playingPlatform ?? null,
       playingSince: patch.playingSince ?? null,
     };
     server.members.push(member);
@@ -1492,6 +1519,8 @@ function startChatServer(port = CHAT_PORT) {
 
             currentUserId = account.id;
             const accountProfile = publicUser(account);
+            const activityTitle = typeof msg.playing === 'string' ? msg.playing.trim().slice(0, 40) || null : null;
+            const activitySince = activityTitle ? Number(msg.playingSince || msg.since) || Date.now() : null;
             const user = {
               id: account.id,
               name: accountProfile.displayName,
@@ -1503,8 +1532,10 @@ function startChatServer(port = CHAT_PORT) {
               games: accountProfile.games,
               about: account.about || '',
               status: 'online',
-              playing: msg.playing || null,
-              playingSince: msg.playing ? Number(msg.playingSince || msg.since) || Date.now() : null,
+              playing: activityTitle,
+              playingIcon: activityTitle ? sanitizeGameIcon(msg.playingIcon) : null,
+              playingPlatform: activityTitle ? sanitizeGamePlatform(msg.playingPlatform) : null,
+              playingSince: activitySince,
               since: Date.now(),
               lastSeen: Date.now(),
             };
@@ -1965,6 +1996,8 @@ function startChatServer(port = CHAT_PORT) {
             if (!member) return;
             const patch = profilePatchFromMessage(msg);
             member.playing = patch.playing ?? null;
+            member.playingIcon = patch.playingIcon ?? null;
+            member.playingPlatform = patch.playingPlatform ?? null;
             member.playingSince = patch.playingSince ?? null;
             member.lastSeen = Date.now();
             scheduleServersSave();
@@ -2027,6 +2060,8 @@ function startChatServer(port = CHAT_PORT) {
             if (!user) return;
             const title = typeof msg.playing === 'string' ? msg.playing.trim().slice(0, 40) : '';
             user.playing = title || null;
+            user.playingIcon = title ? sanitizeGameIcon(msg.playingIcon) : null;
+            user.playingPlatform = title ? sanitizeGamePlatform(msg.playingPlatform) : null;
             const since = Number(msg.playingSince ?? msg.since);
             user.playingSince = title && Number.isFinite(since) && since > 0 ? since : (title ? Date.now() : null);
             user.lastSeen = Date.now();
@@ -2231,51 +2266,26 @@ function createTray() {
 // ---------- Wykrywanie gry ----------
 let lastGame = null;
 let misses = 0;
+let gameDetector = null;
 
-function listProcesses() {
-  return new Promise((resolve) => {
-    const done = (err, out) => resolve(err ? [] : String(out).split(/\r?\n/));
-    if (process.platform === 'win32') execFile('tasklist', ['/FO', 'CSV', '/NH'], { windowsHide: true, maxBuffer: 8e6 }, done);
-    else execFile('ps', ['-axo', 'comm='], { maxBuffer: 8e6 }, done);
-  }).then((lines) => {
-    const names = new Set();
-    for (const line of lines) {
-      const raw = process.platform === 'win32' ? (/^"([^"]+)"/.exec(line) || [])[1] : line.trim().split('/').pop();
-      if (raw) names.add(raw.toLowerCase());
-    }
-    return names;
-  });
+function gameIconDataUrl(exePath) {
+  return app.getFileIcon(exePath, { size: 'large' })
+    .then((image) => {
+      if (!image || image.isEmpty()) return '';
+      const resized = image.resize({ width: 64, height: 64, quality: 'best' });
+      const png = resized.toPNG();
+      if (!png || !png.length) return '';
+      const url = `data:image/png;base64,${png.toString('base64')}`;
+      return url.length <= GAME_ICON_MAX ? url : '';
+    })
+    .catch(() => '');
 }
 
-const GAMES = [
-  ['minecraft.windows', 'Minecraft'], ['javaw.exe', 'Minecraft'], ['minecraftlauncher', 'Minecraft Launcher'],
-  ['fortniteclient-win64-shipping', 'Fortnite'], ['robloxplayerbeta', 'Roblox'], ['valorant-win64-shipping', 'VALORANT'],
-  ['league of legends', 'League of Legends'], ['cs2.exe', 'Counter-Strike 2'], ['csgo.exe', 'CS:GO'],
-  ['gta5.exe', 'Grand Theft Auto V'], ['r5apex', 'Apex Legends'], ['overwatch.exe', 'Overwatch 2'],
-  ['rocketleague', 'Rocket League'], ['dota2.exe', 'Dota 2'], ['rust.exe', 'Rust'],
-  ['amongus', 'Among Us'], ['genshinimpact', 'Genshin Impact'], ['eldenring', 'Elden Ring'],
-  ['cyberpunk2077', 'Cyberpunk 2077'], ['palworld', 'Palworld'], ['baldursgate3', "Baldur's Gate 3"],
-  ['hogwartslegacy', 'Hogwarts Legacy'], ['fc25', 'EA Sports FC 25'], ['codhq', 'Call of Duty'],
-  ['destiny2', 'Destiny 2'], ['wow.exe', 'World of Warcraft'], ['osu!', 'osu!'],
-];
-
-const HELPER = /launch|install|update|crash|helper|service|setup|bootstrap|widget|provider|uninst|webview|handler|tray|agent|server|report/;
-function matchGame(proc, key) {
-  const base = proc.replace(/\.exe$/, '');
-  if (key.endsWith('.exe')) return base === key.slice(0, -4);
-  return base.startsWith(key) && !HELPER.test(base.slice(key.length));
-}
-
-function withWindow(procs) {
-  if (process.platform !== 'win32' || !procs.length) return Promise.resolve(null);
-  const list = procs.map((p) => `'${p.replace(/\.exe$/, '').replace(/'/g, "''")}'`).join(',');
-  const cmd = `Get-Process -Name ${list} -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | ForEach-Object { $_.ProcessName }; exit 0`;
-  return new Promise((resolve) => {
-    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', cmd], { windowsHide: true, timeout: 15_000 }, (err, out) => {
-      if (err) return resolve(null);
-      resolve(new Set(String(out).split(/\r?\n/).map((l) => l.trim().toLowerCase()).filter(Boolean)));
-    });
-  });
+function getGameDetector() {
+  if (!gameDetector) {
+    gameDetector = createGameDetector({ readIcon: gameIconDataUrl });
+  }
+  return gameDetector;
 }
 
 let polling = false;
@@ -2283,21 +2293,24 @@ async function pollGames() {
   if (polling) return;
   polling = true;
   try {
-    const procs = [...(await listProcesses())];
-    const hits = [];
-    for (const [key, name] of GAMES) for (const p of procs) if (matchGame(p, key)) hits.push([p, name]);
-    let found = null;
-    if (hits.length) {
-      const shown = await withWindow([...new Set(hits.map(([p]) => p))]);
-      const hit = shown ? hits.find(([p]) => shown.has(p.replace(/\.exe$/, ''))) : hits[0];
-      found = hit ? hit[1] : null;
+    const found = await getGameDetector().detect();
+    if (found && lastGame && found.name === lastGame.name && found.exe === lastGame.exe && !found.icon) {
+      found.icon = lastGame.icon || '';
     }
-    if (found === lastGame) misses = 0;
-    else if (found === null && ++misses < 2) { /* zachowaj poprzedni */ }
-    else {
+    const same = found && lastGame
+      ? found.name === lastGame.name
+        && found.exe === lastGame.exe
+        && found.icon === lastGame.icon
+        && found.platform === lastGame.platform
+      : found === lastGame;
+    if (same) {
+      misses = 0;
+    } else if (!found && lastGame && ++misses < 2) {
+      /* chwilowy brak procesu - zachowaj poprzednią grę */
+    } else {
       misses = 0;
       lastGame = found;
-      if (win) win.webContents.send('chill:activity', found);
+      if (win && !win.isDestroyed()) win.webContents.send('chill:activity', found);
     }
   } finally {
     polling = false;
@@ -3346,7 +3359,7 @@ ipcMain.on('chill:shell-open-external', (e, url) => {
 });
 
 ipcMain.on('chill:activity:ask', () => {
-  if (win) win.webContents.send('chill:activity', lastGame);
+  if (win && !win.isDestroyed()) win.webContents.send('chill:activity', lastGame);
 });
 
 ipcMain.on('chill:screen-pick', (e, id) => {
@@ -3516,6 +3529,7 @@ if (!app.requestSingleInstanceLock()) {
     createWindow();
     createTray();
     Menu.setApplicationMenu(null);
+    getGameDetector().warmup();
 
     const sweepVoices = () => {
       try { pruneOrphanedVoices(); } catch (err) { console.error('[voice] Sprzątanie nie powiodło się:', err.message); }
@@ -3525,8 +3539,9 @@ if (!app.requestSingleInstanceLock()) {
 
     scheduleUpdateCheck();
 
-    setInterval(() => { pollGames().catch(() => {}); }, 20_000);
-    setTimeout(() => { pollGames().catch(() => {}); }, 3000);
+    const gamePoll = setInterval(() => { pollGames().catch(() => {}); }, 5_000);
+    gamePoll.unref?.();
+    setTimeout(() => { pollGames().catch(() => {}); }, 1500);
   });
 }
 

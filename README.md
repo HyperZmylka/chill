@@ -21,7 +21,7 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 - **GIF-y** — przycisk obok emoji, kategorie i wyszukiwarka; wybrany GIF pojawia się bezpośrednio w rozmowie.
 - **Wzmianki `@`** — podpowiedzi członków serwera i znajomych, wstawianie nicku z klawiatury i wyróżnienie w wiadomości.
 - **Statusy** — online, zaraz wracam, nie przeszkadzać, niewidoczny.
-- **Wykrywanie gier** — „Gra w …” na profilu i liście członków.
+- **Wykrywanie gier** — automatyczne rozpoznawanie uruchomionej gry i jej prawdziwej ikony z pliku EXE; „Gra w …” na profilu i liście członków.
 - **Powiadomienia** — systemowe dymki, przyjemny dwudźwięk przy nowej wiadomości i trzytonowy sygnał przy wzmiance, tryb „tylko wzmianki”, odznaki.
 - **Wygląd** — sześć presetów (Chill, Discord, Minimal, Zorza, Zachód słońca, Ocean), motyw Discord, 12 akcentów i własny kolor, kształt interfejsu (miękki, zaokrąglony, kwadratowy), tła (Zorza, Zachód słońca, Ocean, Las, Mono), styl wiadomości (dymki lub płaski jak w Discordzie), rozmiar tekstu, ograniczenie animacji i wysoki kontrast.
 - **Język interfejsu** — polski (domyślnie) albo angielski, przełączany w Ustawieniach → Język. Zmiana działa od razu, również w menu tray.
@@ -71,7 +71,7 @@ Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach p
 - Baner ma domyślnie czarny preset. Możesz wybrać inny gotowy wzór, zbudować własny gradient z dwóch kolorów, wzorem i emoji albo wgrać obraz. Podgląd w edytorze i karta profilu aktualizują się od razu.
 - Odznaki **PIWO** i **CHILL** są przyznawane kontu; nowe konta zaczynają z PIWO. Kolekcja pozwala dodać do 12 gier z nazwą i platformą (Steam, Epic, Medal, Roblox lub inna).
 - Profil konta jest zapisywany w `accounts.json`. Kopia pól profilu członka (handle, avatar, baner, odznaki, gry) trafia do `servers.json` hosta i jest rozsyłana do wszystkich połączonych osób, więc zmiany widać także po ponownym połączeniu.
-- Wykrywanie gier działa lokalnie na każdym komputerze. Aktywność **Gra w …** jest przekazywana do serwera jako stan członka i nie nadpisuje lokalnego stanu innych kont.
+- Wykrywanie gier działa lokalnie na każdym komputerze. Chill rozpoznaje setki znanych tytułów, przeszukuje biblioteki Steam, Epic, GOG, Xbox, EA, Ubisoft, Battle.net, Riot, Minecraft, Roblox i itch.io, a dla pozostałych gier stosuje heurystykę metadanych i ścieżki pliku. Ikona jest pobierana z EXE i skalowana do 64×64, a gdy jej brak — zastępuje ją emoji. Aktywność **Gra w …** jest przekazywana do serwera jako stan członka i nie nadpisuje lokalnego stanu innych kont.
 
 ## GIF-y
 
@@ -201,6 +201,7 @@ Szczegóły wydawania nowej wersji: [GITHUB-UPDATER.md](GITHUB-UPDATER.md).
 - `main.js` — okno, tray (także w języku interfejsu), konta, hostowanie serwerów (HTTP/WebSocket), walidacja uprawnień kanałów, `servers.json`, `language.json`, przechowywanie i serwowanie nagrań głosowych, aktualizacje.
 - `preload.js` — bezpieczny most `window.chill` (context isolation).
 - `renderer.js` — logowanie, serwery, kanały tekstowe/głosowe i ich menu (przypinanie, wyciszanie, powiadomienia, edycja, powielanie, przenoszenie), zaproszenia, profile i znajomi, DM-y, emoji, GIF-y, naklejki, nagrywanie i odtwarzanie wiadomości głosowych, wzmianki `@`, motywy, ustawienia, tłumaczenia PL/EN, powiadomienia.
+- `game-detect.js` — wykrywanie uruchomionych gier: znane procesy, katalog bibliotek, heurystyka, cache ikon i odczyt ikony z EXE.
 - `appearance.js` — wspólne presety wyglądu, walidacja kolorów i opcji oraz dobór czytelnego koloru tekstu akcentu.
 - `gifs.js` — statyczny katalog GIF-ów (96 pozycji GIPHY + 40 KLIPY, bez klucza API).
 - `stickers.js` — wbudowany zestaw 24 naklejek SVG.

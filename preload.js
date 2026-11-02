@@ -31,7 +31,7 @@ contextBridge.exposeInMainWorld('chill', {
     setBadge: (count) => ipcRenderer.send('chill:badge', Number(count) || 0),
     notify: (n) => ipcRenderer.send('chill:notify', { title: n?.title, body: n?.body }),
     onActivity: (cb) => {
-      ipcRenderer.on('chill:activity', (_e, name) => cb(name ?? null));
+      ipcRenderer.on('chill:activity', (_e, data) => cb(data ?? null));
       ipcRenderer.send('chill:activity:ask');
     },
     askActivity: () => ipcRenderer.send('chill:activity:ask'),
