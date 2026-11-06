@@ -1,5 +1,5 @@
 // Most między interfejsem Chill a procesem głównym (tylko bezpieczne API)
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webFrame } = require('electron');
 
 contextBridge.exposeInMainWorld('chill', {
   platform: process.platform,
@@ -17,6 +17,13 @@ contextBridge.exposeInMainWorld('chill', {
 
   app: {
     version: () => ipcRenderer.invoke('chill:app-version'),
+    setUiScale: (scale) => {
+      const value = Number(scale);
+      if (!Number.isFinite(value)) return null;
+      const clamped = Math.max(0.75, Math.min(1.5, value));
+      webFrame.setZoomFactor(clamped);
+      return clamped;
+    },
     autostartGet: () => ipcRenderer.invoke('chill:autostart-get'),
     autostartSet: (enabled) => ipcRenderer.invoke('chill:autostart-set', Boolean(enabled)),
     setLanguage: (lang) => ipcRenderer.send('chill:app-language', String(lang || 'pl')),

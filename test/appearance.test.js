@@ -22,6 +22,7 @@ test('appearance normalizes unknown values to safe defaults', () => {
     background: 'default',
     messageStyle: 'bubbles',
     fontScale: 'normal',
+    uiScale: 1,
     reduceMotion: false,
     highContrast: false,
   });
@@ -35,6 +36,7 @@ test('appearance accepts every supported option', () => {
     background: 'aurora',
     messageStyle: 'flat',
     fontScale: 'large',
+    uiScale: 1.25,
     reduceMotion: true,
     highContrast: true,
   });
@@ -45,9 +47,21 @@ test('appearance accepts every supported option', () => {
     background: 'aurora',
     messageStyle: 'flat',
     fontScale: 'large',
+    uiScale: 1.25,
     reduceMotion: true,
     highContrast: true,
   });
+});
+
+test('UI scale clamps to a safe range and defaults to 100%', () => {
+  assert.equal(appearance.normalizeUiScale(undefined), 1);
+  assert.equal(appearance.normalizeUiScale(null), 1);
+  assert.equal(appearance.normalizeUiScale(''), 1);
+  assert.equal(appearance.normalizeUiScale('nope'), 1);
+  assert.equal(appearance.normalizeUiScale(0.1), 0.75);
+  assert.equal(appearance.normalizeUiScale(3), 1.5);
+  assert.equal(appearance.normalizeUiScale('1.25'), 1.25);
+  assert.equal(appearance.normalizeUiScale(1.234), 1.23);
 });
 
 test('colors accept short hex and lower-case the result', () => {
@@ -73,7 +87,7 @@ test('all presets are valid, immutable copies', () => {
   for (const id of appearance.PRESET_IDS) {
     const entry = appearance.preset(id);
     assert.ok(entry, `missing preset ${id}`);
-    assert.deepEqual(appearance.normalizeAppearance(entry), entry);
+    assert.deepEqual(appearance.normalizeAppearance(entry), { ...entry, uiScale: 1 });
     assert.equal(appearance.matchPreset(entry), id);
     entry.accent = '#000000';
     assert.notEqual(appearance.preset(id).accent, '#000000');
@@ -88,6 +102,11 @@ test('preset matching reports custom when any option differs', () => {
   assert.equal(appearance.matchPreset({ ...discord, reduceMotion: true }), 'custom');
 });
 
+test('UI scale is independent from appearance presets', () => {
+  const discord = appearance.preset('discord');
+  assert.equal(appearance.matchPreset({ ...discord, uiScale: 1.4 }), 'discord');
+});
+
 test('default appearance matches the Chill preset', () => {
   const defaults = {
     theme: 'system',
@@ -96,6 +115,7 @@ test('default appearance matches the Chill preset', () => {
     background: 'default',
     messageStyle: 'bubbles',
     fontScale: 'normal',
+    uiScale: 1,
     reduceMotion: false,
     highContrast: false,
   };

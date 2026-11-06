@@ -157,6 +157,8 @@ let mentionState = { start: 0, end: 0, items: [], index: 0 };
 let channelType = 'text';
 let editingChannelId = null;
 let menuChannelId = null;
+let serverSettingsColor = '#3ee0a3';
+let serverProfileColor = '#3ee0a3';
 let deleteChannelId = null;
 let pendingChannelDelete = false;
 let channelPrefs = {};
@@ -180,6 +182,7 @@ const DEFAULT_PREFS = {
   background: 'default',
   messageStyle: 'bubbles',
   fontScale: 'normal',
+  uiScale: 1,
   reduceMotion: false,
   highContrast: false,
   compact: false,
@@ -189,6 +192,8 @@ const DEFAULT_PREFS = {
   gameDetect: true,
   status: 'online',
   lang: 'pl',
+  showAllChannels: true,
+  hideMutedChannels: false,
   micMuted: false,
   deafened: false,
   audioInput: '',
@@ -422,6 +427,9 @@ const I18N_EN = {
   'Nowe hasło': 'New password',
   'Zmień hasło': 'Change password',
   'Dopasuj Chill do siebie. Zmiany zapisują się od razu.': 'Make Chill yours. Changes save instantly.',
+  'Skala interfejsu': 'Interface scale',
+  'Przywróć 100%': 'Restore 100%',
+  'Skaluje całą aplikację, łącznie z oknami ustawień i menu. Domyślnie 100%.': 'Scales the entire app, including settings windows and menus. Defaults to 100%.',
   'Motyw': 'Theme',
   'Systemowy': 'System',
   'Czarny': 'Black',
@@ -833,6 +841,57 @@ const I18N_EN = {
   'Discord': 'Discord',
   'Minimal': 'Minimal',
 
+  // Menu serwera / ustawienia serwera
+  'Menu serwera': 'Server menu',
+  'Wzmocnienie serwera': 'Server boost',
+  'Zaproś na serwer': 'Invite to server',
+  'Tag serwera': 'Server tag',
+  'Ustawienia serwera': 'Server settings',
+  'Wgląd w serwer': 'Server insights',
+  'Utworzenie kanału': 'Create channel',
+  'Stwórz kategorię': 'Create category',
+  'Stwórz wydarzenie': 'Create event',
+  'Katalog aplikacji': 'App directory',
+  'Pokaż wszystkie kanały': 'Show all channels',
+  'Ustawienia prywatności': 'Privacy settings',
+  'Edytuj profil serwerowy': 'Edit server profile',
+  'Ukryj wyciszone kanały': 'Hide muted channels',
+  'Działania bezpieczeństwa': 'Security actions',
+  'Zgłoś atak': 'Report raid',
+  'Kopiuj ID serwera': 'Copy server ID',
+  'Wkrótce': 'Soon',
+  'Ta funkcja pojawi się wkrótce.': 'This feature is coming soon.',
+  'Zmień nazwę, ikonę, tag i kolor serwera.': 'Change the server name, icon, tag and color.',
+  'Ikona serwera': 'Server icon',
+  'np. 🐺': 'e.g. 🐺',
+  'Tag serwera (opcjonalnie)': 'Server tag (optional)',
+  'np. WOLF': 'e.g. WOLF',
+  'Krótki tag widoczny przy nazwie serwera.': 'A short tag shown next to the server name.',
+  'Zapisz zmiany': 'Save changes',
+  'Ustawienia serwera zostały zapisane.': 'Server settings saved.',
+  'Nie udało się zapisać ustawień serwera.': 'Could not save server settings.',
+  'Tylko właściciel serwera może edytować ustawienia serwera.': 'Only the server owner can edit server settings.',
+  'Statystyki i aktywność serwera.': 'Server statistics and activity.',
+  'Kanały tekstowe': 'Text channels',
+  'Kanały głosowe': 'Voice channels',
+  'Wiadomości': 'Messages',
+  'Kod zaproszenia': 'Invite code',
+  'Utworzono serwer {date}': 'Server created on {date}',
+  'Zmień, jak widzą Cię inni na tym serwerze.': 'Change how others see you on this server.',
+  'Nazwa na serwerze': 'Server nickname',
+  'Profil serwerowy zaktualizowany': 'Server profile updated.',
+  'Nazwa na serwerze musi mieć 2–32 znaki.': 'The server nickname must be 2–32 characters.',
+  'Opuścić serwer?': 'Leave server?',
+  'Czy na pewno chcesz opuścić serwer „{name}”? Będziesz mógł dołączyć ponownie, jeśli otrzymasz nowe zaproszenie.': 'Are you sure you want to leave “{name}”? You can rejoin if you receive a new invite.',
+  'Skopiowano ID serwera.': 'Server ID copied.',
+  'Nie udało się skopiować ID serwera.': 'Could not copy the server ID.',
+  'Tag serwera: {tag}': 'Server tag: {tag}',
+  'Ten serwer nie ma jeszcze tagu.': 'This server does not have a tag yet.',
+  'Ustawienia prywatności serwera pojawią się wkrótce.': 'Server privacy settings are coming soon.',
+  'Wszystkie kanały są widoczne.': 'All channels are visible.',
+  'Wszystkie kanały są ukryte.': 'All channels are hidden.',
+  'Wyciszone kanały są ukryte.': 'Muted channels are hidden.',
+
   // Daty / statusy
   'Dzisiaj': 'Today',
   'Wczoraj': 'Yesterday',
@@ -984,6 +1043,8 @@ function loadPrefs() {
   else if (!['system', 'black', 'white', 'gradient', 'discord'].includes(prefs.theme)) prefs.theme = 'system';
   if (prefs.lang !== 'en') prefs.lang = 'pl';
   prefs.compact = Boolean(prefs.compact);
+  prefs.showAllChannels = prefs.showAllChannels !== false;
+  prefs.hideMutedChannels = prefs.hideMutedChannels === true;
   prefs.micMuted = Boolean(prefs.micMuted);
   prefs.deafened = Boolean(prefs.deafened);
   prefs.audioInput = typeof prefs.audioInput === 'string' ? prefs.audioInput : '';
@@ -1088,6 +1149,16 @@ function applyAccent(color) {
   }
 }
 
+function applyUiScale(value) {
+  const factor = APPEARANCE ? APPEARANCE.normalizeUiScale(value) : 1;
+  prefs.uiScale = factor;
+  if (CHILL.app?.setUiScale) CHILL.app.setUiScale(factor);
+  const range = $('uiScaleRange');
+  if (range) range.value = String(Math.round(factor * 100));
+  const label = $('uiScaleValue');
+  if (label) label.textContent = `${Math.round(factor * 100)}%`;
+}
+
 function applyAppearance() {
   if (!APPEARANCE) return;
   Object.assign(prefs, APPEARANCE.normalizeAppearance(prefs));
@@ -1098,6 +1169,7 @@ function applyAppearance() {
   document.body.dataset.motion = prefs.reduceMotion ? 'reduced' : 'full';
   document.body.dataset.contrast = prefs.highContrast ? 'high' : 'normal';
   applyAccent(prefs.accent);
+  applyUiScale(prefs.uiScale);
   syncAppearanceControls();
 }
 
@@ -1275,6 +1347,7 @@ function showAuth(mode = 'login') {
   $('loginScreen').style.display = 'grid';
   $('chatApp').style.display = 'none';
   $('bootSplash').hidden = true;
+  if (CHILL.app?.setUiScale) CHILL.app.setUiScale(1);
   switchAuthTab(mode);
 }
 
@@ -3564,6 +3637,7 @@ function handleServerFrame(serverId, msg) {
           icon: msg.server.icon || '',
           color: msg.server.color || state.server.color,
           invite: msg.server.invite || state.server.invite,
+          tag: normalizeServerTag(msg.server.tag || state.server.tag),
           ownerId: msg.server.ownerId,
           owner: Boolean(state.you?.owner),
         };
@@ -3573,6 +3647,7 @@ function handleServerFrame(serverId, msg) {
           icon: state.server.icon,
           color: state.server.color,
           invite: state.server.invite,
+          tag: state.server.tag,
           owner: state.server.owner,
         });
       }
@@ -3646,6 +3721,42 @@ function handleServerFrame(serverId, msg) {
       if (!liveVoice || liveVoice.serverId !== serverId) return;
       stopScreenShare({ silent: true, localOnly: true });
       toast(t('Ktoś już udostępnia ekran na tym kanale.'));
+      break;
+    }
+
+    case 'server:info': {
+      const info = msg.server;
+      if (!info || info.id !== serverId) break;
+      state.server = {
+        ...state.server,
+        name: info.name || state.server.name,
+        icon: typeof info.icon === 'string' ? info.icon : state.server.icon,
+        color: info.color || state.server.color,
+        tag: normalizeServerTag(info.tag),
+        invite: info.invite || state.server.invite,
+        createdAt: Number(info.createdAt) || state.server.createdAt,
+        owner: Boolean(state.you?.owner),
+      };
+      const entry = servers.find((item) => item.id === serverId);
+      if (entry) Object.assign(entry, {
+        name: state.server.name,
+        icon: state.server.icon,
+        color: state.server.color,
+        invite: state.server.invite,
+        tag: state.server.tag,
+      });
+      if (activeServerId === serverId) {
+        renderSidebar();
+        renderHeader();
+      }
+      renderServers();
+      if (!$('serverSettingsOverlay').hidden) {
+        $('saveServerSettings').disabled = false;
+        if (msg.actorId === state.you?.memberId) {
+          closeServerSettings();
+          toast(t('Ustawienia serwera zostały zapisane.'));
+        }
+      }
       break;
     }
 
@@ -3887,6 +3998,10 @@ function handleServerFrame(serverId, msg) {
         pendingChannelDelete = false;
         $('confirmDeleteChannel').disabled = false;
       }
+      if (!$('serverSettingsOverlay').hidden && ['invalid-name', 'forbidden'].includes(msg.code)) {
+        $('serverSettingsError').textContent = state.error;
+        $('saveServerSettings').disabled = false;
+      }
       if (msg.code === 'not-found' || msg.code === 'invalid-invite') {
         state.fatal = true;
         state.status = 'offline';
@@ -3991,6 +4106,113 @@ function bindServers() {
   $('serverOverlay').addEventListener('click', (e) => {
     if (e.target === $('serverOverlay')) closeServerModal();
   });
+
+  // Menu serwera
+  $('serverBanner').addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleServerMenu();
+  });
+  $('serverBanner').addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openServerMenu();
+  });
+  $('serverMenu').addEventListener('click', (event) => {
+    event.stopPropagation();
+    const button = event.target.closest('[data-server-action]');
+    if (button) handleServerAction(button.dataset.serverAction);
+  });
+  document.addEventListener('click', (event) => {
+    if (event.target.closest('#serverMenu') || event.target.closest('#serverBanner')) return;
+    closeServerMenu();
+  });
+  document.addEventListener('keydown', (event) => {
+    const menu = $('serverMenu');
+    if (!menu || menu.hidden) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeServerMenu();
+      $('serverBanner').focus({ preventScroll: true });
+      return;
+    }
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      const items = [...menu.querySelectorAll('button:not([disabled])')].filter((item) => item.offsetParent !== null);
+      if (!items.length) return;
+      const index = items.indexOf(document.activeElement);
+      const step = event.key === 'ArrowDown' ? 1 : -1;
+      items[(index + step + items.length) % items.length]?.focus();
+    }
+  });
+  window.addEventListener('resize', closeServerMenu);
+  document.addEventListener('scroll', (event) => {
+    const menu = $('serverMenu');
+    if (menu && (event.target === menu || menu.contains(event.target))) return;
+    closeServerMenu();
+  }, true);
+
+  // Ustawienia serwera
+  $('closeServerSettings').addEventListener('click', closeServerSettings);
+  $('cancelServerSettings').addEventListener('click', closeServerSettings);
+  $('serverSettingsOverlay').addEventListener('click', (event) => {
+    if (event.target === $('serverSettingsOverlay')) closeServerSettings();
+  });
+  $('serverSettingsColors').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-server-color]');
+    if (!button) return;
+    serverSettingsColor = button.dataset.serverColor;
+    markColorSelection($('serverSettingsColors'), serverSettingsColor);
+    updateServerSettingsPreview();
+  });
+  ['serverSettingsName', 'serverSettingsIcon', 'serverSettingsTag'].forEach((id) => {
+    $(id).addEventListener('input', updateServerSettingsPreview);
+  });
+  $('serverSettingsName').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      saveServerSettings();
+    }
+  });
+  $('saveServerSettings').addEventListener('click', saveServerSettings);
+
+  // Wgląd w serwer
+  $('closeServerInsight').addEventListener('click', closeServerInsights);
+  $('closeServerInsightBtn').addEventListener('click', closeServerInsights);
+  $('serverInsightOverlay').addEventListener('click', (event) => {
+    if (event.target === $('serverInsightOverlay')) closeServerInsights();
+  });
+
+  // Profil serwerowy
+  $('closeServerProfile').addEventListener('click', closeServerProfileEditor);
+  $('cancelServerProfile').addEventListener('click', closeServerProfileEditor);
+  $('serverProfileOverlay').addEventListener('click', (event) => {
+    if (event.target === $('serverProfileOverlay')) closeServerProfileEditor();
+  });
+  $('serverProfileColors').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-color]');
+    if (!button) return;
+    serverProfileColor = button.dataset.color;
+    markColorSelection($('serverProfileColors'), serverProfileColor);
+    updateServerProfilePreview();
+  });
+  $('serverProfileName').addEventListener('input', updateServerProfilePreview);
+  $('serverProfileName').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      saveServerProfile();
+    }
+  });
+  $('saveServerProfile').addEventListener('click', saveServerProfile);
+
+  // Opuszczanie serwera z menu
+  $('closeLeaveServer').addEventListener('click', closeLeaveServerConfirm);
+  $('cancelLeaveServer').addEventListener('click', closeLeaveServerConfirm);
+  $('leaveServerOverlay').addEventListener('click', (event) => {
+    if (event.target === $('leaveServerOverlay')) closeLeaveServerConfirm();
+  });
+  $('confirmLeaveServer').addEventListener('click', confirmLeaveServerFromMenu);
 
   document.querySelectorAll('[data-server-tab]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -4345,6 +4567,7 @@ function updateChannelMenu() {
 function openChannelMenu(event, channel) {
   const state = serverState(activeServerId);
   if (!channel || !state?.you?.owner || state.status !== 'online') return;
+  closeServerMenu();
   event?.preventDefault?.();
   event?.stopPropagation?.();
   menuChannelId = channel.id;
@@ -4370,6 +4593,376 @@ function closeChannelMenu() {
   closeChannelSubmenus();
   const menu = $('channelMenu');
   if (menu) menu.hidden = true;
+}
+
+function normalizeServerTag(value) {
+  return String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+}
+
+function serverMenuButton(action, icon, label, options = {}) {
+  const classes = `context-item${options.danger ? ' danger' : ''}`;
+  const role = options.check === undefined ? 'menuitem' : 'menuitemcheckbox';
+  const checked = options.check === undefined ? '' : ` aria-checked="${options.check ? 'true' : 'false'}"`;
+  const check = options.check === undefined
+    ? ''
+    : `<span class="server-menu-check${options.check ? ' checked' : ''}" aria-hidden="true">✓</span>`;
+  const badge = options.badge
+    ? `<span class="context-badge${options.tag ? ' server-tag-pill' : ''}">${esc(options.badge)}</span>`
+    : '';
+  return `<button type="button" class="${classes}" data-server-action="${esc(action)}" role="${role}"${checked}>
+    <span class="context-icon" aria-hidden="true">${icon}</span>
+    <span class="server-menu-label">${esc(label)}</span>
+    ${badge}${check}
+  </button>`;
+}
+
+function serverMenuSeparator() {
+  return '<div class="context-sep" role="separator"></div>';
+}
+
+function renderServerMenu() {
+  const state = serverState(activeServerId);
+  const menu = $('serverMenu');
+  if (!menu) return;
+  if (!state) {
+    closeServerMenu();
+    return;
+  }
+  const owner = Boolean(state.you?.owner);
+  const tag = normalizeServerTag(state.server.tag);
+  const previousFocus = menu.contains(document.activeElement) ? document.activeElement.dataset.serverAction : '';
+  const previousScroll = menu.scrollTop;
+  $('serverMenuAvatar').textContent = state.server.icon || initial(state.server.name);
+  $('serverMenuAvatar').style.background = safeColor(state.server.color, 'var(--panel-2)');
+  $('serverMenuName').textContent = state.server.name;
+  $('serverMenuOwnerPill').hidden = !owner;
+
+  const soon = t('Wkrótce');
+  const rows = [];
+  rows.push(serverMenuButton('boost', '💎', t('Wzmocnienie serwera'), { badge: soon }));
+  if (!owner) {
+    rows.push(serverMenuButton('tag', '🏷', t('Tag serwera'), tag ? { badge: tag, tag: true } : {}));
+  }
+  rows.push(serverMenuSeparator());
+  rows.push(serverMenuButton('invite', '👥', t('Zaproś na serwer')));
+  if (owner) {
+    rows.push(serverMenuButton('settings', '⚙️', t('Ustawienia serwera')));
+    rows.push(serverMenuButton('insights', '📊', t('Wgląd w serwer')));
+    rows.push(serverMenuButton('create-channel', '➕', t('Utworzenie kanału')));
+    rows.push(serverMenuButton('category', '📁', t('Stwórz kategorię'), { badge: soon }));
+    rows.push(serverMenuButton('event', '🗓', t('Stwórz wydarzenie'), { badge: soon }));
+    rows.push(serverMenuButton('apps', '🧩', t('Katalog aplikacji'), { badge: soon }));
+  } else {
+    rows.push(serverMenuButton('apps', '🧩', t('Katalog aplikacji'), { badge: soon }));
+  }
+  rows.push(serverMenuSeparator());
+  rows.push(serverMenuButton('show-all', '👁', t('Pokaż wszystkie kanały'), { check: prefs.showAllChannels !== false }));
+  rows.push(serverMenuButton('notifications', '🔔', t('Ustawienia powiadomień')));
+  rows.push(serverMenuButton('privacy', '🛡', t('Ustawienia prywatności'), { badge: soon }));
+  rows.push(serverMenuSeparator());
+  rows.push(serverMenuButton('edit-profile', '✏️', t('Edytuj profil serwerowy')));
+  rows.push(serverMenuButton('hide-muted', '🔇', t('Ukryj wyciszone kanały'), { check: Boolean(prefs.hideMutedChannels) }));
+  rows.push(serverMenuSeparator());
+  if (owner) {
+    rows.push(serverMenuButton('security', '🔒', t('Działania bezpieczeństwa'), { badge: soon, danger: true }));
+    rows.push(serverMenuButton('report', '🚨', t('Zgłoś atak'), { badge: soon, danger: true }));
+  } else {
+    rows.push(serverMenuButton('leave', '🚪', t('Opuść serwer'), { danger: true }));
+  }
+  rows.push(serverMenuSeparator());
+  rows.push(serverMenuButton('copy-id', '🆔', t('Kopiuj ID serwera')));
+  $('serverMenuItems').innerHTML = rows.join('');
+  menu.scrollTop = previousScroll;
+  if (previousFocus) {
+    menu.querySelector(`[data-server-action="${previousFocus}"]`)?.focus({ preventScroll: true });
+  }
+}
+
+function openServerMenu() {
+  const state = serverState(activeServerId);
+  if (!state) return;
+  closeChannelMenu();
+  closeAudioMenus();
+  renderServerMenu();
+  const menu = $('serverMenu');
+  const banner = $('serverBanner');
+  menu.hidden = false;
+  menu.style.maxHeight = '';
+  banner.setAttribute('aria-expanded', 'true');
+  const anchor = banner.getBoundingClientRect();
+  const maxBelow = window.innerHeight - anchor.bottom - 14;
+  const maxAbove = anchor.top - 14;
+  let top = anchor.bottom + 6;
+  if (maxBelow >= 220 || maxBelow >= maxAbove) {
+    menu.style.maxHeight = `${Math.max(180, maxBelow)}px`;
+  } else {
+    menu.style.maxHeight = `${Math.max(180, Math.min(menu.getBoundingClientRect().height, maxAbove))}px`;
+    top = Math.max(8, anchor.top - 6 - menu.getBoundingClientRect().height);
+  }
+  let left = anchor.left;
+  left = Math.max(8, Math.min(left, window.innerWidth - menu.getBoundingClientRect().width - 8));
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  menu.scrollTop = 0;
+}
+
+function closeServerMenu() {
+  const menu = $('serverMenu');
+  if (menu) menu.hidden = true;
+  $('serverBanner')?.setAttribute('aria-expanded', 'false');
+}
+
+function toggleServerMenu() {
+  if ($('serverMenu').hidden) openServerMenu();
+  else closeServerMenu();
+}
+
+function handleServerAction(action) {
+  const state = serverState(activeServerId);
+  if (!state || !action) {
+    closeServerMenu();
+    return;
+  }
+  if (action === 'show-all') {
+    prefs.showAllChannels = !prefs.showAllChannels;
+    savePrefs();
+    renderChannels();
+    renderServerMenu();
+    return;
+  }
+  if (action === 'hide-muted') {
+    prefs.hideMutedChannels = !prefs.hideMutedChannels;
+    savePrefs();
+    renderChannels();
+    renderServerMenu();
+    return;
+  }
+  closeServerMenu();
+  if (action === 'boost' || action === 'category' || action === 'event' || action === 'apps' || action === 'security' || action === 'report') {
+    toast(t('Ta funkcja pojawi się wkrótce.'));
+    return;
+  }
+  if (action === 'tag') {
+    const tag = normalizeServerTag(state.server.tag);
+    toast(tag ? t('Tag serwera: {tag}', { tag }) : t('Ten serwer nie ma jeszcze tagu.'));
+    return;
+  }
+  if (action === 'invite') {
+    void openInviteModal();
+    return;
+  }
+  if (action === 'settings') {
+    openServerSettings();
+    return;
+  }
+  if (action === 'insights') {
+    openServerInsights();
+    return;
+  }
+  if (action === 'create-channel') {
+    openChannelModal();
+    return;
+  }
+  if (action === 'notifications') {
+    openSettings('notifications');
+    return;
+  }
+  if (action === 'privacy') {
+    toast(t('Ustawienia prywatności serwera pojawią się wkrótce.'));
+    return;
+  }
+  if (action === 'edit-profile') {
+    openServerProfileEditor();
+    return;
+  }
+  if (action === 'leave') {
+    openLeaveServerConfirm();
+    return;
+  }
+  if (action === 'copy-id') {
+    copyText(state.server.id)
+      .then(() => toast(t('Skopiowano ID serwera.')))
+      .catch(() => toast(t('Nie udało się skopiować ID serwera.')));
+  }
+}
+
+function updateServerSettingsPreview() {
+  const state = serverState(activeServerId);
+  const name = $('serverSettingsName').value.trim() || t('Serwer');
+  const icon = $('serverSettingsIcon').value.trim();
+  const tag = normalizeServerTag($('serverSettingsTag').value);
+  $('serverSettingsAvatar').textContent = icon || initial(name);
+  $('serverSettingsAvatar').style.background = safeColor(serverSettingsColor, state?.server?.color || 'var(--panel-2)');
+  $('serverSettingsPreviewName').textContent = name;
+  $('serverSettingsPreviewTag').textContent = tag;
+  $('serverSettingsPreviewTag').hidden = !tag;
+}
+
+function openServerSettings() {
+  const state = serverState(activeServerId);
+  if (!state?.you?.owner) return;
+  serverSettingsColor = safeColor(state.server.color, '#3ee0a3');
+  $('serverSettingsName').value = state.server.name || '';
+  $('serverSettingsIcon').value = state.server.icon || '';
+  $('serverSettingsTag').value = normalizeServerTag(state.server.tag);
+  markColorSelection($('serverSettingsColors'), serverSettingsColor);
+  $('serverSettingsError').textContent = '';
+  $('saveServerSettings').disabled = false;
+  updateServerSettingsPreview();
+  $('serverSettingsOverlay').hidden = false;
+  setTimeout(() => $('serverSettingsName').focus(), 40);
+}
+
+function closeServerSettings() {
+  $('serverSettingsOverlay').hidden = true;
+  $('serverSettingsError').textContent = '';
+  $('saveServerSettings').disabled = false;
+}
+
+function saveServerSettings() {
+  const state = serverState(activeServerId);
+  if (!state?.you?.owner) {
+    closeServerSettings();
+    return;
+  }
+  const errorEl = $('serverSettingsError');
+  errorEl.textContent = '';
+  const name = $('serverSettingsName').value.trim();
+  if (name.length < 2 || name.length > 40) {
+    errorEl.textContent = t('Nazwa serwera musi mieć 2–40 znaków.');
+    $('serverSettingsName').focus();
+    return;
+  }
+  if (!state.ws || state.status !== 'online' || state.ws.readyState !== WebSocket.OPEN) {
+    errorEl.textContent = t('Serwer jest offline — spróbuj, gdy połączenie wróci.');
+    return;
+  }
+  const icon = $('serverSettingsIcon').value.trim().slice(0, 4);
+  const tag = normalizeServerTag($('serverSettingsTag').value);
+  $('saveServerSettings').disabled = true;
+  try {
+    state.ws.send(JSON.stringify({
+      type: 'server:update',
+      name,
+      icon,
+      tag,
+      color: serverSettingsColor,
+    }));
+  } catch {
+    $('saveServerSettings').disabled = false;
+    errorEl.textContent = t('Nie udało się zapisać ustawień serwera.');
+  }
+}
+
+function openServerInsights() {
+  const state = serverState(activeServerId);
+  if (!state?.you?.owner) return;
+  const totalMessages = state.channels.reduce((sum, channel) => {
+    return sum + (history.get(`server:${state.server.id}:${channel.id}`)?.length || 0);
+  }, 0);
+  $('serverInsightServer').textContent = state.server.name;
+  $('serverInsightMembers').textContent = String(state.members.length);
+  $('serverInsightOnline').textContent = String(state.members.filter((member) => member.online).length);
+  $('serverInsightTextChannels').textContent = String(state.channels.filter((channel) => channel.type !== 'voice').length);
+  $('serverInsightVoiceChannels').textContent = String(state.channels.filter((channel) => channel.type === 'voice').length);
+  $('serverInsightMessages').textContent = String(totalMessages);
+  $('serverInsightInvite').textContent = state.server.invite || '—';
+  const createdAt = Number(state.server.createdAt) || Date.now();
+  const date = new Date(createdAt).toLocaleDateString(prefs.lang === 'en' ? 'en-US' : 'pl-PL', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  $('serverInsightCreated').textContent = t('Utworzono serwer {date}', { date });
+  $('serverInsightOverlay').hidden = false;
+}
+
+function closeServerInsights() {
+  $('serverInsightOverlay').hidden = true;
+}
+
+function serverProfileSelf(state) {
+  return state?.members.find((member) => member.id === state.you?.memberId) || null;
+}
+
+function updateServerProfilePreview() {
+  const state = serverState(activeServerId);
+  const name = $('serverProfileName').value.trim() || t('Gość');
+  $('serverProfileAvatar').textContent = initial(name);
+  $('serverProfileAvatar').style.background = safeColor(serverProfileColor, 'var(--panel-2)');
+  $('serverProfilePreviewName').textContent = name;
+  $('serverProfileServerName').textContent = state?.server?.name || '';
+}
+
+function openServerProfileEditor() {
+  const state = serverState(activeServerId);
+  if (!state) return;
+  const me = serverProfileSelf(state);
+  $('serverProfileName').value = me?.name || myName || '';
+  serverProfileColor = safeColor(me?.color || myColor, '#3ee0a3');
+  markColorSelection($('serverProfileColors'), serverProfileColor);
+  $('serverProfileError').textContent = '';
+  $('saveServerProfile').disabled = false;
+  updateServerProfilePreview();
+  $('serverProfileOverlay').hidden = false;
+  setTimeout(() => {
+    $('serverProfileName').focus();
+    $('serverProfileName').select();
+  }, 40);
+}
+
+function closeServerProfileEditor() {
+  $('serverProfileOverlay').hidden = true;
+  $('serverProfileError').textContent = '';
+  $('saveServerProfile').disabled = false;
+}
+
+function saveServerProfile() {
+  const state = serverState(activeServerId);
+  if (!state) {
+    closeServerProfileEditor();
+    return;
+  }
+  const errorEl = $('serverProfileError');
+  errorEl.textContent = '';
+  const name = $('serverProfileName').value.trim();
+  if (name.length < 2 || name.length > 32) {
+    errorEl.textContent = t('Nazwa na serwerze musi mieć 2–32 znaki.');
+    $('serverProfileName').focus();
+    return;
+  }
+  if (!state.ws || state.status !== 'online' || state.ws.readyState !== WebSocket.OPEN) {
+    errorEl.textContent = t('Serwer jest offline — spróbuj, gdy połączenie wróci.');
+    return;
+  }
+  $('saveServerProfile').disabled = true;
+  try {
+    state.ws.send(JSON.stringify({ type: 'server:profile', name, color: serverProfileColor }));
+    closeServerProfileEditor();
+    toast(t('Profil serwerowy zaktualizowany'));
+  } catch {
+    $('saveServerProfile').disabled = false;
+    errorEl.textContent = t('Wystąpił błąd. Spróbuj ponownie.');
+  }
+}
+
+function openLeaveServerConfirm() {
+  const state = serverState(activeServerId);
+  if (!state || state.you?.owner) return;
+  $('leaveServerText').textContent = t('Czy na pewno chcesz opuścić serwer „{name}”? Będziesz mógł dołączyć ponownie, jeśli otrzymasz nowe zaproszenie.', { name: state.server.name });
+  $('confirmLeaveServer').disabled = false;
+  $('leaveServerOverlay').hidden = false;
+}
+
+function closeLeaveServerConfirm() {
+  $('leaveServerOverlay').hidden = true;
+  $('confirmLeaveServer').disabled = false;
+}
+
+async function confirmLeaveServerFromMenu() {
+  $('confirmLeaveServer').disabled = true;
+  await leaveActiveServer(true);
+  closeLeaveServerConfirm();
 }
 
 function setChannelNotifyLevel(level) {
@@ -5173,10 +5766,10 @@ function resetLeaveConfirm() {
   $('leaveServerBtn').disabled = false;
 }
 
-async function leaveActiveServer() {
+async function leaveActiveServer(force = false) {
   const state = serverState(activeServerId);
   if (!state) return;
-  if (!leaveArmed) {
+  if (!leaveArmed && !force) {
     leaveArmed = true;
     $('leaveServerBtn').textContent = state.you?.owner ? t('Kliknij ponownie, aby usunąć') : t('Kliknij ponownie, aby opuścić');
     clearTimeout(leaveTimer);
@@ -5228,6 +5821,7 @@ function pushHistory(key, message) {
 }
 
 function selectConversation(kind, id) {
+  closeServerMenu();
   resetVoiceSession();
   activeServerId = null;
   current = { kind, id };
@@ -5312,6 +5906,7 @@ function unreadCountFor(prefix) {
 }
 
 function selectHome() {
+  closeServerMenu();
   resetVoiceSession();
   activeServerId = null;
   current = { kind: 'home' };
@@ -5333,6 +5928,7 @@ function selectHome() {
 function selectServer(id) {
   const server = servers.find((item) => item.id === id);
   if (!server) return;
+  closeServerMenu();
   resetVoiceSession();
   hideMentionPop();
   const state = ensureServerState(server);
@@ -5361,6 +5957,7 @@ function selectServer(id) {
 function selectChannel(channelId) {
   const state = serverState(activeServerId);
   if (!state || !state.channels.some((channel) => channel.id === channelId)) return;
+  closeServerMenu();
   resetVoiceSession();
   hideMentionPop();
   state.lastChannelId = channelId;
@@ -5389,7 +5986,10 @@ function renderSidebar() {
   $('channelsGroup').hidden = !state;
   $('dmGroup').hidden = Boolean(state);
   $('conversationSearch').placeholder = t(state ? 'Szukaj kanału' : 'Szukaj rozmowy');
-  $('inviteBtn').hidden = !state;
+  const activeChannel = state && current.kind === 'server' && current.serverId === state.server.id
+    ? state.channels.find((channel) => channel.id === current.id)
+    : null;
+  $('inviteBtn').hidden = !state || activeChannel?.type === 'voice';
   if (state) {
     $('serverBannerName').textContent = state.server.name;
     $('serverBannerAvatar').textContent = state.server.icon || initial(state.server.name);
@@ -5402,6 +6002,7 @@ function renderSidebar() {
   }
   renderServers();
   renderVoiceConnectedPanel();
+  if (!$('serverMenu').hidden) renderServerMenu();
 }
 
 function renderServers() {
@@ -5444,18 +6045,33 @@ function renderChannels() {
     return;
   }
   const query = $('conversationSearch').value.trim().toLowerCase();
+  const activeChannelId = current.kind === 'server' && current.serverId === state.server.id ? current.id : '';
   const list = state.channels
-    .filter((channel) => !query || channel.name.toLowerCase().includes(query))
     .map((channel, index) => ({
       channel,
       index,
       settings: channelSettings(state.server.id, channel.id),
     }))
+    .filter(({ channel, settings }) => {
+      if (query && !channel.name.toLowerCase().includes(query)) return false;
+      const active = channel.id === activeChannelId;
+      if (!prefs.showAllChannels && channel.type === 'voice' && !active) {
+        if (!voiceParticipants(state, channel.id).length && !liveVoiceConnectedHere(state.server.id, channel.id)) return false;
+      }
+      if (prefs.hideMutedChannels && settings.muted && !active) {
+        if (!(unread.get(`server:${state.server.id}:${channel.id}`) || 0)) return false;
+      }
+      return true;
+    })
     .sort((a, b) => Number(b.settings.pinned) - Number(a.settings.pinned) || a.index - b.index);
   container.innerHTML = '';
 
   if (!list.length) {
-    container.innerHTML = `<div class="nav-empty">${state.status === 'online' ? esc(t('Brak kanałów')) : esc(t('Łączę z serwerem…'))}</div>`;
+    let label = t('Łączę z serwerem…');
+    if (state.status === 'online') {
+      label = state.channels.length ? t('Wszystkie kanały są ukryte.') : t('Brak kanałów');
+    }
+    container.innerHTML = `<div class="nav-empty">${esc(label)}</div>`;
     return;
   }
 
@@ -8382,6 +8998,23 @@ function bindSettings() {
     const btn = e.target.closest('[data-appearance-preset]');
     if (!btn) return;
     applyAppearancePreset(btn.dataset.appearancePreset);
+  });
+
+  $('uiScaleRange').addEventListener('input', () => {
+    const percent = Number($('uiScaleRange').value);
+    prefs.uiScale = APPEARANCE ? APPEARANCE.normalizeUiScale(percent / 100) : 1;
+    const label = $('uiScaleValue');
+    if (label) label.textContent = `${Math.round(prefs.uiScale * 100)}%`;
+  });
+
+  $('uiScaleRange').addEventListener('change', () => {
+    applyUiScale(prefs.uiScale);
+    savePrefs();
+  });
+
+  $('uiScaleReset').addEventListener('click', () => {
+    applyUiScale(APPEARANCE?.UI_SCALE_DEFAULT ?? 1);
+    savePrefs();
   });
 
   $('shapeChoices').addEventListener('click', (e) => {

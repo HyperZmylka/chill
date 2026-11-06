@@ -23,7 +23,7 @@ Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną �
 - **Statusy** — online, zaraz wracam, nie przeszkadzać, niewidoczny.
 - **Wykrywanie gier** — automatyczne rozpoznawanie uruchomionej gry i jej prawdziwej ikony z pliku EXE; „Gra w …” na profilu i liście członków.
 - **Powiadomienia** — systemowe dymki, przyjemny dwudźwięk przy nowej wiadomości i trzytonowy sygnał przy wzmiance, tryb „tylko wzmianki”, odznaki.
-- **Wygląd** — sześć presetów (Chill, Discord, Minimal, Zorza, Zachód słońca, Ocean), motyw Discord, 12 akcentów i własny kolor, kształt interfejsu (miękki, zaokrąglony, kwadratowy), tła (Zorza, Zachód słońca, Ocean, Las, Mono), styl wiadomości (dymki lub płaski jak w Discordzie), rozmiar tekstu, ograniczenie animacji i wysoki kontrast.
+- **Wygląd** — sześć presetów (Chill, Discord, Minimal, Zorza, Zachód słońca, Ocean), motyw Discord, 12 akcentów i własny kolor, kształt interfejsu (miękki, zaokrąglony, kwadratowy), tła (Zorza, Zachód słońca, Ocean, Las, Mono), styl wiadomości (dymki lub płaski jak w Discordzie), skalowanie całego interfejsu (75–150%), rozmiar tekstu, ograniczenie animacji i wysoki kontrast.
 - **Język interfejsu** — polski (domyślnie) albo angielski, przełączany w Ustawieniach → Język. Zmiana działa od razu, również w menu tray.
 - **Profil w rogu** — awatar, nazwa, ustawienia i wylogowanie są przypięte do lewego dolnego rogu.
 - **Tray i autostart** — Chill zostaje w zasobniku i może startować z Windows.
@@ -114,7 +114,7 @@ Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach p
 
 ## Wygląd, dostępność i dźwięk
 
-- **Ustawienia → Wygląd** zawiera presety, motyw, akcent, kształt, tło, styl wiadomości i kompaktowy układ. Wszystkie zmiany działają od razu i zapisują się osobno dla każdego konta.
+- **Ustawienia → Wygląd** zawiera presety, motyw, akcent, kształt, tło, styl wiadomości, skalowanie całego interfejsu i kompaktowy układ. Wszystkie zmiany działają od razu i zapisują się osobno dla każdego konta.
 - Preset **Discord** ustawia ciemny motyw, fioletowy akcent, kwadratowe kształty i płaski styl wiadomości. Presety **Zorza**, **Zachód słońca** i **Ocean** łączą gradientowe tło z dopasowanym akcentem.
 - **Ustawienia → Dostępność** pozwala wybrać rozmiar tekstu wiadomości, ograniczyć animacje i włączyć wysoki kontrast.
 - **Ustawienia → Głos i dźwięk** zawiera wybór mikrofonu i słuchawek, test mikrofonu z miernikiem poziomu, redukcję szumów, automatyczną głośność, usuwanie echa oraz głośność wiadomości głosowych. Ustawienia przetwarzania dotyczą nowych nagrań.

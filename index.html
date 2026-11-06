@@ -162,11 +162,12 @@
       <span class="brand-tag">beta</span>
     </header>
 
-    <div class="server-banner" id="serverBanner" hidden>
+    <button type="button" class="server-banner" id="serverBanner" hidden aria-haspopup="menu" aria-expanded="false" aria-label="Menu serwera" data-i18n-aria-label="Menu serwera">
       <span class="server-banner-avatar" id="serverBannerAvatar">#</span>
       <span class="server-banner-name" id="serverBannerName">Serwer</span>
       <span class="owner-pill" id="serverOwnerPill" hidden data-i18n="właściciel">właściciel</span>
-    </div>
+      <span class="server-banner-chevron" aria-hidden="true">⌄</span>
+    </button>
 
     <div class="conversation-search">
       <span class="search-ico" aria-hidden="true">⌕</span>
@@ -771,6 +772,16 @@
             </div>
           </div>
 
+          <div class="setting-block ui-scale-block">
+            <span class="setting-label" data-i18n="Skala interfejsu">Skala interfejsu</span>
+            <div class="range-row">
+              <input type="range" id="uiScaleRange" min="75" max="150" step="5" value="100" aria-label="Skala interfejsu" data-i18n-aria-label="Skala interfejsu">
+              <span class="range-value" id="uiScaleValue">100%</span>
+              <button type="button" class="btn-secondary small" id="uiScaleReset" data-i18n="Przywróć 100%">Przywróć 100%</button>
+            </div>
+            <p class="settings-note" data-i18n="Skaluje całą aplikację, łącznie z oknami ustawień i menu. Domyślnie 100%.">Skaluje całą aplikację, łącznie z oknami ustawień i menu. Domyślnie 100%.</p>
+          </div>
+
           <div class="divider"></div>
 
           <div class="setting-block">
@@ -1339,6 +1350,159 @@
       <span class="context-icon" aria-hidden="true">🗑</span>
       <span data-i18n="Usuń kanał">Usuń kanał</span>
     </button>
+  </div>
+
+  <!-- Menu serwera -->
+  <div class="context-menu server-menu" id="serverMenu" hidden role="menu" aria-label="Menu serwera" data-i18n-aria-label="Menu serwera">
+    <div class="server-menu-head">
+      <span class="server-menu-avatar" id="serverMenuAvatar" aria-hidden="true">#</span>
+      <span class="server-menu-name" id="serverMenuName">Serwer</span>
+      <span class="owner-pill" id="serverMenuOwnerPill" hidden data-i18n="właściciel">właściciel</span>
+    </div>
+    <div class="context-sep" role="separator"></div>
+    <div id="serverMenuItems"></div>
+  </div>
+
+  <!-- Ustawienia serwera -->
+  <div class="modal" id="serverSettingsOverlay" hidden>
+    <div class="modal-card server-card">
+      <button type="button" class="icon-btn modal-close" id="closeServerSettings" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      <div class="server-modal-head">
+        <h2 data-i18n="Ustawienia serwera">Ustawienia serwera</h2>
+        <p data-i18n="Zmień nazwę, ikonę, tag i kolor serwera.">Zmień nazwę, ikonę, tag i kolor serwera.</p>
+      </div>
+
+      <div class="server-settings-preview">
+        <span class="server-settings-avatar" id="serverSettingsAvatar" aria-hidden="true">#</span>
+        <span class="server-settings-preview-id">
+          <strong id="serverSettingsPreviewName">Serwer</strong>
+          <small id="serverSettingsPreviewTag" hidden></small>
+        </span>
+      </div>
+
+      <label class="field">
+        <span data-i18n="Nazwa serwera">Nazwa serwera</span>
+        <input type="text" id="serverSettingsName" maxlength="40" placeholder="np. Ekipa z podwórka" data-i18n-placeholder="np. Ekipa z podwórka" spellcheck="false">
+      </label>
+      <label class="field">
+        <span data-i18n="Ikona serwera">Ikona serwera</span>
+        <input type="text" id="serverSettingsIcon" maxlength="4" placeholder="np. 🐺" data-i18n-placeholder="np. 🐺" spellcheck="false">
+      </label>
+      <label class="field">
+        <span data-i18n="Tag serwera (opcjonalnie)">Tag serwera (opcjonalnie)</span>
+        <input type="text" id="serverSettingsTag" maxlength="8" placeholder="np. WOLF" data-i18n-placeholder="np. WOLF" spellcheck="false">
+        <small class="server-hint" data-i18n="Krótki tag widoczny przy nazwie serwera.">Krótki tag widoczny przy nazwie serwera.</small>
+      </label>
+      <div class="field">
+        <span data-i18n="Kolor serwera">Kolor serwera</span>
+        <div class="color-row" id="serverSettingsColors">
+          <button type="button" class="color-dot selected" data-server-color="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy" data-i18n-aria-label="Miętowy"></button>
+          <button type="button" class="color-dot" data-server-color="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny" data-i18n-aria-label="Błękitny"></button>
+          <button type="button" class="color-dot" data-server-color="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy" data-i18n-aria-label="Brzoskwiniowy"></button>
+          <button type="button" class="color-dot" data-server-color="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy" data-i18n-aria-label="Różowy"></button>
+          <button type="button" class="color-dot" data-server-color="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy" data-i18n-aria-label="Lawendowy"></button>
+          <button type="button" class="color-dot" data-server-color="#ffd166" style="--dot:#ffd166" aria-label="Żółty" data-i18n-aria-label="Żółty"></button>
+        </div>
+      </div>
+      <p class="form-error" id="serverSettingsError" role="alert"></p>
+      <div class="settings-actions">
+        <button type="button" class="btn-secondary" id="cancelServerSettings" data-i18n="Anuluj">Anuluj</button>
+        <button type="button" class="btn-primary" id="saveServerSettings" data-i18n="Zapisz zmiany">Zapisz zmiany</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wgląd w serwer -->
+  <div class="modal" id="serverInsightOverlay" hidden>
+    <div class="modal-card server-card">
+      <button type="button" class="icon-btn modal-close" id="closeServerInsight" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      <div class="server-modal-head">
+        <h2 data-i18n="Wgląd w serwer">Wgląd w serwer</h2>
+        <p data-i18n="Statystyki i aktywność serwera.">Statystyki i aktywność serwera.</p>
+      </div>
+      <p class="server-insight-server" id="serverInsightServer">Serwer</p>
+      <div class="server-insight-grid">
+        <div class="server-insight-stat">
+          <strong id="serverInsightMembers">0</strong>
+          <span data-i18n="Członkowie">Członkowie</span>
+        </div>
+        <div class="server-insight-stat">
+          <strong id="serverInsightOnline">0</strong>
+          <span data-i18n="Online">Online</span>
+        </div>
+        <div class="server-insight-stat">
+          <strong id="serverInsightTextChannels">0</strong>
+          <span data-i18n="Kanały tekstowe">Kanały tekstowe</span>
+        </div>
+        <div class="server-insight-stat">
+          <strong id="serverInsightVoiceChannels">0</strong>
+          <span data-i18n="Kanały głosowe">Kanały głosowe</span>
+        </div>
+        <div class="server-insight-stat">
+          <strong id="serverInsightMessages">0</strong>
+          <span data-i18n="Wiadomości">Wiadomości</span>
+        </div>
+        <div class="server-insight-stat">
+          <strong id="serverInsightInvite">—</strong>
+          <span data-i18n="Kod zaproszenia">Kod zaproszenia</span>
+        </div>
+      </div>
+      <p class="settings-note" id="serverInsightCreated"></p>
+      <div class="settings-actions">
+        <button type="button" class="btn-secondary" id="closeServerInsightBtn" data-i18n="Zamknij">Zamknij</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Profil serwerowy -->
+  <div class="modal" id="serverProfileOverlay" hidden>
+    <div class="modal-card server-card">
+      <button type="button" class="icon-btn modal-close" id="closeServerProfile" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      <div class="server-modal-head">
+        <h2 data-i18n="Edytuj profil serwerowy">Edytuj profil serwerowy</h2>
+        <p data-i18n="Zmień, jak widzą Cię inni na tym serwerze.">Zmień, jak widzą Cię inni na tym serwerze.</p>
+      </div>
+      <div class="server-settings-preview">
+        <span class="server-settings-avatar" id="serverProfileAvatar" aria-hidden="true">?</span>
+        <span class="server-settings-preview-id">
+          <strong id="serverProfilePreviewName">—</strong>
+          <small id="serverProfileServerName"></small>
+        </span>
+      </div>
+      <label class="field">
+        <span data-i18n="Nazwa na serwerze">Nazwa na serwerze</span>
+        <input type="text" id="serverProfileName" maxlength="32" spellcheck="false">
+      </label>
+      <div class="field">
+        <span data-i18n="Kolor profilu">Kolor profilu</span>
+        <div class="color-row" id="serverProfileColors">
+          <button type="button" class="color-dot selected" data-color="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy" data-i18n-aria-label="Miętowy"></button>
+          <button type="button" class="color-dot" data-color="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny" data-i18n-aria-label="Błękitny"></button>
+          <button type="button" class="color-dot" data-color="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy" data-i18n-aria-label="Brzoskwiniowy"></button>
+          <button type="button" class="color-dot" data-color="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy" data-i18n-aria-label="Różowy"></button>
+          <button type="button" class="color-dot" data-color="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy" data-i18n-aria-label="Lawendowy"></button>
+          <button type="button" class="color-dot" data-color="#ffd166" style="--dot:#ffd166" aria-label="Żółty" data-i18n-aria-label="Żółty"></button>
+        </div>
+      </div>
+      <p class="form-error" id="serverProfileError" role="alert"></p>
+      <div class="settings-actions">
+        <button type="button" class="btn-secondary" id="cancelServerProfile" data-i18n="Anuluj">Anuluj</button>
+        <button type="button" class="btn-primary" id="saveServerProfile" data-i18n="Zapisz zmiany">Zapisz zmiany</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Potwierdzenie opuszczenia serwera -->
+  <div class="modal" id="leaveServerOverlay" hidden>
+    <div class="modal-card delete-card">
+      <button type="button" class="icon-btn modal-close" id="closeLeaveServer" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      <h2 data-i18n="Opuścić serwer?">Opuścić serwer?</h2>
+      <p class="settings-lead" id="leaveServerText"></p>
+      <div class="settings-actions">
+        <button type="button" class="btn-secondary" id="cancelLeaveServer" data-i18n="Anuluj">Anuluj</button>
+        <button type="button" class="btn-secondary danger" id="confirmLeaveServer" data-i18n="Opuść serwer">Opuść serwer</button>
+      </div>
+    </div>
   </div>
 
   <!-- Potwierdzenie usunięcia kanału -->

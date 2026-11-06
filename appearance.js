@@ -8,6 +8,9 @@
   const BACKGROUNDS = Object.freeze(['default', 'aurora', 'sunset', 'ocean', 'forest', 'mono']);
   const MESSAGE_STYLES = Object.freeze(['bubbles', 'flat']);
   const FONT_SCALES = Object.freeze(['small', 'normal', 'large']);
+  const UI_SCALE_MIN = 0.75;
+  const UI_SCALE_MAX = 1.5;
+  const UI_SCALE_DEFAULT = 1;
   const DEFAULT_ACCENT = '#3ee0a3';
   const INK_LIGHT = '#ffffff';
   const INK_DARK = '#05271c';
@@ -116,6 +119,14 @@
     return contrastRatio(value, INK_LIGHT) >= contrastRatio(value, INK_DARK) ? INK_LIGHT : INK_DARK;
   }
 
+  function normalizeUiScale(value) {
+    if (value === null || value === undefined || value === '') return UI_SCALE_DEFAULT;
+    const number = Number(value);
+    if (!Number.isFinite(number)) return UI_SCALE_DEFAULT;
+    const clamped = Math.min(UI_SCALE_MAX, Math.max(UI_SCALE_MIN, number));
+    return Math.round(clamped * 100) / 100;
+  }
+
   function normalizeAppearance(input = {}) {
     const source = input && typeof input === 'object' ? input : {};
     return {
@@ -125,6 +136,7 @@
       background: oneOf(BACKGROUNDS, source.background, 'default'),
       messageStyle: oneOf(MESSAGE_STYLES, source.messageStyle, 'bubbles'),
       fontScale: oneOf(FONT_SCALES, source.fontScale, 'normal'),
+      uiScale: normalizeUiScale(source.uiScale),
       reduceMotion: source.reduceMotion === true,
       highContrast: source.highContrast === true,
     };
@@ -139,6 +151,7 @@
     const values = normalizeAppearance(input);
     for (const id of PRESET_IDS) {
       const candidate = PRESETS[id];
+      // UI scale is intentionally independent: visual presets never reset it.
       const same = Object.keys(candidate).every((key) => candidate[key] === values[key]);
       if (same) return id;
     }
@@ -151,12 +164,16 @@
     BACKGROUNDS,
     MESSAGE_STYLES,
     FONT_SCALES,
+    UI_SCALE_MIN,
+    UI_SCALE_MAX,
+    UI_SCALE_DEFAULT,
     DEFAULT_ACCENT,
     PRESETS,
     PRESET_IDS,
     normalizeColor,
     readableInk,
     contrastRatio,
+    normalizeUiScale,
     normalizeAppearance,
     preset,
     matchPreset,

@@ -442,6 +442,7 @@ function normalizeHostedServer(raw) {
   server.name = String(server.name || 'Serwer').trim().slice(0, 40) || 'Serwer';
   server.icon = typeof server.icon === 'string' ? server.icon.slice(0, 4) : '';
   server.color = /^#[0-9a-f]{6}$/i.test(String(server.color || '')) ? server.color : '#3ee0a3';
+  server.tag = String(server.tag || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
   server.invite = /^[A-Z0-9]{4,12}$/.test(String(server.invite || '')) ? server.invite : makeInviteCode();
   server.ownerKey = typeof server.ownerKey === 'string' && server.ownerKey.length >= 24 ? server.ownerKey : crypto.randomBytes(24).toString('hex');
   server.createdAt = Number(server.createdAt) || Date.now();
@@ -760,6 +761,7 @@ function hostedMembership(server, userId) {
     name: server.name,
     icon: server.icon || '',
     color: server.color,
+    tag: server.tag || '',
     owner: true,
     ownerId: server.ownerId,
     address: `127.0.0.1:${CHAT_PORT}`,
@@ -780,6 +782,7 @@ function joinedMembership(entry) {
     name: entry.name || 'Serwer',
     icon: entry.icon || '',
     color: entry.color || '#3ee0a3',
+    tag: String(entry.tag || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8),
     owner: false,
     address: entry.address,
     secure,
@@ -1226,6 +1229,7 @@ function handleJoinServer(ws, msg, send) {
       name: server.name,
       icon: server.icon || '',
       color: server.color,
+      tag: server.tag || '',
       invite: server.invite,
       ownerId: server.ownerId,
       createdAt: server.createdAt,
@@ -1987,6 +1991,42 @@ function startChatServer(port = CHAT_PORT) {
             break;
           }
 
+          case 'server:update': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const server = findHostedServer(session.serverId);
+            if (!server) return;
+            if (!session.owner || server.ownerId !== session.memberId) {
+              send({ type: 'server:error', code: 'forbidden', message: 'Tylko właściciel serwera może edytować ustawienia serwera.' });
+              return;
+            }
+            const name = String(msg.name || '').trim();
+            if (name.length < 2 || name.length > 40) {
+              send({ type: 'server:error', code: 'invalid-name', message: 'Nazwa serwera musi mieć 2–40 znaków.' });
+              return;
+            }
+            server.name = name;
+            if (typeof msg.icon === 'string') server.icon = msg.icon.trim().slice(0, 4);
+            if (typeof msg.color === 'string' && /^#[0-9a-f]{6}$/i.test(msg.color)) server.color = msg.color;
+            server.tag = String(msg.tag || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+            scheduleServersSave();
+            broadcastServer(server.id, {
+              type: 'server:info',
+              server: {
+                id: server.id,
+                name: server.name,
+                icon: server.icon || '',
+                color: server.color,
+                tag: server.tag,
+                invite: server.invite,
+                createdAt: server.createdAt,
+                ownerId: server.ownerId,
+              },
+              actorId: session.memberId,
+            });
+            break;
+          }
+
           case 'server:activity': {
             const session = ws._serverSession;
             if (!session) return;
@@ -2568,6 +2608,7 @@ ipcMain.handle('chill:servers-save-joined', (e, payload = {}) => {
   const name = String(incoming.name || 'Serwer').trim().slice(0, 40) || 'Serwer';
   const color = /^#[0-9a-f]{6}$/i.test(String(incoming.color || '')) ? incoming.color : '#3ee0a3';
   const icon = String(incoming.icon || '').trim().slice(0, 4);
+  const tag = String(incoming.tag || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
   let entry = store.joined.find((item) => item.userId === current.id && item.id === id);
   if (!entry) {
     entry = { userId: current.id, id, joinedAt: Date.now(), memberId: '' };
@@ -2579,6 +2620,7 @@ ipcMain.handle('chill:servers-save-joined', (e, payload = {}) => {
   entry.name = name;
   entry.color = color;
   entry.icon = icon;
+  entry.tag = tag;
   const memberId = String(payload.memberId || entry.memberId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
   entry.memberId = memberId || crypto.randomUUID();
   entry.joinedAt = entry.joinedAt || Date.now();
