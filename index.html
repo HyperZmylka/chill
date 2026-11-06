@@ -6,6 +6,7 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://*.giphy.com https://*.klipy.com https://cdn.discordapp.com; media-src 'self' blob: data: http: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws: wss: http: https:;">
 <title>Chill</title>
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="minigames.css">
 </head>
 <body data-theme="gradient">
 
@@ -180,6 +181,14 @@
         <button type="button" class="group-add" id="addChannelBtn" title="Nowy kanał" aria-label="Nowy kanał" data-i18n-title="Nowy kanał" data-i18n-aria-label="Nowy kanał" hidden>+</button>
       </div>
       <nav class="nav-list" id="channelList" aria-label="Kanały" data-i18n-aria-label="Kanały"></nav>
+    </div>
+
+    <div class="nav-group mini-games-group" id="miniGamesGroup">
+      <button type="button" class="nav-item mini-games-nav" id="miniGamesBtn" title="Mini Gierki" data-i18n-title="Mini Gierki" aria-label="Mini Gierki" data-i18n-aria-label="Mini Gierki">
+        <span class="nav-icon mini-games-icon" aria-hidden="true">🎮</span>
+        <span class="nav-label" data-i18n="Mini Gierki">Mini Gierki</span>
+        <span class="mini-games-count" id="miniGamesCount">2</span>
+      </button>
     </div>
 
     <div class="nav-group dm-group" id="dmGroup">
@@ -442,6 +451,43 @@
   </aside>
 
   <div class="toast" id="toast" hidden></div>
+
+  <!-- Mini Gierki -->
+  <div class="minigame-overlay" id="minigameOverlay" hidden>
+    <div class="minigame-shell">
+      <header class="minigame-bar">
+        <button type="button" class="minigame-close" id="minigameClose" title="Wyjdź" data-i18n-title="Wyjdź">
+          <span aria-hidden="true">←</span>
+          <span data-i18n="Wyjdź">Wyjdź</span>
+        </button>
+        <div class="minigame-heading">
+          <strong id="minigameTitle">Mini Gierki</strong>
+          <span id="minigameSub"></span>
+        </div>
+        <button type="button" class="btn-secondary small minigame-pause" id="minigamePauseBtn" data-i18n="Pauza">Pauza</button>
+      </header>
+      <div class="minigame-stage" id="minigameStage">
+        <canvas id="minigameCanvas" tabindex="0" aria-label="Mini gra" data-i18n-aria-label="Mini gra"></canvas>
+        <div class="minigame-hud" id="minigameHud"></div>
+        <div class="minigame-splash" id="minigameSplash" hidden>
+          <div class="minigame-splash-card">
+            <span class="minigame-kicker" id="minigameSplashKicker"></span>
+            <h2 id="minigameSplashTitle"></h2>
+            <p id="minigameSplashText"></p>
+            <div class="minigame-controls" id="minigameSplashControls"></div>
+            <div class="minigame-splash-actions">
+              <button type="button" class="btn-primary" id="minigameSplashPrimary">Start</button>
+              <button type="button" class="btn-secondary" id="minigameSplashSecondary" hidden>Wróć</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <footer class="minigame-foot">
+        <span data-i18n="ESC — pauza • Mysz — celowanie • WASD — ruch">ESC — pauza • Mysz — celowanie • WASD — ruch</span>
+        <span class="minigame-foot-badge" data-i18n="Grane lokalnie">Grane lokalnie</span>
+      </footer>
+    </div>
+  </div>
 
   <div class="update-card" id="updateBanner" hidden>
     <div class="update-badge">↓</div>
@@ -1524,6 +1570,7 @@
 <script src="stickers.js"></script>
 <script src="voice.js"></script>
 <script src="appearance.js"></script>
+<script src="minigames.js"></script>
 <script src="renderer.js"></script>
 </body>
 </html>

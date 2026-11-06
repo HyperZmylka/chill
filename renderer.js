@@ -140,6 +140,13 @@ let liveVoiceScreen = null;
 let screenSharePicker = { sources: [], tab: 'screen', loading: false, busy: false, error: '' };
 const liveVoiceSpeaking = new Map();
 let current = { kind: 'home' };
+let miniGamesInstalled = [];
+const miniGameDownloads = new Map();
+let miniGameSession = null;
+let miniGameCurrent = null;
+let miniGameStarted = false;
+let miniGamePaused = false;
+let miniGameEnded = false;
 let profileColor = '#3ee0a3';
 let profileAvatar = '';
 let profileBanner = null;
@@ -892,6 +899,54 @@ const I18N_EN = {
   'Wszystkie kanały są ukryte.': 'All channels are hidden.',
   'Wyciszone kanały są ukryte.': 'Muted channels are hidden.',
 
+  // Mini Gierki
+  'Mini Gierki': 'Mini Games',
+  'Gry wbudowane': 'Built-in games',
+  'Krótkie gry w Chillu. Pobierz jednym kliknięciem i zagraj bez wychodzenia z aplikacji.': 'Short games inside Chill. Download in one click and play without leaving the app.',
+  'gry w katalogu': 'games in the catalog',
+  'zainstalowane': 'installed',
+  'Działa lokalnie': 'Runs locally',
+  'Każda gra jest oryginalną mini-produkcją Chill. Pobieranie jest lokalne — pliki zostają na tym komputerze.': 'Every game is an original Chill mini-production. Downloads are local — files stay on this computer.',
+  'Gotowa do pobrania — działa lokalnie': 'Ready to download — runs locally',
+  'Zainstalowana': 'Installed',
+  'gotowa do gry': 'ready to play',
+  'Pobieranie…': 'Downloading…',
+  'Pobierz': 'Download',
+  'Graj': 'Play',
+  'Pobrano {game}': 'Downloaded {game}',
+  'Nie udało się uruchomić gry.': 'Could not start the game.',
+  'Pobieraj i graj lokalnie — bez instalowania dużych klientów': 'Download and play locally — no big clients required',
+  'Wyjdź': 'Exit',
+  'Wróć': 'Back',
+  'Pauza': 'Pause',
+  'Wznów': 'Resume',
+  'Start': 'Start',
+  'Zwycięstwo!': 'Victory!',
+  'Koniec gry': 'Game over',
+  'Wygrana!': 'Victory!',
+  'Porażka': 'Defeat',
+  'Zagraj ponownie': 'Play again',
+  'Eliminacje': 'Eliminations',
+  'Żywi': 'Alive',
+  'Broń': 'Weapon',
+  'Strzał: LPM / Spacja': 'Shoot: LMB / Space',
+  'Runda': 'Round',
+  'Czas': 'Time',
+  'Dash': 'Dash',
+  'Przetrwałeś do końca i wygrałeś Ostatni Krąg. Eliminacje: {kills}.': 'You survived to the end and won Last Circle. Eliminations: {kills}.',
+  'Miejsce {placement} z 12 • Eliminacje: {kills}.': 'Placement {placement} of 12 • Eliminations: {kills}.',
+  'Pokonałeś bota {player}:{bot}.': 'You defeated the bot {player}:{bot}.',
+  'Bot wygrał {bot}:{player}.': 'The bot won {bot}:{player}.',
+  'Gra zatrzymana. Wróć, gdy będziesz gotowy.': 'Game paused. Come back when you are ready.',
+  'Mini gra': 'Mini game',
+  'Grane lokalnie': 'Played locally',
+  'ESC — pauza • Mysz — celowanie • WASD — ruch': 'ESC — pause • Mouse — aim • WASD — move',
+  'Pobierz grę': 'Download game',
+  'Uruchom grę': 'Launch game',
+  'Twoja biblioteka': 'Your library',
+  'Katalog gier': 'Game catalog',
+  'Oryginalne mini gry Chill': 'Original Chill mini games',
+
   // Daty / statusy
   'Dzisiaj': 'Today',
   'Wczoraj': 'Yesterday',
@@ -1266,6 +1321,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindLiveVoice();
   bindUserProfile();
   bindShortcuts();
+  bindMiniGames();
   boot();
 });
 
@@ -1458,6 +1514,7 @@ function updateStrength() {
 
 function enterApp(user) {
   resetVoiceSession();
+  closeMiniGame();
   currentUser = user;
   myId = user.id;
   myName = user.displayName || user.username;
@@ -1487,6 +1544,7 @@ function enterApp(user) {
 
   loadPrefs();
   loadChannelPrefs();
+  loadMiniGamesInstalled();
   applyTheme(prefs.theme);
   applyAccent(prefs.accent);
   applyAppearance();
@@ -1520,6 +1578,11 @@ function enterApp(user) {
 function logout() {
   stopLiveVoice({ silent: true, localOnly: true });
   resetVoiceSession();
+  closeMiniGame();
+  for (const entry of miniGameDownloads.values()) clearInterval(entry.timer);
+  miniGameDownloads.clear();
+  miniGamesInstalled = [];
+  updateMiniGamesBadge();
   localVoiceKey = '';
   closeAudioMenus();
   if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -4678,6 +4741,12 @@ function renderServerMenu() {
   }
 }
 
+function syncServerMenuScroll() {
+  const menu = $('serverMenu');
+  if (!menu || menu.hidden) return;
+  menu.classList.toggle('has-scroll', menu.scrollHeight > menu.clientHeight + 1);
+}
+
 function openServerMenu() {
   const state = serverState(activeServerId);
   if (!state) return;
@@ -4699,6 +4768,7 @@ function openServerMenu() {
     menu.style.maxHeight = `${Math.max(180, Math.min(menu.getBoundingClientRect().height, maxAbove))}px`;
     top = Math.max(8, anchor.top - 6 - menu.getBoundingClientRect().height);
   }
+  syncServerMenuScroll();
   let left = anchor.left;
   left = Math.max(8, Math.min(left, window.innerWidth - menu.getBoundingClientRect().width - 8));
   menu.style.left = `${left}px`;
@@ -5806,7 +5876,7 @@ function isValidConversation() {
     const state = serverState(current.serverId);
     return Boolean(state && state.channels.some((channel) => channel.id === current.id));
   }
-  return current.kind === 'home';
+  return current.kind === 'home' || current.kind === 'minigames';
 }
 
 function bumpUnread(key) {
@@ -5925,6 +5995,27 @@ function selectHome() {
   updateBadges();
 }
 
+function selectMiniGames() {
+  closeServerMenu();
+  resetVoiceSession();
+  activeServerId = null;
+  current = { kind: 'minigames' };
+  hideMentionPop();
+  typingUsers.clear();
+  searchQuery = '';
+  $('conversationSearch').value = '';
+  $('messageSearch').value = '';
+  $('searchBar').hidden = true;
+  $('messages').classList.remove('searching');
+  renderSidebar();
+  renderHeader();
+  renderMessages(false);
+  renderMembers();
+  updateComposer();
+  updateBadges();
+  $('messages').scrollTop = 0;
+}
+
 function selectServer(id) {
   const server = servers.find((item) => item.id === id);
   if (!server) return;
@@ -6001,6 +6092,9 @@ function renderSidebar() {
     renderDmList();
   }
   renderServers();
+  const miniGamesBtn = $('miniGamesBtn');
+  if (miniGamesBtn) miniGamesBtn.classList.toggle('active', current.kind === 'minigames');
+  updateMiniGamesBadge();
   renderVoiceConnectedPanel();
   if (!$('serverMenu').hidden) renderServerMenu();
 }
@@ -6027,7 +6121,7 @@ function renderServers() {
     container.appendChild(button);
   }
 
-  $('homeBtn').classList.toggle('active', activeServerId === null);
+  $('homeBtn').classList.toggle('active', activeServerId === null && current.kind !== 'minigames');
   const dmTotal = unreadCountFor('dm:');
   const homeBadge = $('homeBadge');
   if (homeBadge) {
@@ -7028,6 +7122,7 @@ function bindUserProfile() {
 
 function renderHeader() {
   $('backBtn').style.display = 'none';
+  $('searchBtn').hidden = current.kind === 'minigames';
   if (current.kind === 'dm') {
     const entry = dmEntry(current.id);
     const status = entry ? (entry.online ? entry.status : 'offline') : 'offline';
@@ -7058,6 +7153,12 @@ function renderHeader() {
     $('chatSub').textContent = state
       ? `${state.server.name} • ${isVoice ? t('Kanał głosowy') : state.status === 'online' ? `${online} ${t('Online').toLowerCase()}` : state.status === 'connecting' ? t('łączenie…') : t('Offline').toLowerCase()}`
       : '';
+  } else if (current.kind === 'minigames') {
+    $('chatEmoji').textContent = '🎮';
+    $('chatEmoji').style.background = 'linear-gradient(140deg, var(--accent), var(--accent-2))';
+    $('chatEmoji').style.color = '#05231a';
+    $('chatName').textContent = t('Mini Gierki');
+    $('chatSub').textContent = t('Pobieraj i graj lokalnie — bez instalowania dużych klientów');
   } else {
     $('chatEmoji').textContent = 'C';
     $('chatEmoji').style.background = 'linear-gradient(140deg, var(--accent), var(--accent-2))';
@@ -7134,6 +7235,12 @@ function renderMessages(scroll = true) {
 
   container.classList.toggle('searching', Boolean(searchQuery));
   container.innerHTML = '';
+
+  if (current.kind === 'minigames') {
+    renderMiniGamesHub(container);
+    updateComposer();
+    return;
+  }
 
   if (current.kind === 'home') {
     const wrap = document.createElement('div');
@@ -8109,7 +8216,7 @@ function sendCurrentMessage(e) {
 }
 
 function deliverMessage(text) {
-  if (current.kind === 'home') {
+  if (current.kind === 'home' || current.kind === 'minigames') {
     toast(t('Wybierz rozmowę lub kanał, aby napisać.'));
     return false;
   }
@@ -8259,6 +8366,444 @@ function updateBadges() {
     homeBadge.hidden = dmTotal === 0;
     homeBadge.textContent = dmTotal > 99 ? '99+' : String(dmTotal);
   }
+}
+
+// ---------- Mini Gierki ----------
+function miniGameCatalog() {
+  return Array.isArray(CHILL_MINIGAMES?.catalog) ? CHILL_MINIGAMES.catalog : [];
+}
+
+function miniGameById(id) {
+  return miniGameCatalog().find((game) => game.id === id) || null;
+}
+
+function miniGameLabel(game, field) {
+  if (!game) return '';
+  const en = game[`${field}En`];
+  const pl = game[`${field}Pl`];
+  return prefs.lang === 'en' ? (en || pl || '') : (pl || en || '');
+}
+
+function miniGameTags(game) {
+  const tags = prefs.lang === 'en' ? game.tagsEn : game.tagsPl;
+  return Array.isArray(tags) ? tags : [];
+}
+
+function miniGamesStorageKey() {
+  return `chill.minigames.${myId || 'guest'}`;
+}
+
+function loadMiniGamesInstalled() {
+  try {
+    miniGamesInstalled = CHILL_MINIGAMES?.normalizeInstalled(localStorage.getItem(miniGamesStorageKey())) || [];
+  } catch {
+    miniGamesInstalled = [];
+  }
+  updateMiniGamesBadge();
+}
+
+function saveMiniGamesInstalled() {
+  try {
+    localStorage.setItem(miniGamesStorageKey(), JSON.stringify(miniGamesInstalled));
+  } catch { /* ignore */ }
+  updateMiniGamesBadge();
+}
+
+function updateMiniGamesBadge() {
+  const badge = $('miniGamesCount');
+  if (!badge) return;
+  badge.textContent = String(miniGameCatalog().length);
+  badge.title = t('Katalog gier');
+}
+
+function isMiniGameInstalled(gameId) {
+  return miniGamesInstalled.includes(gameId);
+}
+
+function updateMiniGameDownloadUi(card, gameId) {
+  const entry = miniGameDownloads.get(gameId);
+  if (!card || !entry) return;
+  const pct = Math.min(100, Math.floor(entry.pct));
+  const status = card.querySelector('.minigame-status');
+  if (status) {
+    status.innerHTML = `<span>${esc(t('Pobieranie…'))}</span> <strong>${pct}%</strong><div class="minigame-progress"><span style="width:${pct}%"></span></div>`;
+  }
+  const button = card.querySelector('.mini-game-action');
+  if (button) {
+    button.disabled = true;
+    button.textContent = t('Pobieranie…');
+  }
+}
+
+function buildMiniGameCard(game) {
+  const installed = isMiniGameInstalled(game.id);
+  const download = miniGameDownloads.get(game.id);
+  const pct = download ? Math.min(100, Math.floor(download.pct)) : 0;
+  const card = document.createElement('article');
+  card.className = `minigame-card${installed ? ' installed' : ''}`;
+  card.dataset.gameId = game.id;
+  const tags = miniGameTags(game).map((tag) => `<span class="minigame-tag">${esc(tag)}</span>`).join('');
+  const status = download
+    ? `<span>${esc(t('Pobieranie…'))}</span> <strong>${pct}%</strong><div class="minigame-progress"><span style="width:${pct}%"></span></div>`
+    : installed
+      ? `<strong>${esc(t('Zainstalowana'))}</strong> • ${esc(t('gotowa do gry'))}`
+      : esc(t('Gotowa do pobrania — działa lokalnie'));
+  card.innerHTML = `
+    <div class="minigame-cover">
+      <span class="minigame-cover-genre">${esc(miniGameLabel(game, 'genre'))}</span>
+      <span class="minigame-cover-icon" aria-hidden="true">${esc(game.icon)}</span>
+    </div>
+    <div class="minigame-card-body">
+      <h3>${esc(miniGameLabel(game, 'title'))}</h3>
+      <p class="minigame-card-tagline">${esc(miniGameLabel(game, 'tagline'))}</p>
+      <p class="minigame-card-desc">${esc(miniGameLabel(game, 'description'))}</p>
+      <div class="minigame-tags">${tags}</div>
+    </div>
+    <div class="minigame-card-foot">
+      <div class="minigame-status">${status}</div>
+      <button type="button" class="btn-primary mini-game-action"${download ? ' disabled' : ''}>${esc(download ? t('Pobieranie…') : installed ? t('Graj') : t('Pobierz'))}</button>
+    </div>
+  `;
+  const action = card.querySelector('.mini-game-action');
+  if (action) {
+    action.addEventListener('click', () => {
+      if (isMiniGameInstalled(game.id)) launchMiniGame(game.id);
+      else startMiniGameDownload(game.id);
+    });
+  }
+  return card;
+}
+
+function renderMiniGamesHub(container) {
+  if (!container) return;
+  container.classList.remove('searching');
+  container.innerHTML = '';
+  const games = miniGameCatalog();
+  const installedCount = miniGamesInstalled.filter((id) => games.some((game) => game.id === id)).length;
+  const hub = document.createElement('div');
+  hub.className = 'minigames-hub';
+
+  const hero = document.createElement('section');
+  hero.className = 'minigames-hero';
+  hero.innerHTML = `
+    <span class="minigames-kicker">${esc(t('Gry wbudowane'))}</span>
+    <h2>${esc(t('Mini Gierki'))}</h2>
+    <p>${esc(t('Krótkie gry w Chillu. Pobierz jednym kliknięciem i zagraj bez wychodzenia z aplikacji.'))}</p>
+    <div class="minigames-hero-meta">
+      <span class="minigames-hero-chip"><strong>${games.length}</strong> ${esc(t('gry w katalogu'))}</span>
+      <span class="minigames-hero-chip"><strong>${installedCount}</strong> ${esc(t('zainstalowane'))}</span>
+      <span class="minigames-hero-chip">${esc(t('Działa lokalnie'))}</span>
+    </div>
+  `;
+  hub.appendChild(hero);
+
+  const grid = document.createElement('div');
+  grid.className = 'minigames-grid';
+  for (const game of games) grid.appendChild(buildMiniGameCard(game));
+  hub.appendChild(grid);
+
+  const note = document.createElement('p');
+  note.className = 'minigames-footnote';
+  note.textContent = t('Każda gra jest oryginalną mini-produkcją Chill. Pobieranie jest lokalne — pliki zostają na tym komputerze.');
+  hub.appendChild(note);
+
+  container.appendChild(hub);
+}
+
+function startMiniGameDownload(gameId) {
+  const game = miniGameById(gameId);
+  if (!game || isMiniGameInstalled(gameId) || miniGameDownloads.has(gameId)) return;
+  const entry = { pct: 0, timer: 0 };
+  entry.timer = setInterval(() => {
+    entry.pct = Math.min(100, entry.pct + 5 + Math.random() * 9);
+    const card = document.querySelector(`.minigame-card[data-game-id="${gameId}"]`);
+    if (card) updateMiniGameDownloadUi(card, gameId);
+    if (entry.pct < 100) return;
+    clearInterval(entry.timer);
+    miniGameDownloads.delete(gameId);
+    if (!isMiniGameInstalled(gameId)) {
+      miniGamesInstalled.push(gameId);
+      saveMiniGamesInstalled();
+    }
+    if (current.kind === 'minigames') {
+      const messages = $('messages');
+      const scrollTop = messages ? messages.scrollTop : 0;
+      renderMiniGamesHub(messages);
+      if (messages) messages.scrollTop = scrollTop;
+    }
+    toast(t('Pobrano {game}', { game: miniGameLabel(game, 'title') }));
+  }, 110);
+  miniGameDownloads.set(gameId, entry);
+  const card = document.querySelector(`.minigame-card[data-game-id="${gameId}"]`);
+  if (card) updateMiniGameDownloadUi(card, gameId);
+}
+
+function createMiniGameSession(game) {
+  if (!CHILL_MINIGAMES?.createGame) {
+    toast(t('Nie udało się uruchomić gry.'));
+    return false;
+  }
+  if (miniGameSession) {
+    try { miniGameSession.destroy(); } catch { /* ignore */ }
+    miniGameSession = null;
+  }
+  try {
+    miniGameSession = CHILL_MINIGAMES.createGame(game.id, $('minigameCanvas'), {
+      language: prefs.lang,
+      onHud: (state) => renderMiniGameHud(state),
+      onEnd: (result) => finishMiniGame(result),
+    });
+    miniGameSession.resize();
+    return true;
+  } catch {
+    toast(t('Nie udało się uruchomić gry.'));
+    return false;
+  }
+}
+
+function showMiniGameSplash({ mode, kicker, title, text, controls = '', primary, secondary }) {
+  const splash = $('minigameSplash');
+  if (!splash) return;
+  splash.dataset.mode = mode;
+  splash.hidden = false;
+  $('minigameSplashKicker').textContent = kicker;
+  $('minigameSplashTitle').textContent = title;
+  $('minigameSplashText').textContent = text;
+  const controlsEl = $('minigameSplashControls');
+  controlsEl.textContent = controls;
+  controlsEl.hidden = !controls;
+  $('minigameSplashPrimary').textContent = primary;
+  const secondaryBtn = $('minigameSplashSecondary');
+  secondaryBtn.hidden = !secondary;
+  secondaryBtn.textContent = secondary || '';
+  try { $('minigameSplashPrimary').focus({ preventScroll: true }); } catch { /* ignore */ }
+}
+
+function showMiniGameIntro() {
+  const game = miniGameCurrent;
+  if (!game) return;
+  showMiniGameSplash({
+    mode: 'intro',
+    kicker: t('Mini Gierki'),
+    title: miniGameLabel(game, 'title'),
+    text: miniGameLabel(game, 'description'),
+    controls: miniGameLabel(game, 'controls'),
+    primary: t('Start'),
+    secondary: t('Wróć'),
+  });
+}
+
+function launchMiniGame(gameId) {
+  const game = miniGameById(gameId);
+  if (!game || !isMiniGameInstalled(gameId)) return;
+  miniGameCurrent = game;
+  miniGameEnded = false;
+  miniGameStarted = false;
+  miniGamePaused = false;
+  $('minigameOverlay').hidden = false;
+  $('minigameTitle').textContent = miniGameLabel(game, 'title');
+  $('minigameSub').textContent = miniGameLabel(game, 'genre');
+  $('minigameHud').innerHTML = '';
+  $('minigamePauseBtn').disabled = true;
+  $('minigamePauseBtn').textContent = t('Pauza');
+  $('minigameSplash').hidden = true;
+  if (!createMiniGameSession(game)) {
+    closeMiniGame();
+    return;
+  }
+  showMiniGameIntro();
+}
+
+function startMiniGame() {
+  if (!miniGameSession || miniGameEnded) return;
+  $('minigameSplash').hidden = true;
+  miniGameStarted = true;
+  miniGamePaused = false;
+  $('minigamePauseBtn').disabled = false;
+  $('minigamePauseBtn').textContent = t('Pauza');
+  miniGameSession.start();
+  try { $('minigameCanvas').focus({ preventScroll: true }); } catch { /* ignore */ }
+}
+
+function pauseMiniGame() {
+  if (!miniGameSession || miniGameEnded || !miniGameStarted || miniGamePaused) return;
+  miniGameSession.pause();
+  miniGamePaused = true;
+  $('minigamePauseBtn').textContent = t('Wznów');
+  showMiniGameSplash({
+    mode: 'pause',
+    kicker: t('Pauza'),
+    title: t('Pauza'),
+    text: t('Gra zatrzymana. Wróć, gdy będziesz gotowy.'),
+    primary: t('Wznów'),
+    secondary: t('Wyjdź'),
+  });
+}
+
+function resumeMiniGame() {
+  if (!miniGameSession || miniGameEnded) return;
+  $('minigameSplash').hidden = true;
+  miniGamePaused = false;
+  miniGameStarted = true;
+  $('minigamePauseBtn').disabled = false;
+  $('minigamePauseBtn').textContent = t('Pauza');
+  miniGameSession.resume();
+  try { $('minigameCanvas').focus({ preventScroll: true }); } catch { /* ignore */ }
+}
+
+function toggleMiniGamePause() {
+  if (!miniGameSession || miniGameEnded || !miniGameStarted) return;
+  if (miniGamePaused) resumeMiniGame();
+  else pauseMiniGame();
+}
+
+function finishMiniGame(result) {
+  if (!miniGameCurrent) return;
+  miniGameEnded = true;
+  miniGameStarted = false;
+  miniGamePaused = false;
+  $('minigamePauseBtn').disabled = true;
+  $('minigamePauseBtn').textContent = t('Pauza');
+
+  let title = t('Koniec gry');
+  let text = '';
+  if (result?.mode === 'battle') {
+    if (result.winner === 'player') {
+      title = t('Zwycięstwo!');
+      text = t('Przetrwałeś do końca i wygrałeś Ostatni Krąg. Eliminacje: {kills}.', { kills: result.kills || 0 });
+    } else {
+      text = t('Miejsce {placement} z 12 • Eliminacje: {kills}.', { placement: result.placement || 12, kills: result.kills || 0 });
+    }
+  } else if (result?.mode === 'duel') {
+    title = result.winner === 'player' ? t('Wygrana!') : t('Porażka');
+    text = result.winner === 'player'
+      ? t('Pokonałeś bota {player}:{bot}.', { player: result.playerScore ?? 0, bot: result.botScore ?? 0 })
+      : t('Bot wygrał {bot}:{player}.', { bot: result.botScore ?? 0, player: result.playerScore ?? 0 });
+  }
+
+  showMiniGameSplash({
+    mode: 'end',
+    kicker: t('Mini Gierki'),
+    title,
+    text,
+    primary: t('Zagraj ponownie'),
+    secondary: t('Wyjdź'),
+  });
+}
+
+function restartMiniGame() {
+  if (!miniGameCurrent) return;
+  miniGameEnded = false;
+  miniGameStarted = false;
+  miniGamePaused = false;
+  $('minigameHud').innerHTML = '';
+  $('minigamePauseBtn').disabled = true;
+  $('minigamePauseBtn').textContent = t('Pauza');
+  if (!createMiniGameSession(miniGameCurrent)) {
+    closeMiniGame();
+    return;
+  }
+  showMiniGameIntro();
+}
+
+function closeMiniGame() {
+  const overlay = $('minigameOverlay');
+  const wasOpen = Boolean(overlay && !overlay.hidden);
+  if (miniGameSession) {
+    try { miniGameSession.destroy(); } catch { /* ignore */ }
+    miniGameSession = null;
+  }
+  miniGameCurrent = null;
+  miniGameStarted = false;
+  miniGamePaused = false;
+  miniGameEnded = false;
+  if (overlay) overlay.hidden = true;
+  const splash = $('minigameSplash');
+  if (splash) splash.hidden = true;
+  const hud = $('minigameHud');
+  if (hud) hud.innerHTML = '';
+  const pause = $('minigamePauseBtn');
+  if (pause) {
+    pause.disabled = true;
+    pause.textContent = t('Pauza');
+  }
+  if (wasOpen && currentUser) {
+    try { $('miniGamesBtn')?.focus({ preventScroll: true }); } catch { /* ignore */ }
+  }
+}
+
+function renderMiniGameHud(state) {
+  const hud = $('minigameHud');
+  if (!hud || !state) return;
+  if (state.mode === 'battle') {
+    const hp = Math.max(0, Math.min(100, Number(state.hp) || 0));
+    const shield = Math.max(0, Math.min(60, Number(state.shield) || 0));
+    hud.innerHTML = `
+      <div class="mg-hud-left">
+        <div class="mg-player-line">${esc(state.playerName || t('Ty'))}<span>HP</span></div>
+        <div class="mg-bar mg-bar-health${hp <= 30 ? ' low' : ''}"><span style="width:${hp}%"></span><b>${hp}</b></div>
+        <div class="mg-bar mg-bar-shield"><span style="width:${(shield / 60) * 100}%"></span><b>${shield}</b></div>
+      </div>
+      <div class="mg-hud-center">
+        <span class="mg-stat"><small>${esc(t('Żywi'))}</small><strong>${state.alive}/12</strong></span>
+        <span class="mg-stat"><small>${esc(t('Eliminacje'))}</small><strong>${state.kills}</strong></span>
+        <span class="mg-stat"><small>${esc(t('Broń'))}</small><strong>${esc(state.weapon)}</strong></span>
+      </div>
+      <div class="mg-hud-right">
+        <span class="mg-storm${state.outside ? ' danger' : ''}">${esc(state.stormLabel)}</span>
+        <span class="mg-hint-chip">${esc(t('Strzał: LPM / Spacja'))}</span>
+      </div>
+    `;
+    return;
+  }
+  if (state.mode === 'duel') {
+    const hp = Math.max(0, Math.min(100, Number(state.hp) || 0));
+    const shield = Math.max(0, Math.min(60, Number(state.shield) || 0));
+    const dash = Math.max(0, Math.min(100, Number(state.dash) || 0));
+    hud.innerHTML = `
+      <div class="mg-hud-left">
+        <div class="mg-player-line">${esc(state.playerName || t('Ty'))}<span>HP</span></div>
+        <div class="mg-bar mg-bar-health${hp <= 30 ? ' low' : ''}"><span style="width:${hp}%"></span><b>${hp}</b></div>
+        <div class="mg-bar mg-bar-shield"><span style="width:${(shield / 60) * 100}%"></span><b>${shield}</b></div>
+      </div>
+      <div class="mg-hud-center">
+        <span class="mg-scoreboard"><span>${esc(state.playerName)}</span><strong>${state.scorePlayer}</strong><em>:</em><strong>${state.scoreBot}</strong><span>${esc(state.opponentName)}</span></span>
+        <span class="mg-stat"><small>${esc(t('Runda'))}</small><strong>${state.round}</strong></span>
+        <span class="mg-timer">${esc(t('Czas'))} ${state.timer}s</span>
+      </div>
+      <div class="mg-hud-right">
+        <div class="mg-dash-label"><span>${esc(t('Dash'))}</span><span>${dash}%</span></div>
+        <div class="mg-bar mg-bar-dash"><span style="width:${dash}%"></span></div>
+        <span class="mg-hint-chip">${esc(t('Strzał: LPM / Spacja'))}</span>
+      </div>
+    `;
+    return;
+  }
+  hud.innerHTML = '';
+}
+
+function bindMiniGames() {
+  const nav = $('miniGamesBtn');
+  if (nav) nav.addEventListener('click', selectMiniGames);
+
+  const close = $('minigameClose');
+  if (close) close.addEventListener('click', closeMiniGame);
+
+  const pause = $('minigamePauseBtn');
+  if (pause) pause.addEventListener('click', toggleMiniGamePause);
+
+  const primary = $('minigameSplashPrimary');
+  if (primary) {
+    primary.addEventListener('click', () => {
+      const mode = $('minigameSplash').dataset.mode;
+      if (mode === 'end') restartMiniGame();
+      else if (mode === 'pause') resumeMiniGame();
+      else startMiniGame();
+    });
+  }
+
+  const secondary = $('minigameSplashSecondary');
+  if (secondary) secondary.addEventListener('click', closeMiniGame);
 }
 
 // ---------- Powiadomienia ----------
@@ -9549,6 +10094,12 @@ async function startUpdateInstall(manual) {
 function bindShortcuts() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
+      if ($('minigameOverlay') && !$('minigameOverlay').hidden) {
+        if (miniGameEnded) closeMiniGame();
+        else if (miniGamePaused) resumeMiniGame();
+        else toggleMiniGamePause();
+        return;
+      }
       if ($('screenShareOverlay') && !$('screenShareOverlay').hidden) { closeScreenSharePicker(); return; }
       if (!$('serverOverlay').hidden) { closeServerModal(); return; }
       if (!$('inviteOverlay').hidden) { $('inviteOverlay').hidden = true; return; }
@@ -9558,7 +10109,7 @@ function bindShortcuts() {
       if (!$('emojiOverlay').hidden) { closeEmojiPicker(); return; }
       if (!$('searchBar').hidden) { setMessageSearch(false); return; }
     }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && currentUser) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f' && currentUser && current.kind !== 'minigames') {
       e.preventDefault();
       setMessageSearch(true);
     }

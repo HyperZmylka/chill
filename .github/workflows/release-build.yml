@@ -6,7 +6,7 @@ on:
       tag:
         description: Release tag to build and upload
         required: true
-        default: v4.12.0
+        default: v4.14.0
 
 permissions:
   contents: write
@@ -30,7 +30,7 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: node --test test/appearance.test.js test/discord-import.test.js test/stickers.test.js test/voice.test.js test/game-detect.test.js
+        run: node --test test/appearance.test.js test/discord-import.test.js test/stickers.test.js test/voice.test.js test/game-detect.test.js test/minigames.test.js
 
       - name: Build installer
         run: npm run dist -- --publish never

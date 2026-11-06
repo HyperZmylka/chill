@@ -2839,27 +2839,32 @@ body.voice-stage .toast { bottom: 96px; }
   line-height: 1;
 }
 .server-menu {
-  width: 292px;
-  min-width: 292px;
+  width: 244px;
+  min-width: 244px;
+  max-width: calc(100vw - 16px);
   max-height: calc(100vh - 16px);
   overflow-y: auto;
-  padding: 6px;
+  padding: 5px;
+}
+.server-menu.has-scroll {
+  width: 252px;
+  min-width: 252px;
 }
 .server-menu-head {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 7px 9px 8px;
+  gap: 6px;
+  padding: 4px 6px 5px;
 }
 .server-menu-avatar {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 26px;
+  height: 26px;
   flex: 0 0 auto;
-  border-radius: 10px;
+  border-radius: 8px;
   color: #fff;
-  font-size: 15px;
+  font-size: 11.5px;
   font-weight: 800;
 }
 .server-menu-name {
@@ -2868,11 +2873,30 @@ body.voice-stage .toast { bottom: 96px; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13.5px;
+  font-size: 12px;
   font-weight: 750;
 }
+.server-menu .owner-pill {
+  padding: 1px 5px;
+  font-size: 8px;
+}
 .server-menu .context-item {
-  padding: 8px 10px;
+  gap: 6px;
+  padding: 4px 7px;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.server-menu .context-icon {
+  width: 14px;
+  font-size: 11px;
+}
+.server-menu .context-sep {
+  margin: 2px 4px;
+}
+.server-menu .context-badge {
+  padding: 1px 4px;
+  font-size: 7.5px;
 }
 .server-menu-label {
   flex: 1;
@@ -2884,13 +2908,13 @@ body.voice-stage .toast { bottom: 96px; }
 .server-menu-check {
   display: grid;
   place-items: center;
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   flex: 0 0 auto;
   border: 1px solid var(--line-strong);
-  border-radius: 4px;
+  border-radius: 3px;
   color: var(--accent-ink);
-  font-size: 10px;
+  font-size: 8px;
   line-height: 1;
 }
 .server-menu-check.checked {
