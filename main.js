@@ -1426,7 +1426,10 @@ async function checkForUpdates() {
       let downloadUrl = data.html_url;
       if (Array.isArray(data.assets)) {
         const assets = data.assets.filter((a) => a.name && a.name.toLowerCase().endsWith('.exe'));
-        const setup = assets.find((a) => /setup|install|chill/i.test(a.name)) || assets[0];
+        const setup = assets.find((a) => /^chill-setup-/i.test(a.name))
+          || assets.find((a) => !/tauri/i.test(a.name) && /setup|install|chill/i.test(a.name))
+          || assets.find((a) => !/tauri/i.test(a.name))
+          || assets[0];
         if (setup) downloadUrl = setup.browser_download_url;
       }
 

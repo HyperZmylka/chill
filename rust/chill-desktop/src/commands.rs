@@ -165,16 +165,8 @@ pub async fn chill_update_check(app: AppHandle) -> Result<Option<UpdateInfo>, St
         .unwrap_or("")
         .to_string();
     if let Some(assets) = data.get("assets").and_then(Value::as_array) {
-        if let Some(setup) = assets.iter().find(|asset| {
-            asset
-                .get("name")
-                .and_then(Value::as_str)
-                .map(|name| name.to_lowercase().ends_with(".exe"))
-                .unwrap_or(false)
-        }) {
-            if let Some(url) = setup.get("browser_download_url").and_then(Value::as_str) {
-                download = url.to_string();
-            }
+        if let Some(url) = update_asset_url(assets) {
+            download = url;
         }
     }
 
@@ -268,6 +260,51 @@ pub async fn chill_update_install(app: AppHandle) -> Result<bool, String> {
     Ok(true)
 }
 
+fn update_asset_url(assets: &[Value]) -> Option<String> {
+    fn name(asset: &Value) -> String {
+        asset
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_lowercase()
+    }
+    fn url(asset: &Value) -> Option<String> {
+        asset
+            .get("browser_download_url")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    }
+
+    // Najpierw instalator Tauri: nowy wariant i surowa nazwa NSIS.
+    for asset in assets {
+        let name = name(asset);
+        if name.ends_with(".exe") && (name.contains("tauri") || name.contains("_x64-setup")) {
+            if let Some(url) = url(asset) {
+                return Some(url);
+            }
+        }
+    }
+
+    // Potem każdy instalator poza wariantem Electron.
+    for asset in assets {
+        let name = name(asset);
+        if name.ends_with(".exe") && !name.contains("chill-setup-") {
+            if let Some(url) = url(asset) {
+                return Some(url);
+            }
+        }
+    }
+
+    // Starsze wydania mają tylko instalator Electron.
+    assets.iter().find_map(|asset| {
+        if name(asset).ends_with(".exe") {
+            url(asset)
+        } else {
+            None
+        }
+    })
+}
+
 fn compare_versions(left: &str, right: &str) -> i32 {
     let left = version_parts(left);
     let right = version_parts(right);
@@ -295,4 +332,73 @@ fn version_parts(value: &str) -> Vec<u64> {
                 .unwrap_or(0)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::update_asset_url;
+    use serde_json::json;
+
+    #[test]
+    fn prefers_tauri_installer_when_release_has_both() {
+        let assets = vec![
+            json!({
+                "name": "Chill-Setup-4.15.1.exe",
+                "browser_download_url": "https://example.com/electron.exe"
+            }),
+            json!({
+                "name": "Chill-Tauri-Setup-4.15.1.exe",
+                "browser_download_url": "https://example.com/tauri.exe"
+            }),
+        ];
+        assert_eq!(
+            update_asset_url(&assets).as_deref(),
+            Some("https://example.com/tauri.exe")
+        );
+    }
+
+    #[test]
+    fn accepts_raw_tauri_installer_name() {
+        let assets = vec![
+            json!({
+                "name": "Chill-Setup-4.15.1.exe",
+                "browser_download_url": "https://example.com/electron.exe"
+            }),
+            json!({
+                "name": "Chill_4.15.1_x64-setup.exe",
+                "browser_download_url": "https://example.com/tauri-raw.exe"
+            }),
+        ];
+        assert_eq!(
+            update_asset_url(&assets).as_deref(),
+            Some("https://example.com/tauri-raw.exe")
+        );
+    }
+
+    #[test]
+    fn falls_back_to_electron_installer() {
+        let assets = vec![
+            json!({
+                "name": "latest.yml",
+                "browser_download_url": "https://example.com/latest.yml"
+            }),
+            json!({
+                "name": "Chill-Setup-4.15.1.exe",
+                "browser_download_url": "https://example.com/electron.exe"
+            }),
+        ];
+        assert_eq!(
+            update_asset_url(&assets).as_deref(),
+            Some("https://example.com/electron.exe")
+        );
+    }
+
+    #[test]
+    fn ignores_non_exe_assets() {
+        let assets = vec![json!({
+            "name": "notes.txt",
+            "browser_download_url": "https://example.com/notes"
+        })];
+        assert_eq!(update_asset_url(&assets), None);
+    }
 }
