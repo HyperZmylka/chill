@@ -1,6 +1,18 @@
-// Chill - komunikator desktopowy
+// Chill - komunikator desktopowy i publiczna wersja przeglądarkowa
 // Konta lokalne, czat WebSocket, automatyczne aktualizacje z GitHub Releases
-const { app, BrowserWindow, Menu, Tray, nativeImage, shell, session, desktopCapturer, ipcMain, Notification } = require('electron');
+const RUNNING_IN_ELECTRON = Boolean(process.versions.electron);
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  Tray,
+  nativeImage,
+  shell,
+  session,
+  desktopCapturer,
+  ipcMain,
+  Notification,
+} = RUNNING_IN_ELECTRON ? require('electron') : require('./electron-shim');
 const path = require('node:path');
 const fs = require('node:fs');
 const http = require('node:http');
@@ -32,7 +44,58 @@ if (process.env.CHILL_DATA_DIR) {
 }
 
 const ICON = path.join(__dirname, 'build', 'icon.png');
-const CHAT_PORT = Number(process.env.CHILL_PORT) || 47830;
+const CHAT_PORT = Number(process.env.PORT || process.env.CHILL_PORT) || 47830;
+const SERVER_MODE = !RUNNING_IN_ELECTRON
+  || process.argv.includes('--server')
+  || process.argv.includes('--public-web')
+  || process.env.CHILL_SERVER === '1';
+const PUBLIC_WEB = process.argv.includes('--public-web') || process.env.CHILL_PUBLIC_WEB === '1';
+const WEB_MODE = !SERVER_MODE && (process.argv.includes('--web') || process.env.CHILL_WEB === '1');
+const WEB_OPEN = !SERVER_MODE && !process.argv.includes('--no-open');
+const WEB_TOKEN = crypto.randomBytes(24).toString('hex');
+
+function parsePublicUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+    return url;
+  } catch {
+    return null;
+  }
+}
+
+const PUBLIC_URL = parsePublicUrl(process.env.CHILL_PUBLIC_URL);
+
+function computeWebBuild() {
+  const files = [
+    'package.json',
+    'index.html',
+    'style.css',
+    'minigames.css',
+    'renderer.js',
+    'minigames.js',
+    'gifs.js',
+    'stickers.js',
+    'voice.js',
+    'appearance.js',
+    'chill-web.js',
+    'main.js',
+  ];
+  const hash = crypto.createHash('sha1');
+  for (const file of files) {
+    try {
+      const stat = fs.statSync(path.join(__dirname, file));
+      hash.update(`${file}:${stat.size}:${stat.mtimeMs};`);
+    } catch {
+      hash.update(`${file}:missing;`);
+    }
+  }
+  return hash.digest('hex').slice(0, 16);
+}
+
+const WEB_BUILD = String(process.env.CHILL_BUILD_ID || '').trim() || computeWebBuild();
 
 // ================= KONFIGURACJA GITHUB =================
 const GITHUB_REPO = 'HyperZmylka/chill';
@@ -50,6 +113,12 @@ let wss = null;
 let httpServer = null;
 let internetTunnel = null;
 let pendingScreenSource = null;
+
+const ipcHandlers = new Map();
+function registerIpcHandler(channel, handler) {
+  ipcHandlers.set(channel, handler);
+  ipcMain.handle(channel, handler);
+}
 
 const VOICE_FRAME_MAX = 32 * 1024;
 const SCREEN_FRAME_MAX = 220 * 1024;
@@ -77,10 +146,17 @@ const languagePath = () => path.join(dataDir(), 'language.json');
 const discordPath = () => path.join(dataDir(), 'discord.json');
 const voiceDir = () => path.join(dataDir(), 'voice');
 const voiceIndexPath = () => path.join(voiceDir(), 'index.json');
+const webSessionsPath = () => path.join(dataDir(), 'web-sessions.json');
 
 // ---------- Profil: banery, avatary, odznaki i kolekcja gier ----------
 const PROFILE_BADGE_IDS = new Set(['piwo', 'chill', 'og', 'vip', 'dev']);
 const BANNER_PRESET_IDS = new Set(['black', 'mint', 'ocean', 'sunset', 'forest', 'neon']);
+const SERVER_BANNER_IDS = new Set(['graphite', 'rose', 'crimson', 'ember', 'gold', 'violet', 'azure', 'aqua', 'lime', 'slate']);
+const SERVER_TRAIT_LIMIT = 5;
+const SERVER_TRAIT_LENGTH = 24;
+const SERVER_GAME_LIMIT = 5;
+const SERVER_GAME_LENGTH = 24;
+const SERVER_DESCRIPTION_LENGTH = 280;
 const BANNER_PATTERNS = new Set(['none', 'dots', 'grid', 'waves', 'stars', 'diagonal']);
 const PROFILE_IMAGE_RE = /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/i;
 const PROFILE_AVATAR_MAX = 260_000;
@@ -95,6 +171,39 @@ const PROFILE_GAME_PLATFORMS = new Set([
 
 function safeHex(value, fallback = '') {
   return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? String(value).toLowerCase() : fallback;
+}
+
+function sanitizeServerBanner(value) {
+  const id = String(value || '').trim().toLowerCase();
+  return SERVER_BANNER_IDS.has(id) ? id : 'graphite';
+}
+
+function sanitizeServerTextList(value, limit, maxLength) {
+  if (!Array.isArray(value)) return [];
+  const result = [];
+  const seen = new Set();
+  for (const item of value) {
+    const text = String(item || '')
+      .replace(/[\u0000-\u001f\u007f]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, maxLength);
+    if (!text) continue;
+    const key = text.toLocaleLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(text);
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
+function sanitizeServerDescription(value) {
+  return String(value || '')
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+    .trim()
+    .slice(0, SERVER_DESCRIPTION_LENGTH);
 }
 
 function safeProfileImage(value, maxLength) {
@@ -346,6 +455,200 @@ function activeSession() {
   return publicUser(user);
 }
 
+// ---------- Sesje przeglądarkowe (publiczna strona) ----------
+const WEB_SESSION_REMEMBER_TTL = 30 * 24 * 60 * 60 * 1000;
+const WEB_SESSION_SHORT_TTL = 12 * 60 * 60 * 1000;
+const WEB_SESSION_LIMIT_PER_USER = 20;
+let webSessionStore = null;
+
+function loadWebSessions() {
+  if (webSessionStore) return webSessionStore;
+  try {
+    webSessionStore = JSON.parse(fs.readFileSync(webSessionsPath(), 'utf8'));
+  } catch {
+    webSessionStore = {};
+  }
+  if (!webSessionStore.sessions || typeof webSessionStore.sessions !== 'object') {
+    webSessionStore.sessions = {};
+  }
+  pruneWebSessions(webSessionStore);
+  return webSessionStore;
+}
+
+function pruneWebSessions(store) {
+  const now = Date.now();
+  for (const [token, record] of Object.entries(store.sessions)) {
+    if (!record || typeof record !== 'object' || !record.userId || !Number.isFinite(record.expiresAt) || record.expiresAt <= now) {
+      delete store.sessions[token];
+    }
+  }
+}
+
+function saveWebSessions() {
+  try {
+    fs.writeFileSync(webSessionsPath(), JSON.stringify(webSessionStore, null, 2), 'utf8');
+  } catch (err) {
+    console.error('[auth] Nie udało się zapisać sesji przeglądarkowych:', err.message);
+  }
+}
+
+function createWebSession(userId, remember) {
+  const store = loadWebSessions();
+  pruneWebSessions(store);
+  const token = crypto.randomBytes(32).toString('hex');
+  const now = Date.now();
+  const ttl = remember ? WEB_SESSION_REMEMBER_TTL : WEB_SESSION_SHORT_TTL;
+  store.sessions[token] = {
+    userId,
+    createdAt: now,
+    lastSeen: now,
+    expiresAt: now + ttl,
+    remember: Boolean(remember),
+  };
+  const owned = Object.entries(store.sessions)
+    .filter(([, record]) => record.userId === userId)
+    .sort((a, b) => Number(a[1].createdAt) - Number(b[1].createdAt));
+  while (owned.length > WEB_SESSION_LIMIT_PER_USER) {
+    const [oldToken] = owned.shift();
+    delete store.sessions[oldToken];
+  }
+  saveWebSessions();
+  return token;
+}
+
+function findWebSession(token) {
+  if (!token) return null;
+  const store = loadWebSessions();
+  const record = store.sessions[token];
+  if (!record) return null;
+  if (!Number.isFinite(record.expiresAt) || record.expiresAt <= Date.now()) {
+    delete store.sessions[token];
+    saveWebSessions();
+    return null;
+  }
+  if (!findUserById(record.userId)) {
+    delete store.sessions[token];
+    saveWebSessions();
+    return null;
+  }
+  if (Date.now() - Number(record.lastSeen || 0) > 5 * 60 * 1000) {
+    record.lastSeen = Date.now();
+    saveWebSessions();
+  }
+  return { token, ...record };
+}
+
+function destroyWebSession(token) {
+  if (!token) return false;
+  const store = loadWebSessions();
+  if (!store.sessions[token]) return false;
+  delete store.sessions[token];
+  saveWebSessions();
+  closeWebSessionSockets(token);
+  return true;
+}
+
+function destroyUserWebSessions(userId, exceptToken = '') {
+  if (!userId) return;
+  const store = loadWebSessions();
+  let changed = false;
+  for (const [token, record] of Object.entries(store.sessions)) {
+    if (record.userId !== userId || token === exceptToken) continue;
+    delete store.sessions[token];
+    closeWebSessionSockets(token);
+    changed = true;
+  }
+  if (changed) saveWebSessions();
+}
+
+function closeWebSessionSockets(token) {
+  if (!token || !wss) return;
+  for (const socket of wss.clients) {
+    if (socket._webSessionToken !== token) continue;
+    try { socket.close(4001, 'session-ended'); } catch { /* ignore */ }
+  }
+}
+
+function cookieMap(req) {
+  const header = req?.headers?.cookie;
+  const map = {};
+  if (!header) return map;
+  for (const part of header.split(';')) {
+    const index = part.indexOf('=');
+    if (index < 0) continue;
+    const key = part.slice(0, index).trim();
+    if (!key) continue;
+    map[key] = part.slice(index + 1).trim();
+  }
+  return map;
+}
+
+function cookieValue(req, name) {
+  return cookieMap(req)[name] || '';
+}
+
+function webSessionTokenFromRequest(req) {
+  return cookieValue(req, 'chill_sid');
+}
+
+function webSessionUserFromRequest(req) {
+  const record = findWebSession(webSessionTokenFromRequest(req));
+  if (!record) return null;
+  const user = findUserById(record.userId);
+  return user ? publicUser(user) : null;
+}
+
+function sessionUser(e) {
+  if (e && e.web) return e.web?._publicSession ? e.webUser : activeSession();
+  return activeSession();
+}
+
+function sessionUserToken(e) {
+  return e?.web?._publicSession ? e.web.token : '';
+}
+
+function issueSessionFor(e, user, remember) {
+  if (e && e.web && e.web._publicSession) {
+    if (e.web.token) destroyWebSession(e.web.token);
+    const token = createWebSession(user.id, remember);
+    e.web.token = token;
+    e.webUser = publicUser(user);
+    setWebSessionCookie(e, token, remember);
+    return e.webUser;
+  }
+  return issueSession(user, remember);
+}
+
+function clearSessionFor(e) {
+  if (e && e.web && e.web._publicSession) {
+    if (e.web.token) destroyWebSession(e.web.token);
+    e.web.token = '';
+    e.webUser = null;
+    clearWebSessionCookie(e);
+    return;
+  }
+  loadAccounts().session = null;
+  saveAccounts();
+  volatileSession = null;
+}
+
+function cookieSuffix(e, httpOnly = true) {
+  const secure = e?.web?.secure ? '; Secure' : '';
+  const flag = httpOnly ? '; HttpOnly' : '';
+  return `${flag}; Path=/; SameSite=Lax${secure}`;
+}
+
+function setWebSessionCookie(e, token, remember) {
+  if (!e?.web?.setCookie) return;
+  const maxAge = remember ? '; Max-Age=2592000' : '';
+  e.web.setCookie(`chill_sid=${token}${cookieSuffix(e)}${maxAge}`);
+}
+
+function clearWebSessionCookie(e) {
+  if (!e?.web?.setCookie) return;
+  e.web.setCookie(`chill_sid=${cookieSuffix(e)}; Max-Age=0`);
+}
+
 // Ograniczenie prób logowania
 const loginAttempts = new Map();
 function loginLockRemaining(key) {
@@ -443,6 +746,10 @@ function normalizeHostedServer(raw) {
   server.icon = typeof server.icon === 'string' ? server.icon.slice(0, 4) : '';
   server.color = /^#[0-9a-f]{6}$/i.test(String(server.color || '')) ? server.color : '#3ee0a3';
   server.tag = String(server.tag || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+  server.banner = sanitizeServerBanner(server.banner);
+  server.description = sanitizeServerDescription(server.description);
+  server.traits = sanitizeServerTextList(server.traits, SERVER_TRAIT_LIMIT, SERVER_TRAIT_LENGTH);
+  server.games = sanitizeServerTextList(server.games, SERVER_GAME_LIMIT, SERVER_GAME_LENGTH);
   server.invite = /^[A-Z0-9]{4,12}$/.test(String(server.invite || '')) ? server.invite : makeInviteCode();
   server.ownerKey = typeof server.ownerKey === 'string' && server.ownerKey.length >= 24 ? server.ownerKey : crypto.randomBytes(24).toString('hex');
   server.createdAt = Number(server.createdAt) || Date.now();
@@ -465,6 +772,16 @@ function normalizeHostedServer(raw) {
       owner: Boolean(member.owner),
       joinedAt: Number(member.joinedAt) || Date.now(),
       lastSeen: Number(member.lastSeen) || Number(member.joinedAt) || Date.now(),
+      handle: sanitizeHandle(member.handle),
+      avatar: sanitizeAvatar(member.avatar),
+      banner: sanitizeBanner(member.banner),
+      badges: sanitizeBadges(member.badges),
+      games: sanitizeGames(member.games),
+      about: String(member.about || '').slice(0, 160),
+      playing: typeof member.playing === 'string' ? member.playing.trim().slice(0, 40) || null : null,
+      playingIcon: member.playing ? sanitizeGameIcon(member.playingIcon) : null,
+      playingPlatform: member.playing ? sanitizeGamePlatform(member.playingPlatform) : null,
+      playingSince: Number(member.playingSince) > 0 ? Number(member.playingSince) : null,
     }));
   if (!server.messages || typeof server.messages !== 'object') server.messages = {};
   for (const channel of server.channels) {
@@ -711,7 +1028,45 @@ function uniqueInviteCode() {
   return code;
 }
 
-function serverShareLink(server) {
+function publicOrigin() {
+  return PUBLIC_URL ? PUBLIC_URL.origin : '';
+}
+
+function requestOrigin(req) {
+  if (PUBLIC_URL) return PUBLIC_URL.origin;
+  const protoHeader = String(req?.headers?.['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  const protocol = protoHeader === 'https' ? 'https' : (protoHeader === 'http' ? 'http' : (req?.socket?.encrypted ? 'https' : 'http'));
+  const hostHeader = String(req?.headers?.['x-forwarded-host'] || req?.headers?.host || '').split(',')[0].trim();
+  if (hostHeader) {
+    try {
+      const url = new URL(`${protocol}://${hostHeader}`);
+      if (url.protocol === 'http:' || url.protocol === 'https:') return url.origin;
+    } catch { /* nieprawidłowy nagłówek Host */ }
+  }
+  return `http://127.0.0.1:${CHAT_PORT}`;
+}
+
+function originAddress(origin) {
+  try {
+    const url = new URL(origin);
+    const port = url.port || (url.protocol === 'https:' ? '443' : '80');
+    return `${url.hostname}:${port}`;
+  } catch {
+    return `127.0.0.1:${CHAT_PORT}`;
+  }
+}
+
+function webContext(e) {
+  if (!e?.web) return {};
+  const origin = e.web.origin || publicOrigin() || `http://127.0.0.1:${CHAT_PORT}`;
+  return { web: true, origin, secure: Boolean(e.web.secure) };
+}
+
+function serverShareLink(server, ctx = {}) {
+  if (PUBLIC_WEB) {
+    const origin = ctx.origin || publicOrigin() || `http://127.0.0.1:${CHAT_PORT}`;
+    return `${origin}/?invite=${encodeURIComponent(server.invite)}`;
+  }
   const endpoint = tunnelEndpoint();
   if (endpoint?.host) {
     return `chill://${endpoint.host}:${endpoint.port || 443}/${server.invite}?tls=1`;
@@ -755,19 +1110,26 @@ function channelOwnerContext(ws, send) {
   return { session, server };
 }
 
-function hostedMembership(server, userId) {
+function hostedMembership(server, userId, ctx = {}) {
+  const webOrigin = PUBLIC_WEB ? (ctx.origin || publicOrigin() || `http://127.0.0.1:${CHAT_PORT}`) : '';
+  const address = webOrigin ? originAddress(webOrigin) : `127.0.0.1:${CHAT_PORT}`;
+  const secure = webOrigin ? webOrigin.startsWith('https://') : false;
   return {
     id: server.id,
     name: server.name,
     icon: server.icon || '',
     color: server.color,
     tag: server.tag || '',
+    banner: sanitizeServerBanner(server.banner),
+    description: sanitizeServerDescription(server.description),
+    traits: sanitizeServerTextList(server.traits, SERVER_TRAIT_LIMIT, SERVER_TRAIT_LENGTH),
+    games: sanitizeServerTextList(server.games, SERVER_GAME_LIMIT, SERVER_GAME_LENGTH),
     owner: true,
     ownerId: server.ownerId,
-    address: `127.0.0.1:${CHAT_PORT}`,
-    secure: false,
+    address,
+    secure,
     invite: server.invite,
-    shareLink: serverShareLink(server),
+    shareLink: serverShareLink(server, ctx),
     channels: server.channels.map((channel) => ({ id: channel.id, name: channel.name, type: channel.type, createdAt: channel.createdAt })),
     ownerKey: server.ownerKey,
     memberId: userId,
@@ -775,19 +1137,27 @@ function hostedMembership(server, userId) {
   };
 }
 
-function joinedMembership(entry) {
-  const secure = Boolean(entry.secure);
+function joinedMembership(entry, ctx = {}) {
+  const webOrigin = PUBLIC_WEB ? (ctx.origin || publicOrigin() || `http://127.0.0.1:${CHAT_PORT}`) : '';
+  const address = webOrigin ? originAddress(webOrigin) : entry.address;
+  const secure = webOrigin ? webOrigin.startsWith('https://') : Boolean(entry.secure);
   return {
     id: entry.id,
     name: entry.name || 'Serwer',
     icon: entry.icon || '',
     color: entry.color || '#3ee0a3',
     tag: String(entry.tag || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8),
+    banner: sanitizeServerBanner(entry.banner),
+    description: sanitizeServerDescription(entry.description),
+    traits: sanitizeServerTextList(entry.traits, SERVER_TRAIT_LIMIT, SERVER_TRAIT_LENGTH),
+    games: sanitizeServerTextList(entry.games, SERVER_GAME_LIMIT, SERVER_GAME_LENGTH),
     owner: false,
-    address: entry.address,
+    address,
     secure,
     invite: entry.invite,
-    shareLink: `chill://${entry.address}/${entry.invite}${secure ? '?tls=1' : ''}`,
+    shareLink: webOrigin
+      ? `${webOrigin}/?invite=${encodeURIComponent(entry.invite)}`
+      : `chill://${entry.address}/${entry.invite}${secure ? '?tls=1' : ''}`,
     memberId: entry.memberId,
     joinedAt: entry.joinedAt || Date.now(),
   };
@@ -1151,6 +1521,11 @@ function detachServerSession(ws) {
 
 function handleJoinServer(ws, msg, send) {
   const ip = ws._clientIp || '';
+  const webUser = ws._webUser;
+  if (PUBLIC_WEB && !webUser) {
+    send({ type: 'auth-error', message: 'Zaloguj się, aby dołączyć do serwera.' });
+    return;
+  }
   if (ip && joinRateLimited(ip)) {
     send({ type: 'server:error', code: 'rate-limited', message: 'Zbyt wiele prób. Spróbuj ponownie za chwilę.' });
     return;
@@ -1175,15 +1550,35 @@ function handleJoinServer(ws, msg, send) {
 
   detachServerSession(ws);
 
-  const owner = Boolean(msg.ownerKey && msg.ownerKey === server.ownerKey);
-  let memberId = String(msg.memberId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+  const account = webUser ? findUserById(webUser.id) : null;
+  const profile = account ? publicUser(account) : null;
+  const owner = PUBLIC_WEB
+    ? Boolean(server.ownerId && account && server.ownerId === account.id)
+    : Boolean(msg.ownerKey && msg.ownerKey === server.ownerKey);
+  let memberId = PUBLIC_WEB
+    ? (account?.id || '')
+    : String(msg.memberId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
   if (!memberId) memberId = crypto.randomUUID();
-  if (owner) memberId = server.ownerId;
-  else if (memberId === server.ownerId) memberId = crypto.randomUUID();
+  if (!PUBLIC_WEB) {
+    if (owner) memberId = server.ownerId;
+    else if (memberId === server.ownerId) memberId = crypto.randomUUID();
+  }
 
-  const name = String(msg.name || '').trim().slice(0, 32) || 'Gość';
-  const color = /^#[0-9a-f]{6}$/i.test(String(msg.color || '')) ? msg.color : '#3ee0a3';
+  const name = PUBLIC_WEB
+    ? (profile?.displayName || 'Gość')
+    : (String(msg.name || '').trim().slice(0, 32) || 'Gość');
+  const color = PUBLIC_WEB
+    ? (profile?.color || '#3ee0a3')
+    : (/^#[0-9a-f]{6}$/i.test(String(msg.color || '')) ? msg.color : '#3ee0a3');
   const patch = profilePatchFromMessage(msg);
+  if (PUBLIC_WEB && profile) {
+    patch.handle = profile.handle;
+    patch.avatar = profile.avatar;
+    patch.banner = profile.banner;
+    patch.badges = profile.badges;
+    patch.games = profile.games;
+    patch.about = profile.about;
+  }
   if (!patch.handle) patch.handle = handleForAccount({ id: memberId, username: name });
 
   let member = server.members.find((item) => item.id === memberId);
@@ -1230,6 +1625,10 @@ function handleJoinServer(ws, msg, send) {
       icon: server.icon || '',
       color: server.color,
       tag: server.tag || '',
+      banner: sanitizeServerBanner(server.banner),
+      description: sanitizeServerDescription(server.description),
+      traits: sanitizeServerTextList(server.traits, SERVER_TRAIT_LIMIT, SERVER_TRAIT_LENGTH),
+      games: sanitizeServerTextList(server.games, SERVER_GAME_LIMIT, SERVER_GAME_LENGTH),
       invite: server.invite,
       ownerId: server.ownerId,
       createdAt: server.createdAt,
@@ -1435,6 +1834,219 @@ function handleVoiceDelete(req, res, pathname, searchParams) {
   return sendJson(res, 200, { ok: true });
 }
 
+// ---------- Tryb przeglądarki ----------
+const WEB_ASSETS = new Map([
+  ['/index.html', ['index.html', 'text/html; charset=utf-8']],
+  ['/style.css', ['style.css', 'text/css; charset=utf-8']],
+  ['/minigames.css', ['minigames.css', 'text/css; charset=utf-8']],
+  ['/renderer.js', ['renderer.js', 'text/javascript; charset=utf-8']],
+  ['/minigames.js', ['minigames.js', 'text/javascript; charset=utf-8']],
+  ['/gifs.js', ['gifs.js', 'text/javascript; charset=utf-8']],
+  ['/stickers.js', ['stickers.js', 'text/javascript; charset=utf-8']],
+  ['/voice.js', ['voice.js', 'text/javascript; charset=utf-8']],
+  ['/appearance.js', ['appearance.js', 'text/javascript; charset=utf-8']],
+  ['/chill-web.js', ['chill-web.js', 'text/javascript; charset=utf-8']],
+  ['/build/icon.png', ['build/icon.png', 'image/png']],
+]);
+
+const WEB_BRIDGE_CHANNELS = new Set([
+  'chill:auth-session',
+  'chill:auth-register',
+  'chill:auth-login',
+  'chill:auth-logout',
+  'chill:auth-update-profile',
+  'chill:auth-change-password',
+  'chill:servers-list',
+  'chill:servers-create',
+  'chill:servers-save-joined',
+  'chill:servers-leave',
+  'chill:servers-invite',
+  'chill:discord-config-get',
+  'chill:discord-config-set',
+  'chill:discord-connect',
+  'chill:discord-disconnect',
+  'chill:discord-cancel',
+  'chill:discord-preview',
+  'chill:discord-import',
+  'chill:app-version',
+  'chill:update-check',
+]);
+
+const WEB_BRIDGE_PUBLIC_CHANNELS = new Set([
+  'chill:auth-session',
+  'chill:auth-register',
+  'chill:auth-login',
+  'chill:auth-logout',
+  'chill:app-version',
+  'chill:update-check',
+]);
+
+function isSecureRequest(req) {
+  if (PUBLIC_URL) return PUBLIC_URL.protocol === 'https:';
+  const proto = String(req?.headers?.['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+  if (proto === 'https') return true;
+  if (proto === 'http') return false;
+  return Boolean(req?.socket?.encrypted);
+}
+
+function webRequestAllowed(req) {
+  if (PUBLIC_WEB) return true;
+  return isLoopback(req.socket.remoteAddress) && !isTunneledRequest(req);
+}
+
+function webCookieValue(req, name = 'chill_web') {
+  return cookieValue(req, name);
+}
+
+function csrfCookieValue(req) {
+  return cookieValue(req, 'chill_csrf');
+}
+
+function appendSetCookie(res, value) {
+  const current = res.getHeader('set-cookie');
+  if (!current) res.setHeader('set-cookie', [value]);
+  else if (Array.isArray(current)) current.push(value);
+  else res.setHeader('set-cookie', [current, value]);
+}
+
+function requestIsJson(req) {
+  const type = String(req.headers['content-type'] || '').toLowerCase();
+  return type.startsWith('application/json');
+}
+
+function sameOriginRequest(req) {
+  const origin = String(req.headers.origin || '').trim();
+  if (!origin) return true;
+  try {
+    return new URL(origin).origin === requestOrigin(req);
+  } catch {
+    return false;
+  }
+}
+
+function webSocketOriginAllowed(req) {
+  return sameOriginRequest(req);
+}
+
+function webFile(res, request, relative, type) {
+  fs.readFile(path.join(__dirname, relative), (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      res.end('Not found');
+      return;
+    }
+    const headers = {
+      'content-type': type,
+      'cache-control': 'no-store',
+      'x-content-type-options': 'nosniff',
+      'x-frame-options': 'DENY',
+      'referrer-policy': 'no-referrer',
+      'permissions-policy': "camera=(self), microphone=(self), display-capture=(self), geolocation=()",
+    };
+    if (relative === 'index.html') {
+      const cookies = [];
+      const secure = isSecureRequest(request) ? '; Secure' : '';
+      if (!csrfCookieValue(request)) {
+        const token = crypto.randomBytes(24).toString('hex');
+        cookies.push(`chill_csrf=${token}; Path=/; SameSite=Lax${secure}`);
+      }
+      if (!PUBLIC_WEB && webCookieValue(request) !== WEB_TOKEN) {
+        cookies.push(`chill_web=${WEB_TOKEN}; Path=/; HttpOnly; SameSite=Strict${secure}`);
+      }
+      if (cookies.length) headers['set-cookie'] = cookies;
+    }
+    res.writeHead(200, headers);
+    if (request.method === 'HEAD') res.end();
+    else res.end(data);
+  });
+}
+
+function serveWebAsset(req, res, pathname) {
+  if (!webRequestAllowed(req)) {
+    res.writeHead(403, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+    res.end('Chill Web jest dostępny tylko na tym komputerze.');
+    return true;
+  }
+  if (pathname === '/') {
+    webFile(res, req, 'index.html', 'text/html; charset=utf-8');
+    return true;
+  }
+  const asset = WEB_ASSETS.get(pathname);
+  if (!asset) return false;
+  webFile(res, req, asset[0], asset[1]);
+  return true;
+}
+
+async function handleWebBridge(req, res) {
+  if (!webRequestAllowed(req)) return sendJson(res, 403, { ok: false, error: 'Ta funkcja jest dostępna tylko lokalnie.' });
+  if (req.method !== 'POST') return sendJson(res, 405, { ok: false, error: 'Metoda niedozwolona.' });
+  if (!requestIsJson(req)) return sendJson(res, 415, { ok: false, error: 'Wymagany jest format JSON.' });
+  if (!sameOriginRequest(req)) return sendJson(res, 403, { ok: false, error: 'Nieprawidłowe źródło żądania.' });
+
+  const csrfHeader = String(req.headers['x-chill-csrf'] || '').trim();
+  const csrfCookie = csrfCookieValue(req);
+  if (!csrfCookie || !csrfHeader || csrfHeader !== csrfCookie) {
+    return sendJson(res, 403, { ok: false, error: 'Odśwież stronę Chill i spróbuj ponownie.' });
+  }
+  if (!PUBLIC_WEB && webCookieValue(req) !== WEB_TOKEN) {
+    return sendJson(res, 403, { ok: false, error: 'Odśwież stronę Chill i spróbuj ponownie.' });
+  }
+
+  let body;
+  try {
+    const raw = await readVoiceBody(req, 4 * 1024 * 1024);
+    body = JSON.parse(raw.toString('utf8'));
+  } catch {
+    return sendJson(res, 400, { ok: false, error: 'Nieprawidłowe dane.' });
+  }
+
+  const channel = String(body?.channel || '');
+  if (!WEB_BRIDGE_CHANNELS.has(channel)) return sendJson(res, 404, { ok: false, error: 'Nieznana operacja.' });
+  if (PUBLIC_WEB && channel.startsWith('chill:discord-')) {
+    return sendJson(res, 200, { ok: false, error: 'Import z Discorda jest dostępny tylko w aplikacji desktopowej.' });
+  }
+  const handler = ipcHandlers.get(channel);
+  if (!handler) return sendJson(res, 503, { ok: false, error: 'Aplikacja nie jest gotowa.' });
+
+  const token = PUBLIC_WEB ? webSessionTokenFromRequest(req) : '';
+  const webUser = PUBLIC_WEB ? webSessionUserFromRequest(req) : null;
+  if (PUBLIC_WEB && !webUser && !WEB_BRIDGE_PUBLIC_CHANNELS.has(channel)) {
+    return sendJson(res, 401, { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.' });
+  }
+
+  const e = {
+    web: {
+      _publicSession: PUBLIC_WEB,
+      origin: requestOrigin(req),
+      secure: isSecureRequest(req),
+      token,
+      setCookie: (value) => appendSetCookie(res, value),
+    },
+    webUser,
+  };
+
+  try {
+    const result = await handler(e, body.payload && typeof body.payload === 'object' ? body.payload : {});
+    return sendJson(res, 200, { ok: true, result });
+  } catch (err) {
+    console.error(`[web] ${channel}:`, err?.message || err);
+    return sendJson(res, 200, { ok: false, error: err?.message || 'Operacja nie powiodła się.' });
+  }
+}
+
+function webUrl() {
+  if (PUBLIC_URL) return PUBLIC_URL.href;
+  return `http://127.0.0.1:${CHAT_PORT}/`;
+}
+
+function openWebUI() {
+  console.log(`[chill] Tryb przeglądarki: ${webUrl()}`);
+  if (SERVER_MODE || !WEB_OPEN) return;
+  shell.openExternal(webUrl()).catch((err) => {
+    console.error('[web] Nie udało się otworzyć przeglądarki:', err.message);
+  });
+}
+
 function startChatServer(port = CHAT_PORT) {
   httpServer = http.createServer((req, res) => {
     let url;
@@ -1445,6 +2057,34 @@ function startChatServer(port = CHAT_PORT) {
       return res.end();
     }
     const { pathname, searchParams } = url;
+
+    if (pathname === '/api/bridge') {
+      void handleWebBridge(req, res);
+      return;
+    }
+
+    if ((req.method === 'GET' || req.method === 'HEAD') && serveWebAsset(req, res, pathname)) {
+      return;
+    }
+
+    if (pathname === '/api/version' || pathname === '/healthz') {
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+        'x-content-type-options': 'nosniff',
+      });
+      if (pathname === '/healthz') {
+        return res.end(JSON.stringify({ ok: true }));
+      }
+      return res.end(JSON.stringify({
+        ok: true,
+        app: 'chill',
+        version: app.getVersion(),
+        build: WEB_BUILD,
+        public: PUBLIC_WEB,
+      }));
+    }
+
     res.setHeader('access-control-allow-origin', '*');
     res.setHeader('access-control-allow-methods', 'GET, HEAD, POST, DELETE, OPTIONS');
     res.setHeader('access-control-allow-headers', 'content-type, range');
@@ -1490,9 +2130,19 @@ function startChatServer(port = CHAT_PORT) {
   wss = new WebSocketServer({ server: httpServer, path: '/chat' });
 
   wss.on('connection', (ws, req) => {
+    if (PUBLIC_WEB && !webSocketOriginAllowed(req)) {
+      try { ws.close(1008, 'origin'); } catch { /* ignore */ }
+      return;
+    }
     let currentUserId = null;
-    const local = isLoopback(req.socket.remoteAddress) && !isTunneledRequest(req);
+    const webToken = PUBLIC_WEB ? webSessionTokenFromRequest(req) : '';
+    const webUser = PUBLIC_WEB ? webSessionUserFromRequest(req) : null;
+    const local = PUBLIC_WEB
+      ? Boolean(webUser)
+      : (isLoopback(req.socket.remoteAddress) && !isTunneledRequest(req));
     ws._clientIp = requestClientIp(req);
+    ws._webUser = webUser;
+    ws._webSessionToken = webToken;
 
     const send = (payload) => {
       if (ws.readyState === 1) ws.send(JSON.stringify(payload));
@@ -1509,7 +2159,9 @@ function startChatServer(port = CHAT_PORT) {
         switch (msg.type) {
           case 'join': {
             if (!local) return;
-            const account = findUserById(msg.userId);
+            const account = PUBLIC_WEB
+              ? (ws._webUser ? findUserById(ws._webUser.id) : null)
+              : findUserById(msg.userId);
             if (!account) {
               send({ type: 'auth-error', message: 'Sesja wygasła. Zaloguj się ponownie.' });
               return;
@@ -2009,6 +2661,10 @@ function startChatServer(port = CHAT_PORT) {
             if (typeof msg.icon === 'string') server.icon = msg.icon.trim().slice(0, 4);
             if (typeof msg.color === 'string' && /^#[0-9a-f]{6}$/i.test(msg.color)) server.color = msg.color;
             server.tag = String(msg.tag || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+            if (msg.banner !== undefined) server.banner = sanitizeServerBanner(msg.banner);
+            if (msg.description !== undefined) server.description = sanitizeServerDescription(msg.description);
+            if (msg.traits !== undefined) server.traits = sanitizeServerTextList(msg.traits, SERVER_TRAIT_LIMIT, SERVER_TRAIT_LENGTH);
+            if (msg.games !== undefined) server.games = sanitizeServerTextList(msg.games, SERVER_GAME_LIMIT, SERVER_GAME_LENGTH);
             scheduleServersSave();
             broadcastServer(server.id, {
               type: 'server:info',
@@ -2018,6 +2674,10 @@ function startChatServer(port = CHAT_PORT) {
                 icon: server.icon || '',
                 color: server.color,
                 tag: server.tag,
+                banner: sanitizeServerBanner(server.banner),
+                description: sanitizeServerDescription(server.description),
+                traits: sanitizeServerTextList(server.traits, SERVER_TRAIT_LIMIT, SERVER_TRAIT_LENGTH),
+                games: sanitizeServerTextList(server.games, SERVER_GAME_LIMIT, SERVER_GAME_LENGTH),
                 invite: server.invite,
                 createdAt: server.createdAt,
                 ownerId: server.ownerId,
@@ -2161,10 +2821,11 @@ function startChatServer(port = CHAT_PORT) {
       detachServerSession(ws);
       revokeVoiceTokens(ws);
       if (currentUserId) {
-        const user = users.get(currentUserId);
-        if (user) user.status = 'offline';
-        userSockets.delete(currentUserId);
-        if (user) {
+        const isCurrentSocket = userSockets.get(currentUserId) === ws;
+        if (isCurrentSocket) {
+          userSockets.delete(currentUserId);
+          const user = users.get(currentUserId);
+          if (user) user.status = 'offline';
           users.delete(currentUserId);
           broadcastGlobal('user:update', { users: usersPayload() });
         }
@@ -2179,8 +2840,10 @@ function startChatServer(port = CHAT_PORT) {
     console.error('[chat] Serwer:', err.message);
   });
 
-  httpServer.listen(port, () => {
+  httpServer.listen({ port, host: process.env.CHILL_HOST || undefined }, () => {
     console.log(`[chill] Serwer czatu: http://127.0.0.1:${port}`);
+    if (SERVER_MODE || PUBLIC_WEB) console.log(`[chill] Interfejs web: ${webUrl()}`);
+    if (WEB_MODE) openWebUI();
   });
 }
 
@@ -2274,7 +2937,8 @@ a.btn{display:inline-block;padding:10px 22px;border-radius:12px;background:#3ee0
 function trayTemplate() {
   const en = loadAppLanguage() === 'en';
   return [
-    { label: en ? 'Open Chill' : 'Otwórz Chill', click: show },
+    { label: en ? 'Open Chill' : 'Otwórz Chill', click: WEB_MODE ? openWebUI : show },
+    { label: en ? 'Open in browser' : 'Otwórz w przeglądarce', click: openWebUI },
     { type: 'separator' },
     { label: en ? 'Check for updates' : 'Sprawdź aktualizacje', click: () => { checkForUpdates().catch(() => {}); } },
     {
@@ -2362,11 +3026,11 @@ function authError(message) {
   return { ok: false, error: message };
 }
 
-ipcMain.handle('chill:auth-session', () => {
-  return { ok: true, user: activeSession() };
+registerIpcHandler('chill:auth-session', (e) => {
+  return { ok: true, user: sessionUser(e) };
 });
 
-ipcMain.handle('chill:auth-register', (e, payload = {}) => {
+registerIpcHandler('chill:auth-register', (e, payload = {}) => {
   const email = String(payload.email || '').trim().toLowerCase();
   const username = String(payload.username || '').trim();
   const displayName = String(payload.displayName || '').trim() || username;
@@ -2405,11 +3069,11 @@ ipcMain.handle('chill:auth-register', (e, payload = {}) => {
   store.users.push(user);
   saveAccounts();
   clearDiscordSession();
-  const sessionUser = issueSession(user, true);
-  return { ok: true, user: sessionUser };
+  const signedIn = issueSessionFor(e, user, true);
+  return { ok: true, user: signedIn };
 });
 
-ipcMain.handle('chill:auth-login', (e, payload = {}) => {
+registerIpcHandler('chill:auth-login', (e, payload = {}) => {
   const identifier = String(payload.identifier || '').trim().toLowerCase();
   const password = String(payload.password || '');
   const remember = Boolean(payload.remember);
@@ -2429,25 +3093,23 @@ ipcMain.handle('chill:auth-login', (e, payload = {}) => {
   }
 
   clearLoginAttempts(identifier);
-  if (!remember) {
+  if (!remember && !(e?.web?._publicSession)) {
     loadAccounts().session = null;
     saveAccounts();
   }
   clearDiscordSession();
-  const sessionUser = issueSession(user, remember);
-  return { ok: true, user: sessionUser };
+  const signedIn = issueSessionFor(e, user, remember);
+  return { ok: true, user: signedIn };
 });
 
-ipcMain.handle('chill:auth-logout', () => {
-  loadAccounts().session = null;
-  saveAccounts();
-  volatileSession = null;
+registerIpcHandler('chill:auth-logout', (e) => {
+  clearSessionFor(e);
   clearDiscordSession();
   return { ok: true };
 });
 
-ipcMain.handle('chill:auth-update-profile', (e, payload = {}) => {
-  const current = activeSession();
+registerIpcHandler('chill:auth-update-profile', (e, payload = {}) => {
+  const current = sessionUser(e);
   if (!current) return authError('Sesja wygasła. Zaloguj się ponownie.');
   const account = findUserById(current.id);
   if (!account) return authError('Konto nie istnieje.');
@@ -2526,8 +3188,8 @@ ipcMain.handle('chill:auth-update-profile', (e, payload = {}) => {
   return { ok: true, user: publicUser(account) };
 });
 
-ipcMain.handle('chill:auth-change-password', (e, payload = {}) => {
-  const current = activeSession();
+registerIpcHandler('chill:auth-change-password', (e, payload = {}) => {
+  const current = sessionUser(e);
   if (!current) return authError('Sesja wygasła. Zaloguj się ponownie.');
   const account = findUserById(current.id);
   if (!account) return authError('Konto nie istnieje.');
@@ -2543,26 +3205,28 @@ ipcMain.handle('chill:auth-change-password', (e, payload = {}) => {
   account.salt = salt;
   account.hash = hash;
   saveAccounts();
+  destroyUserWebSessions(account.id, sessionUserToken(e));
   return { ok: true };
 });
 
 // ---------- Serwery (IPC) ----------
-ipcMain.handle('chill:servers-list', () => {
-  const current = activeSession();
+registerIpcHandler('chill:servers-list', (e) => {
+  const current = sessionUser(e);
   if (!current) return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.', servers: [] };
+  const ctx = webContext(e);
   const store = loadServersStore();
   const hosted = store.hosted
     .filter((server) => server.ownerId === current.id)
-    .map((server) => hostedMembership(server, current.id));
+    .map((server) => hostedMembership(server, current.id, ctx));
   const hostedIds = new Set(hosted.map((server) => server.id));
   const joined = store.joined
     .filter((entry) => entry.userId === current.id && !hostedIds.has(entry.id))
-    .map(joinedMembership);
+    .map((entry) => joinedMembership(entry, ctx));
   return { ok: true, servers: [...hosted, ...joined] };
 });
 
-ipcMain.handle('chill:servers-create', (e, payload = {}) => {
-  const current = activeSession();
+registerIpcHandler('chill:servers-create', (e, payload = {}) => {
+  const current = sessionUser(e);
   if (!current) return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.' };
   const name = String(payload.name || '').trim();
   const color = /^#[0-9a-f]{6}$/i.test(String(payload.color || '')) ? payload.color : '#3ee0a3';
@@ -2580,6 +3244,10 @@ ipcMain.handle('chill:servers-create', (e, payload = {}) => {
     invite: uniqueInviteCode(),
     ownerKey: crypto.randomBytes(24).toString('hex'),
     createdAt: Date.now(),
+    banner: 'graphite',
+    description: '',
+    traits: [],
+    games: [],
     channels: [{ id: makeChannelId(), name: channelName, type: 'text', createdAt: Date.now() }],
     members: [],
     messages: {},
@@ -2587,11 +3255,11 @@ ipcMain.handle('chill:servers-create', (e, payload = {}) => {
   server.messages[server.channels[0].id] = [];
   store.hosted.push(server);
   saveServersStore();
-  return { ok: true, server: hostedMembership(server, current.id) };
+  return { ok: true, server: hostedMembership(server, current.id, webContext(e)) };
 });
 
-ipcMain.handle('chill:servers-save-joined', (e, payload = {}) => {
-  const current = activeSession();
+registerIpcHandler('chill:servers-save-joined', (e, payload = {}) => {
+  const current = sessionUser(e);
   if (!current) return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.' };
   const incoming = payload.server && typeof payload.server === 'object' ? payload.server : {};
   const id = String(incoming.id || '').trim();
@@ -2603,8 +3271,10 @@ ipcMain.handle('chill:servers-save-joined', (e, payload = {}) => {
 
   const store = loadServersStore();
   const owned = store.hosted.find((server) => server.id === id && server.ownerId === current.id);
-  if (owned) return { ok: true, server: hostedMembership(owned, current.id) };
+  if (owned) return { ok: true, server: hostedMembership(owned, current.id, webContext(e)) };
 
+  const ctx = webContext(e);
+  const publicAddress = PUBLIC_WEB && ctx.web ? originAddress(ctx.origin) : '';
   const name = String(incoming.name || 'Serwer').trim().slice(0, 40) || 'Serwer';
   const color = /^#[0-9a-f]{6}$/i.test(String(incoming.color || '')) ? incoming.color : '#3ee0a3';
   const icon = String(incoming.icon || '').trim().slice(0, 4);
@@ -2614,22 +3284,30 @@ ipcMain.handle('chill:servers-save-joined', (e, payload = {}) => {
     entry = { userId: current.id, id, joinedAt: Date.now(), memberId: '' };
     store.joined.push(entry);
   }
-  entry.address = address;
-  entry.secure = payload.secure === true;
+  entry.address = publicAddress || address;
+  entry.secure = publicAddress ? ctx.origin.startsWith('https://') : payload.secure === true;
   entry.invite = invite;
   entry.name = name;
   entry.color = color;
   entry.icon = icon;
   entry.tag = tag;
-  const memberId = String(payload.memberId || entry.memberId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
-  entry.memberId = memberId || crypto.randomUUID();
+  entry.banner = sanitizeServerBanner(incoming.banner);
+  entry.description = sanitizeServerDescription(incoming.description);
+  entry.traits = sanitizeServerTextList(incoming.traits, SERVER_TRAIT_LIMIT, SERVER_TRAIT_LENGTH);
+  entry.games = sanitizeServerTextList(incoming.games, SERVER_GAME_LIMIT, SERVER_GAME_LENGTH);
+  if (PUBLIC_WEB && ctx.web) {
+    entry.memberId = current.id;
+  } else {
+    const memberId = String(payload.memberId || entry.memberId || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
+    entry.memberId = memberId || crypto.randomUUID();
+  }
   entry.joinedAt = entry.joinedAt || Date.now();
   saveServersStore();
-  return { ok: true, server: joinedMembership(entry) };
+  return { ok: true, server: joinedMembership(entry, ctx) };
 });
 
-ipcMain.handle('chill:servers-leave', (e, payload = {}) => {
-  const current = activeSession();
+registerIpcHandler('chill:servers-leave', (e, payload = {}) => {
+  const current = sessionUser(e);
   if (!current) return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.' };
   const id = String(payload.id || '').trim();
   if (!id) return { ok: false, error: 'Nie wskazano serwera.' };
@@ -2639,7 +3317,7 @@ ipcMain.handle('chill:servers-leave', (e, payload = {}) => {
     const hosted = store.hosted[hostedIndex];
     store.hosted.splice(hostedIndex, 1);
     if (removeVoiceForServer(hosted)) saveVoiceStore();
-    store.joined = store.joined.filter((entry) => !(entry.userId === current.id && entry.id === id));
+    store.joined = store.joined.filter((entry) => entry.id !== id);
     saveServersStore();
     closeServerSessions(id, { type: 'server:deleted', serverId: id });
     return { ok: true, deleted: true };
@@ -2651,24 +3329,27 @@ ipcMain.handle('chill:servers-leave', (e, payload = {}) => {
   return { ok: true, deleted: false };
 });
 
-ipcMain.handle('chill:servers-invite', async (e, payload = {}) => {
-  const current = activeSession();
+registerIpcHandler('chill:servers-invite', async (e, payload = {}) => {
+  const current = sessionUser(e);
   if (!current) return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.' };
+  const ctx = webContext(e);
   const id = String(payload.id || '').trim();
   const store = loadServersStore();
   const hosted = store.hosted.find((server) => server.id === id && server.ownerId === current.id);
   if (hosted) {
-    let internet = false;
+    let internet = PUBLIC_WEB;
     let tunnelError = '';
-    try {
-      const endpoint = await ensureInternetTunnel();
-      internet = Boolean(endpoint);
-    } catch (error) {
-      tunnelError = String(error?.message || error || 'Nie udało się włączyć dostępu z internetu.');
+    if (!PUBLIC_WEB && !SERVER_MODE) {
+      try {
+        const endpoint = await ensureInternetTunnel();
+        internet = Boolean(endpoint);
+      } catch (error) {
+        tunnelError = String(error?.message || error || 'Nie udało się włączyć dostępu z internetu.');
+      }
     }
     return {
       ok: true,
-      shareLink: serverShareLink(hosted),
+      shareLink: serverShareLink(hosted, ctx),
       invite: hosted.invite,
       internet,
       tunnelError,
@@ -2676,12 +3357,15 @@ ipcMain.handle('chill:servers-invite', async (e, payload = {}) => {
   }
   const entry = store.joined.find((item) => item.userId === current.id && item.id === id);
   if (!entry) return { ok: false, error: 'Nie znaleziono serwera.' };
-  const secure = Boolean(entry.secure);
+  const secure = PUBLIC_WEB ? ctx.origin.startsWith('https://') : Boolean(entry.secure);
+  const shareLink = PUBLIC_WEB
+    ? `${ctx.origin}/?invite=${encodeURIComponent(entry.invite)}`
+    : `chill://${entry.address}/${entry.invite}${secure ? '?tls=1' : ''}`;
   return {
     ok: true,
-    shareLink: `chill://${entry.address}/${entry.invite}${secure ? '?tls=1' : ''}`,
+    shareLink,
     invite: entry.invite,
-    internet: secure,
+    internet: PUBLIC_WEB || secure,
     secure,
   };
 });
@@ -3197,8 +3881,8 @@ function clearDiscordSession() {
   discordSession = null;
 }
 
-ipcMain.handle('chill:discord-config-get', () => {
-  const current = activeSession();
+registerIpcHandler('chill:discord-config-get', (e) => {
+  const current = sessionUser(e);
   if (!current) return { ok: false, code: 'auth', error: 'Sesja wygasła. Zaloguj się ponownie.' };
   const config = loadDiscordConfig();
   return {
@@ -3211,8 +3895,8 @@ ipcMain.handle('chill:discord-config-get', () => {
   };
 });
 
-ipcMain.handle('chill:discord-config-set', (e, payload = {}) => {
-  const current = activeSession();
+registerIpcHandler('chill:discord-config-set', (e, payload = {}) => {
+  const current = sessionUser(e);
   if (!current) return { ok: false, code: 'auth', error: 'Sesja wygasła. Zaloguj się ponownie.' };
   const clientId = String(payload.clientId || '').trim();
   if (!/^\d{15,21}$/.test(clientId)) {
@@ -3232,8 +3916,8 @@ ipcMain.handle('chill:discord-config-set', (e, payload = {}) => {
   return { ok: true, clientId, redirectUri: DISCORD_REDIRECT_URI };
 });
 
-ipcMain.handle('chill:discord-connect', async () => {
-  const current = activeSession();
+registerIpcHandler('chill:discord-connect', async (e) => {
+  const current = sessionUser(e);
   if (!current) return { ok: false, code: 'auth', error: 'Sesja wygasła. Zaloguj się ponownie.' };
   try {
     const result = await connectDiscordInternal();
@@ -3243,19 +3927,19 @@ ipcMain.handle('chill:discord-connect', async () => {
   }
 });
 
-ipcMain.handle('chill:discord-disconnect', () => {
+registerIpcHandler('chill:discord-disconnect', () => {
   cancelDiscordOAuth();
   discordSession = null;
   return { ok: true };
 });
 
-ipcMain.handle('chill:discord-cancel', () => {
+registerIpcHandler('chill:discord-cancel', () => {
   cancelDiscordOAuth();
   return { ok: true };
 });
 
-ipcMain.handle('chill:discord-preview', async (e, payload = {}) => {
-  const current = activeSession();
+registerIpcHandler('chill:discord-preview', async (e, payload = {}) => {
+  const current = sessionUser(e);
   if (!current) return { ok: false, code: 'auth', error: 'Sesja wygasła. Zaloguj się ponownie.' };
   const guildId = String(payload.guildId || '');
   try {
@@ -3277,8 +3961,8 @@ ipcMain.handle('chill:discord-preview', async (e, payload = {}) => {
   }
 });
 
-ipcMain.handle('chill:discord-import', async (e, payload = {}) => {
-  const current = activeSession();
+registerIpcHandler('chill:discord-import', async (e, payload = {}) => {
+  const current = sessionUser(e);
   if (!current) return { ok: false, code: 'auth', error: 'Sesja wygasła. Zaloguj się ponownie.' };
   const guildId = String(payload.guildId || '');
 
@@ -3360,7 +4044,7 @@ ipcMain.handle('chill:discord-import', async (e, payload = {}) => {
 
 // ---------- IPC aplikacji ----------
 ipcMain.on('chill:app-packaged', (e) => { e.returnValue = app.isPackaged; });
-ipcMain.handle('chill:app-version', () => app.getVersion());
+registerIpcHandler('chill:app-version', () => app.getVersion());
 
 ipcMain.on('chill:app-language', (e, lang) => {
   const next = lang === 'en' ? 'en' : 'pl';
@@ -3369,8 +4053,8 @@ ipcMain.on('chill:app-language', (e, lang) => {
   refreshTrayMenu();
 });
 
-ipcMain.handle('chill:autostart-get', () => app.getLoginItemSettings().openAtLogin);
-ipcMain.handle('chill:autostart-set', (e, enabled) => {
+registerIpcHandler('chill:autostart-get', () => app.getLoginItemSettings().openAtLogin);
+registerIpcHandler('chill:autostart-set', (e, enabled) => {
   app.setLoginItemSettings({ openAtLogin: Boolean(enabled), args: ['--hidden'] });
   return app.getLoginItemSettings().openAtLogin;
 });
@@ -3411,7 +4095,7 @@ ipcMain.on('chill:screen-pick', (e, id) => {
   e.returnValue = ok;
 });
 
-ipcMain.handle('chill:screen-sources', async () => {
+registerIpcHandler('chill:screen-sources', async () => {
   const own = win && typeof win.getMediaSourceId === 'function' ? String(win.getMediaSourceId()).split(':').slice(0, 2).join(':') : '';
   const sources = await desktopCapturer.getSources({ types: ['screen', 'window'], thumbnailSize: { width: 320, height: 180 }, fetchWindowIcon: true });
   return sources
@@ -3426,9 +4110,9 @@ ipcMain.handle('chill:screen-sources', async () => {
 });
 
 // ---------- Aktualizacje (IPC) ----------
-ipcMain.handle('chill:update-check', async () => checkForUpdates());
+registerIpcHandler('chill:update-check', async () => checkForUpdates());
 
-ipcMain.handle('chill:update-install', async () => {
+registerIpcHandler('chill:update-install', async () => {
   if (!app.isPackaged) return false;
   const url = updateInfo?.url || '';
   if (!url) return false;
@@ -3525,11 +4209,72 @@ function downloadUpdate(url, dest, redirects = 0) {
 }
 
 // ---------- Start ----------
-if (!app.requestSingleInstanceLock()) {
+function flushStores() {
+  clearTimeout(chatSaveTimer);
+  clearTimeout(serversSaveTimer);
+  try {
+    if (chatStore) fs.writeFileSync(chatDataPath(), JSON.stringify(chatStore), 'utf8');
+    if (serversStore) fs.writeFileSync(serversPath(), JSON.stringify(serversStore), 'utf8');
+    if (webSessionStore) fs.writeFileSync(webSessionsPath(), JSON.stringify(webSessionStore, null, 2), 'utf8');
+    if (voiceStore) {
+      fs.mkdirSync(voiceDir(), { recursive: true });
+      fs.writeFileSync(voiceIndexPath(), JSON.stringify(voiceStore), 'utf8');
+    }
+  } catch { /* ignore */ }
+}
+
+function startDedicatedServer() {
+  app.whenReady().then(() => {
+    loadAccounts();
+    loadChatStore();
+    loadServersStore();
+    loadWebSessions();
+    startChatServer(CHAT_PORT);
+
+    const sweepVoices = () => {
+      try { pruneOrphanedVoices(); } catch (err) { console.error('[voice] Sprzątanie nie powiodło się:', err.message); }
+    };
+    setTimeout(sweepVoices, 30_000).unref?.();
+    setInterval(sweepVoices, 6 * 60 * 60 * 1000).unref?.();
+
+    console.log(`[chill] Tryb serwera${PUBLIC_WEB ? ' publicznego' : ''}. Dane: ${dataDir()}`);
+    if (PUBLIC_WEB && !PUBLIC_URL) {
+      console.warn('[chill] CHILL_PUBLIC_URL nie jest ustawiony — linki zaproszeń będą używać adresu żądania.');
+    }
+
+    let shuttingDown = false;
+    const shutdown = (signal) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
+      console.log(`[chill] Otrzymano ${signal}, zapisuję dane…`);
+      flushStores();
+      try { wss?.close(); } catch { /* ignore */ }
+      try { httpServer?.close(); } catch { /* ignore */ }
+      setTimeout(() => process.exit(0), 250).unref?.();
+      setTimeout(() => process.exit(0), 3_000);
+    };
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+  }).catch((err) => {
+    console.error('[chill] Nie udało się uruchomić serwera:', err?.stack || err);
+    process.exit(1);
+  });
+}
+
+if (SERVER_MODE) {
+  startDedicatedServer();
+} else if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
-  app.on('second-instance', () => show());
-  app.on('open-url', (e) => { e.preventDefault(); show(); });
+  app.on('second-instance', (_event, argv) => {
+    if (WEB_MODE || (Array.isArray(argv) && argv.includes('--web'))) openWebUI();
+    else show();
+  });
+  app.on('open-url', (e) => {
+    e.preventDefault();
+    if (WEB_MODE) openWebUI();
+    else show();
+  });
 
   app.whenReady().then(() => {
     app.userAgentFallback = `${app.userAgentFallback} ChillDesktop/${app.getVersion()}`;
@@ -3563,12 +4308,13 @@ if (!app.requestSingleInstanceLock()) {
     loadAccounts();
     loadChatStore();
     loadServersStore();
+    loadWebSessions();
     startChatServer(CHAT_PORT);
     internetTunnel = new InternetTunnel({
       dir: path.join(dataDir(), 'tunnel'),
       port: CHAT_PORT,
     });
-    createWindow();
+    if (!WEB_MODE) createWindow();
     createTray();
     Menu.setApplicationMenu(null);
     getGameDetector().warmup();
@@ -3590,17 +4336,8 @@ if (!app.requestSingleInstanceLock()) {
 app.on('before-quit', () => {
   quitting = true;
   try { internetTunnel?.stop(); } catch { /* tunel mógł już zostać zatrzymany */ }
-  clearTimeout(chatSaveTimer);
-  clearTimeout(serversSaveTimer);
-  try {
-    if (chatStore) fs.writeFileSync(chatDataPath(), JSON.stringify(chatStore), 'utf8');
-    if (serversStore) fs.writeFileSync(serversPath(), JSON.stringify(serversStore), 'utf8');
-    if (voiceStore) {
-      fs.mkdirSync(voiceDir(), { recursive: true });
-      fs.writeFileSync(voiceIndexPath(), JSON.stringify(voiceStore), 'utf8');
-    }
-  } catch { /* ignore */ }
+  flushStores();
 });
 app.on('will-quit', () => { setTimeout(() => app.exit(0), 8_000).unref?.(); });
 app.on('window-all-closed', () => { /* aplikacja zostaje w tray */ });
-app.on('activate', () => { if (win) show(); else createWindow(); });
+app.on('activate', () => { if (SERVER_MODE) return; if (WEB_MODE) openWebUI(); else if (win) show(); else createWindow(); });

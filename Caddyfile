@@ -1,0 +1,8 @@
+# Przykładowa konfiguracja Caddy dla publicznej wersji Chill.
+# Podmień domenę i uruchom Caddy na tym samym serwerze co kontener.
+# Caddy automatycznie pobierze certyfikat HTTPS.
+
+chill.example.com {
+	encode zstd gzip
+	reverse_proxy 127.0.0.1:47830
+}

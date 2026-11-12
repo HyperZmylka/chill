@@ -532,6 +532,50 @@
   color: #ffb2c2;
   animation: minigame-pulse 1s ease-in-out infinite;
 }
+.mg-ammo {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 1px solid rgba(158, 247, 207, 0.22);
+  border-radius: 999px;
+  background: rgba(4, 10, 7, 0.68);
+  backdrop-filter: blur(8px);
+}
+.mg-ammo small {
+  color: rgba(221, 255, 240, 0.56);
+  font-size: 8.5px;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.mg-ammo strong {
+  color: #f4fff9;
+  font-size: 16px;
+  font-weight: 850;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.mg-ammo em {
+  color: rgba(221, 255, 240, 0.46);
+  font-style: normal;
+  font-size: 10px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.mg-ammo.reloading {
+  border-color: rgba(255, 209, 102, 0.5);
+  animation: minigame-pulse 1s ease-in-out infinite;
+}
+.mg-ammo.reloading small {
+  color: #ffd166;
+}
+.mg-ammo.empty {
+  border-color: rgba(255, 92, 126, 0.5);
+}
+.mg-ammo.empty strong {
+  color: #ff8aa1;
+}
 .mg-scoreboard {
   display: inline-flex;
   align-items: center;

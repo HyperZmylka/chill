@@ -1,4 +1,4 @@
-name: Build release installer
+name: Build release installers
 
 on:
   workflow_dispatch:
@@ -6,13 +6,14 @@ on:
       tag:
         description: Release tag to build and upload
         required: true
-        default: v4.14.0
+        default: v4.15.0
 
 permissions:
   contents: write
 
 jobs:
-  build:
+  electron:
+    name: Electron installer
     runs-on: windows-latest
     steps:
       - name: Checkout release tag
@@ -44,3 +45,45 @@ jobs:
           $installer = Get-ChildItem dist -Filter 'Chill-Setup-*.exe' | Select-Object -First 1
           if (-not $installer) { throw 'Installer not found' }
           gh release upload $tag $installer.FullName --clobber
+
+  tauri:
+    name: Tauri installer
+    runs-on: windows-latest
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Tauri installer
+        run: npm run desktop:build
+
+      - name: Upload installer to release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ inputs.tag }}"
+          $version = $tag -replace '^v', ''
+          $installer = Get-ChildItem 'rust/target/release/bundle/nsis' -Filter 'Chill_*_x64-setup.exe' | Select-Object -First 1
+          if (-not $installer) { throw 'Tauri installer not found' }
+          $target = Join-Path $installer.Directory.FullName "Chill-Tauri-Setup-$version.exe"
+          Copy-Item $installer.FullName $target -Force
+          gh release upload $tag $target --clobber

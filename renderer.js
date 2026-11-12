@@ -4,7 +4,12 @@
 const CHILL = window.chill || {};
 const VOICE = window.CHILL_VOICE;
 const APPEARANCE = window.CHILL_APPEARANCE;
-const WS_URL = `ws://127.0.0.1:${CHILL.chatPort || 47830}/chat`;
+const CHAT_BASE = CHILL.chatUrl || `http://127.0.0.1:${CHILL.chatPort || 47830}`;
+const WS_URL = `${CHAT_BASE.replace(/^http/, 'ws')}/chat`;
+function localChatAddress() {
+  if (CHILL.web && location.host) return location.host;
+  return `127.0.0.1:${CHILL.chatPort || 47830}`;
+}
 const $ = (id) => document.getElementById(id);
 
 // ---------- GIF-y (statyczny katalog GIPHY + KLIPY) ----------
@@ -165,7 +170,30 @@ let channelType = 'text';
 let editingChannelId = null;
 let menuChannelId = null;
 let serverSettingsColor = '#3ee0a3';
+let serverSettingsBanner = 'graphite';
+let serverSettingsTraits = [];
+let serverSettingsGames = [];
+let serverSettingsIconValue = '';
+let serverSettingsIconDraft = '';
 let serverProfileColor = '#3ee0a3';
+
+const SERVER_BANNER_IDS = ['graphite', 'rose', 'crimson', 'ember', 'gold', 'violet', 'azure', 'aqua', 'lime', 'slate'];
+const SERVER_TRAIT_LIMIT = 5;
+const SERVER_TRAIT_LENGTH = 24;
+const SERVER_GAME_LIMIT = 5;
+const SERVER_GAME_LENGTH = 24;
+const SERVER_DESCRIPTION_LENGTH = 280;
+const SERVER_ICON_CHOICES = [
+  '🎮', '🕹️', '🎧', '🎯', '⚔️', '🛡️', '🔥', '⚡',
+  '🌙', '🌊', '🐺', '🦊', '🐉', '🦅', '💎', '🚀',
+  '🧩', '🎲', '🏆', '🍕', '☕', '🌿', '👾', '💬',
+];
+const SERVER_GAME_CHOICES = [
+  'Minecraft', 'Roblox', 'Fortnite', 'CS2', 'League of Legends',
+  'Valorant', 'GTA V', 'Among Us', 'Rocket League', 'Apex Legends',
+  'Dota 2', 'Overwatch 2', 'Rust', 'Terraria', 'Stardew Valley', 'Elden Ring',
+];
+const SERVER_TRAIT_EMOJI = '🙂';
 let deleteChannelId = null;
 let pendingChannelDelete = false;
 let channelPrefs = {};
@@ -262,6 +290,7 @@ const I18N_EN = {
   'Silne hasło': 'Strong password',
   'Masz już konto?': 'Already have an account?',
   'Konto i historia rozmów są zapisane tylko na tym komputerze. Hasło jest szyfrowane lokalnie (scrypt).': 'Your account and chat history are stored only on this computer. The password is encrypted locally (scrypt).',
+  'Konto, serwery i historia rozmów są zapisane na serwerze Chill. Hasło jest chronione skrótem scrypt.': 'Your account, servers and chat history are stored on the Chill server. The password is protected with scrypt.',
   'Podaj login i hasło.': 'Enter your username and password.',
   'Nie udało się zalogować.': 'Could not log in.',
   'Wystąpił błąd. Spróbuj ponownie.': 'Something went wrong. Try again.',
@@ -531,7 +560,8 @@ const I18N_EN = {
   'Poproś właściciela serwera o link. Działa w sieci lokalnej, a po przekierowaniu portu 47830 — także przez internet.': 'Ask the server owner for a link. It works on the local network, and through the internet after forwarding port 47830.',
   'Dołącz do serwera': 'Join server',
   'Kopiuj': 'Copy',
-  'Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie „Dołącz kodem”.': 'Send this link to a friend. They need Chill running and must enter it in the “Join with code” window.',
+  'Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie "Dołącz kodem".': 'Send this link to a friend. They need Chill running and must enter it in the "Join with code" window.',
+  'Wyślij ten link znajomemu. Otworzy go w przeglądarce i dołączy do serwera po zalogowaniu.': 'Send this link to a friend. They will open it in a browser and join the server after signing in.',
   'Wybierz typ kanału i nadaj mu nazwę.': 'Choose the channel type and give it a name.',
   'Typ kanału': 'Channel type',
   'Do pisania': 'Text',
@@ -740,6 +770,8 @@ const I18N_EN = {
   'Nie udało się utworzyć serwera.': 'Could not create the server.',
   'Wystąpił błąd podczas tworzenia serwera.': 'An error occurred while creating the server.',
   'Wklej pełny link, np. chill://192.168.1.5:47830/AB12CD.': 'Paste the full link, e.g. chill://192.168.1.5:47830/AB12CD.',
+  'Wklej link zaproszenia, np. chill://192.168.1.5:47830/AB12CD lub https://chill.example.com/?invite=AB12CD.': 'Paste an invite link, e.g. chill://192.168.1.5:47830/AB12CD or https://chill.example.com/?invite=AB12CD.',
+  'Nie udało się dołączyć do serwera z linku.': 'Could not join the server from the link.',
   'Przygotowuję link internetowy… Pierwsze uruchomienie może potrwać chwilę.': 'Preparing an internet link… The first run may take a moment.',
   'Link pochodzi od właściciela serwera.': 'The link comes from the server owner.',
   'Link działa przez internet. Możesz wysłać go każdemu.': 'The link works over the internet. You can send it to anyone.',
@@ -929,6 +961,9 @@ const I18N_EN = {
   'Eliminacje': 'Eliminations',
   'Żywi': 'Alive',
   'Broń': 'Weapon',
+  'Amunicja': 'Ammo',
+  'Przeładowanie…': 'Reloading…',
+  'Kliknij, aby przejąć mysz': 'Click to capture the mouse',
   'Strzał: LPM / Spacja': 'Shoot: LMB / Space',
   'Runda': 'Round',
   'Czas': 'Time',
@@ -952,6 +987,68 @@ const I18N_EN = {
   'Wczoraj': 'Yesterday',
   'łączenie…': 'connecting…',
   'kanał': 'channel',
+
+  // Ustawienia serwera — profil serwerowy
+  'Ikona': 'Icon',
+  'Baner': 'Banner',
+  'Cechy': 'Traits',
+  'Opis': 'Description',
+  'Dodaj': 'Add',
+  'Dodaj cechę…': 'Add a trait…',
+  'Szukaj gry…': 'Search for a game…',
+  'Nazwa i tag': 'Name and tag',
+  'Profil serwerowy': 'Server profile',
+  'Zaangażowanie': 'Engagement',
+  'Korzyści ze wzmocnień': 'Boosts',
+  'Nastrój': 'Mood',
+  'Panel dźwięków': 'Soundboard',
+  'Osoby': 'People',
+  'Role': 'Roles',
+  'Zaproszenia': 'Invites',
+  'Dostęp': 'Access',
+  'Aplikacje': 'Apps',
+  'Integracje': 'Integrations',
+  'Moderacja': 'Moderation',
+  'Konfiguracja zabezpieczeń': 'Safety setup',
+  'Dziennik zdarzeń': 'Audit log',
+  'Bany': 'Bans',
+  'Przegląd społeczności': 'Community overview',
+  'Wprowadzenie': 'Onboarding',
+  'Szablon serwera': 'Server template',
+  'Tak Twój serwer widzą inni członkowie.': 'This is how other members see your server.',
+  'Zmień ikonę serwera': 'Change server icon',
+  'Usuń ikonę': 'Remove icon',
+  'Wybierz emoji lub znak, który najlepiej opisze Twój serwer.': 'Choose an emoji or character that best describes your server.',
+  'Wybierz gradient widoczny na karcie podglądu serwera.': 'Choose the gradient shown on the server preview card.',
+  'Dodaj maksymalnie 5 cech, aby przedstawić obszar zainteresowania i charakterystykę swojego serwera.': "Add up to 5 traits to show your server's interests and character.",
+  'Jak powstał Twój serwer? Dlaczego warto do niego dołączyć?': 'How did your server start? Why should people join?',
+  'Odpowiedz innym o tym serwerze.': 'Tell others about this server.',
+  'W jakie gry grają członkowie Twojego serwera?': 'Which games do your server members play?',
+  'Te informacje widzą wszyscy członkowie serwera.': 'Everyone on the server can see this information.',
+  'Grafit': 'Graphite',
+  'Róż': 'Rose',
+  'Czerwień': 'Crimson',
+  'Pomarańcz': 'Orange',
+  'Złoto': 'Gold',
+  'Fiolet': 'Violet',
+  'Błękit': 'Azure',
+  'Turkus': 'Aqua',
+  'Limonka': 'Lime',
+  'Stal': 'Slate',
+  '{n} online': '{n} online',
+  '{n} członków': '{n} members',
+  'Zał. {date}': 'Created {date}',
+  'Usuń cechę {name}': 'Remove trait {name}',
+  'Ustaw ikonę {icon}': 'Set icon {icon}',
+  'Ta cecha jest już dodana.': 'This trait is already added.',
+  'Możesz dodać maksymalnie 5 cech.': 'You can add up to 5 traits.',
+  'Usuń grę {name}': 'Remove game {name}',
+  'Dodaj „{name}”': 'Add “{name}”',
+  'Brak pasujących gier.': 'No matching games.',
+  'Możesz dodać maksymalnie 5 gier.': 'You can add up to 5 games.',
+  'Ta gra jest już dodana.': 'This game is already added.',
+  'Usunąć serwer?': 'Delete server?',
+  'Czy na pewno chcesz usunąć serwer „{name}”? Tej operacji nie można cofnąć.': 'Are you sure you want to delete the server “{name}”? This action cannot be undone.',
 };
 
 function t(text, vars = null) {
@@ -1006,6 +1103,12 @@ function updateAuthCopy() {
   } else {
     title.textContent = t('Witaj ponownie');
     subtitle.textContent = t('Zaloguj się nazwą użytkownika lub e-mailem.');
+  }
+  const foot = $('authFoot');
+  if (foot) {
+    foot.textContent = CHILL.web
+      ? t('Konto, serwery i historia rozmów są zapisane na serwerze Chill. Hasło jest chronione skrótem scrypt.')
+      : t('Konto i historia rozmów są zapisane tylko na tym komputerze. Hasło jest szyfrowane lokalnie (scrypt).');
   }
 }
 
@@ -1062,6 +1165,13 @@ function applyLanguage(lang, persist = false) {
     else updateText.textContent = t('Dostępna jest nowsza wersja Chill.');
   }
   if (!$('settingsOverlay').hidden) fillProfileForm();
+  if ($('serverSettingsOverlay') && !$('serverSettingsOverlay').hidden) {
+    $('serverSettingsIconChoices').textContent = '';
+    $('serverSettingsIconPicker').hidden = true;
+    renderServerSettingsTraits();
+    renderServerSettingsGames();
+    updateServerSettingsPreview();
+  }
 }
 
 
@@ -1322,6 +1432,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindUserProfile();
   bindShortcuts();
   bindMiniGames();
+  captureInviteFromLocation();
   boot();
 });
 
@@ -1564,7 +1675,7 @@ function enterApp(user) {
   refreshAudioDevices();
   $('settingsUsername').textContent = `@${user.username}`;
   connect();
-  loadServers();
+  loadServers().then(() => { void consumePendingInvite(); });
   renderSidebar();
   renderHeader();
   renderMessages(false);
@@ -3549,22 +3660,84 @@ function parseInvite(raw) {
   let text = String(raw || '').trim();
   if (!text) return null;
   if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) text = `chill://${text}`;
-  if (!/^chill:\/\//i.test(text)) return null;
   let url;
+  let protocol = 'chill:';
   try {
-    url = new URL(text.replace(/^chill:\/\//i, 'http://'));
+    if (/^https?:\/\//i.test(text)) {
+      url = new URL(text);
+      protocol = url.protocol;
+    } else if (/^chill:\/\//i.test(text)) {
+      url = new URL(text.replace(/^chill:\/\//i, 'http://'));
+    } else {
+      return null;
+    }
   } catch {
     return null;
   }
   const host = url.hostname;
-  const secure = url.searchParams.get('tls') === '1' || url.searchParams.get('secure') === '1';
-  const port = url.port || (secure ? '443' : '47830');
-  const invite = decodeURIComponent(url.pathname.replace(/^\/+/, '')).trim().toUpperCase();
+  const tlsParam = url.searchParams.get('tls') === '1' || url.searchParams.get('secure') === '1';
+  const secure = protocol === 'https:' || tlsParam;
+  const port = url.port || (secure ? '443' : (protocol === 'http:' ? '80' : '47830'));
+  const pathCode = decodeURIComponent(url.pathname.replace(/^\/+|\/+$/g, '')).split('/').filter(Boolean).pop() || '';
+  const invite = String(url.searchParams.get('invite') || url.searchParams.get('code') || pathCode).trim().toUpperCase();
   const channelId = String(url.searchParams.get('channel') || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 80);
   if (!host || !/^[a-zA-Z0-9.-]+$/.test(host) || host.startsWith('.') || host.endsWith('.')) return null;
   if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535) return null;
   if (!/^[A-Z0-9]{4,16}$/.test(invite)) return null;
-  return { address: `${host}:${port}`, invite, channelId, secure };
+  return {
+    address: `${host}:${port}`,
+    invite,
+    channelId,
+    secure,
+    web: protocol === 'http:' || protocol === 'https:',
+  };
+}
+
+const PENDING_INVITE_KEY = 'chill.pendingInvite';
+
+window.addEventListener('chill:invite', (event) => {
+  const raw = String(event.detail || '').trim();
+  if (!raw) return;
+  try { sessionStorage.setItem(PENDING_INVITE_KEY, raw); } catch { /* ignore */ }
+  void consumePendingInvite();
+});
+
+function captureInviteFromLocation() {
+  try {
+    const url = new URL(location.href);
+    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
+    const raw = url.searchParams.get('invite')
+      || url.searchParams.get('code')
+      || hashParams.get('invite')
+      || hashParams.get('code')
+      || '';
+    if (!raw) return;
+    const stored = /^https?:\/\//i.test(raw)
+      ? raw
+      : `${url.origin}/?invite=${encodeURIComponent(raw)}`;
+    sessionStorage.setItem(PENDING_INVITE_KEY, stored);
+    url.searchParams.delete('invite');
+    url.searchParams.delete('code');
+    hashParams.delete('invite');
+    hashParams.delete('code');
+    url.hash = hashParams.toString();
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  } catch { /* ignore */ }
+}
+
+async function consumePendingInvite() {
+  if (!currentUser) return;
+  let raw = '';
+  try { raw = sessionStorage.getItem(PENDING_INVITE_KEY) || ''; } catch { /* ignore */ }
+  if (!raw) return;
+  try { sessionStorage.removeItem(PENDING_INVITE_KEY); } catch { /* ignore */ }
+  const result = await joinServerInvite(raw, { silent: true });
+  if (!result?.ok) {
+    toast(result?.error || t('Nie udało się dołączyć do serwera z linku.'));
+    return;
+  }
+  if (result.known) toast(t('Już należysz do tego serwera'));
+  else if (result.server) toast(t('Dołączono do „{name}”', { name: result.server.name }));
 }
 
 function connectServer(server) {
@@ -3701,6 +3874,10 @@ function handleServerFrame(serverId, msg) {
           color: msg.server.color || state.server.color,
           invite: msg.server.invite || state.server.invite,
           tag: normalizeServerTag(msg.server.tag || state.server.tag),
+          banner: normalizeServerBannerId(msg.server.banner || state.server.banner),
+          description: String(msg.server.description || '').slice(0, SERVER_DESCRIPTION_LENGTH),
+          traits: normalizeServerTextList(msg.server.traits || [], SERVER_TRAIT_LIMIT, SERVER_TRAIT_LENGTH),
+          games: normalizeServerTextList(msg.server.games || [], SERVER_GAME_LIMIT, SERVER_GAME_LENGTH),
           ownerId: msg.server.ownerId,
           owner: Boolean(state.you?.owner),
         };
@@ -3711,6 +3888,10 @@ function handleServerFrame(serverId, msg) {
           color: state.server.color,
           invite: state.server.invite,
           tag: state.server.tag,
+          banner: state.server.banner,
+          description: state.server.description,
+          traits: state.server.traits,
+          games: state.server.games,
           owner: state.server.owner,
         });
       }
@@ -3796,6 +3977,10 @@ function handleServerFrame(serverId, msg) {
         icon: typeof info.icon === 'string' ? info.icon : state.server.icon,
         color: info.color || state.server.color,
         tag: normalizeServerTag(info.tag),
+        banner: normalizeServerBannerId(info.banner || state.server.banner),
+        description: String(info.description ?? state.server.description ?? '').slice(0, SERVER_DESCRIPTION_LENGTH),
+        traits: normalizeServerTextList(info.traits || state.server.traits || [], SERVER_TRAIT_LIMIT, SERVER_TRAIT_LENGTH),
+        games: normalizeServerTextList(info.games || state.server.games || [], SERVER_GAME_LIMIT, SERVER_GAME_LENGTH),
         invite: info.invite || state.server.invite,
         createdAt: Number(info.createdAt) || state.server.createdAt,
         owner: Boolean(state.you?.owner),
@@ -3807,6 +3992,10 @@ function handleServerFrame(serverId, msg) {
         color: state.server.color,
         invite: state.server.invite,
         tag: state.server.tag,
+        banner: state.server.banner,
+        description: state.server.description,
+        traits: state.server.traits,
+        games: state.server.games,
       });
       if (activeServerId === serverId) {
         renderSidebar();
@@ -3818,6 +4007,8 @@ function handleServerFrame(serverId, msg) {
         if (msg.actorId === state.you?.memberId) {
           closeServerSettings();
           toast(t('Ustawienia serwera zostały zapisane.'));
+        } else {
+          populateServerSettings(state);
         }
       }
       break;
@@ -4155,6 +4346,7 @@ async function probeServer(parsed, memberId) {
         const msg = JSON.parse(event.data);
         if (msg.type === 'server:joined') finish(resolve, msg);
         else if (msg.type === 'server:error') finish(reject, new Error(translateError(msg.message || 'Nie udało się dołączyć do serwera.')));
+        else if (msg.type === 'auth-error') finish(reject, new Error(translateError(msg.message || 'Sesja wygasła. Zaloguj się ponownie.')));
       } catch { /* ignore */ }
     };
     socket.onerror = () => finish(reject, new Error(t('Nie można połączyć się z serwerem.')));
@@ -4229,9 +4421,10 @@ function bindServers() {
     markColorSelection($('serverSettingsColors'), serverSettingsColor);
     updateServerSettingsPreview();
   });
-  ['serverSettingsName', 'serverSettingsIcon', 'serverSettingsTag'].forEach((id) => {
+  ['serverSettingsName', 'serverSettingsTag'].forEach((id) => {
     $(id).addEventListener('input', updateServerSettingsPreview);
   });
+  $('serverSettingsDescription').addEventListener('input', updateServerSettingsDescriptionCount);
   $('serverSettingsName').addEventListener('keydown', (event) => {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -4239,6 +4432,101 @@ function bindServers() {
     }
   });
   $('saveServerSettings').addEventListener('click', saveServerSettings);
+
+  $('serverSettingsBanners').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-server-banner]');
+    if (!button) return;
+    serverSettingsBanner = normalizeServerBannerId(button.dataset.serverBanner);
+    renderServerSettingsBanners();
+    updateServerSettingsPreview();
+  });
+
+  $('serverSettingsChangeIcon').addEventListener('click', () => {
+    const picker = $('serverSettingsIconPicker');
+    picker.hidden = !picker.hidden;
+    if (picker.hidden) return;
+    renderServerSettingsIconChoices();
+    renderServerSettingsIconState();
+  });
+  $('serverSettingsClearIcon').addEventListener('click', () => {
+    serverSettingsIconValue = '';
+    $('serverSettingsIcon').value = '';
+    $('serverSettingsIconPicker').hidden = true;
+    renderServerSettingsIconState();
+    updateServerSettingsPreview();
+  });
+  $('serverSettingsIconChoices').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-server-icon]');
+    if (!button) return;
+    serverSettingsIconValue = button.dataset.serverIcon;
+    $('serverSettingsIcon').value = serverSettingsIconValue;
+    $('serverSettingsIconPicker').hidden = true;
+    renderServerSettingsIconState();
+    updateServerSettingsPreview();
+  });
+
+  $('serverSettingsAddTrait').addEventListener('click', addServerSettingsTrait);
+  $('serverSettingsTraitInput').addEventListener('keydown', (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    addServerSettingsTrait();
+  });
+  $('serverSettingsTraits').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-remove-trait]');
+    if (!button) return;
+    const index = Number(button.dataset.removeTrait);
+    if (!Number.isInteger(index) || index < 0) return;
+    serverSettingsTraits.splice(index, 1);
+    renderServerSettingsTraits();
+    updateServerSettingsPreview();
+  });
+
+  $('serverSettingsGameSearch').addEventListener('input', renderServerSettingsGameMenu);
+  $('serverSettingsGameSearch').addEventListener('focus', renderServerSettingsGameMenu);
+  $('serverSettingsGameSearch').addEventListener('click', renderServerSettingsGameMenu);
+  $('serverSettingsGameSearch').addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      $('serverSettingsGameMenu').hidden = true;
+      return;
+    }
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    const option = $('serverSettingsGameMenu').querySelector('[data-game-option]');
+    if (option) {
+      addServerSettingsGame(option.dataset.gameOption);
+      return;
+    }
+    const query = $('serverSettingsGameSearch').value.replace(/\s+/g, ' ').trim();
+    if (query) addServerSettingsGame(query);
+  });
+  $('serverSettingsGameMenu').addEventListener('mousedown', (event) => event.preventDefault());
+  $('serverSettingsGameMenu').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-game-option]');
+    if (button) addServerSettingsGame(button.dataset.gameOption);
+  });
+  $('serverSettingsGames').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-remove-game]');
+    if (!button) return;
+    const index = Number(button.dataset.removeGame);
+    if (!Number.isInteger(index) || index < 0) return;
+    serverSettingsGames.splice(index, 1);
+    renderServerSettingsGames();
+    updateServerSettingsPreview();
+  });
+
+  $('serverSettingsNav').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-server-nav]');
+    if (button) handleServerSettingsNav(button.dataset.serverNav);
+  });
+
+  $('serverSettingsScroll').addEventListener('click', (event) => {
+    if (!event.target.closest('#serverSettingsIconPicker') && !event.target.closest('#serverSettingsChangeIcon')) {
+      $('serverSettingsIconPicker').hidden = true;
+    }
+    if (!event.target.closest('.server-game-picker')) {
+      $('serverSettingsGameMenu').hidden = true;
+    }
+  });
 
   // Wgląd w serwer
   $('closeServerInsight').addEventListener('click', closeServerInsights);
@@ -4856,35 +5144,305 @@ function handleServerAction(action) {
   }
 }
 
+function normalizeServerBannerId(value) {
+  const id = String(value || '').trim().toLowerCase();
+  return SERVER_BANNER_IDS.includes(id) ? id : 'graphite';
+}
+
+function normalizeServerTextList(value, limit, maxLength) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of value) {
+    const text = String(item || '')
+      .replace(/[\u0000-\u001f\u007f]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, maxLength);
+    if (!text) continue;
+    const key = text.toLocaleLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(text);
+    if (out.length >= limit) break;
+  }
+  return out;
+}
+
+function serverSettingsBannerClass(id) {
+  return `banner-${normalizeServerBannerId(id)}`;
+}
+
+function serverSettingsIconValueNow() {
+  return String($('serverSettingsIcon')?.value || serverSettingsIconValue || '').trim().slice(0, 4);
+}
+
+function renderServerSettingsBanners() {
+  document.querySelectorAll('#serverSettingsBanners [data-server-banner]').forEach((button) => {
+    const selected = button.dataset.serverBanner === serverSettingsBanner;
+    button.classList.toggle('selected', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
+  const preview = $('serverSettingsBannerPreview');
+  if (preview) preview.className = `server-settings-banner-preview ${serverSettingsBannerClass(serverSettingsBanner)}`;
+}
+
+function renderServerSettingsIconChoices() {
+  const container = $('serverSettingsIconChoices');
+  if (!container || container.childElementCount) return;
+  const current = serverSettingsIconValueNow();
+  const fragment = document.createDocumentFragment();
+  for (const icon of SERVER_ICON_CHOICES) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'server-icon-choice';
+    button.dataset.serverIcon = icon;
+    button.textContent = icon;
+    button.setAttribute('aria-label', t('Ustaw ikonę {icon}', { icon }));
+    button.classList.toggle('selected', icon === current);
+    fragment.append(button);
+  }
+  container.append(fragment);
+}
+
+function renderServerSettingsIconState() {
+  const state = serverState(activeServerId);
+  const name = $('serverSettingsName').value.trim() || t('Serwer');
+  const icon = serverSettingsIconValueNow();
+  const current = $('serverSettingsIconCurrent');
+  if (current) {
+    current.textContent = icon || initial(name);
+    current.style.color = icon ? '' : '#fff';
+    current.style.background = icon ? 'var(--panel-2)' : safeColor(serverSettingsColor, state?.server?.color || '#3ee0a3');
+  }
+  document.querySelectorAll('#serverSettingsIconChoices [data-server-icon]').forEach((button) => {
+    button.classList.toggle('selected', button.dataset.serverIcon === icon);
+  });
+}
+
+function renderServerSettingsTraits() {
+  const container = $('serverSettingsTraits');
+  if (!container) return;
+  container.textContent = '';
+  const fragment = document.createDocumentFragment();
+  serverSettingsTraits.forEach((trait, index) => {
+    const chip = document.createElement('span');
+    chip.className = 'server-settings-chip';
+    const emoji = document.createElement('span');
+    emoji.className = 'server-settings-chip-emoji';
+    emoji.textContent = SERVER_TRAIT_EMOJI;
+    emoji.setAttribute('aria-hidden', 'true');
+    const text = document.createElement('span');
+    text.className = 'server-settings-chip-text';
+    text.textContent = trait;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.dataset.removeTrait = String(index);
+    remove.setAttribute('aria-label', t('Usuń cechę {name}', { name: trait }));
+    remove.textContent = '✕';
+    chip.append(emoji, text, remove);
+    fragment.append(chip);
+  });
+  container.append(fragment);
+  const full = serverSettingsTraits.length >= SERVER_TRAIT_LIMIT;
+  $('serverSettingsAddTrait').disabled = full;
+  $('serverSettingsTraitInput').disabled = full;
+}
+
+function addServerSettingsTrait() {
+  const input = $('serverSettingsTraitInput');
+  if (!input || input.disabled) return;
+  const text = input.value.replace(/\s+/g, ' ').trim().slice(0, SERVER_TRAIT_LENGTH);
+  if (!text) {
+    input.focus();
+    return;
+  }
+  if (serverSettingsTraits.some((trait) => trait.toLocaleLowerCase() === text.toLocaleLowerCase())) {
+    toast(t('Ta cecha jest już dodana.'));
+    return;
+  }
+  if (serverSettingsTraits.length >= SERVER_TRAIT_LIMIT) {
+    toast(t('Możesz dodać maksymalnie 5 cech.'));
+    return;
+  }
+  serverSettingsTraits.push(text);
+  input.value = '';
+  renderServerSettingsTraits();
+  updateServerSettingsPreview();
+  input.focus();
+}
+
+function renderServerSettingsGames() {
+  const container = $('serverSettingsGames');
+  if (!container) return;
+  container.textContent = '';
+  const fragment = document.createDocumentFragment();
+  serverSettingsGames.forEach((game, index) => {
+    const chip = document.createElement('span');
+    chip.className = 'server-settings-chip';
+    const emoji = document.createElement('span');
+    emoji.className = 'server-settings-chip-emoji';
+    emoji.textContent = '🎮';
+    emoji.setAttribute('aria-hidden', 'true');
+    const text = document.createElement('span');
+    text.className = 'server-settings-chip-text';
+    text.textContent = game;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.dataset.removeGame = String(index);
+    remove.setAttribute('aria-label', t('Usuń grę {name}', { name: game }));
+    remove.textContent = '✕';
+    chip.append(emoji, text, remove);
+    fragment.append(chip);
+  });
+  container.append(fragment);
+  if ($('serverSettingsGameSearch')) $('serverSettingsGameSearch').disabled = serverSettingsGames.length >= SERVER_GAME_LIMIT;
+}
+
+function renderServerSettingsGameMenu() {
+  const menu = $('serverSettingsGameMenu');
+  const input = $('serverSettingsGameSearch');
+  if (!menu || !input || input.disabled) {
+    if (menu) menu.hidden = true;
+    return;
+  }
+  const query = input.value.replace(/\s+/g, ' ').trim();
+  const lower = query.toLocaleLowerCase();
+  const existing = new Set(serverSettingsGames.map((game) => game.toLocaleLowerCase()));
+  const options = SERVER_GAME_CHOICES
+    .filter((game) => !existing.has(game.toLocaleLowerCase()))
+    .filter((game) => !lower || game.toLocaleLowerCase().includes(lower));
+  menu.textContent = '';
+  const fragment = document.createDocumentFragment();
+  for (const game of options.slice(0, 8)) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'server-game-option';
+    button.dataset.gameOption = game;
+    button.textContent = game;
+    fragment.append(button);
+  }
+  const canCreate = query.length >= 2
+    && !SERVER_GAME_CHOICES.some((game) => game.toLocaleLowerCase() === lower)
+    && !existing.has(lower);
+  if (canCreate) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'server-game-option';
+    button.dataset.gameOption = query;
+    button.textContent = t('Dodaj „{name}”', { name: query });
+    fragment.append(button);
+  }
+  if (!fragment.childElementCount) {
+    const empty = document.createElement('p');
+    empty.className = 'server-game-empty';
+    empty.textContent = t('Brak pasujących gier.');
+    fragment.append(empty);
+  }
+  menu.append(fragment);
+  menu.hidden = false;
+}
+
+function addServerSettingsGame(name) {
+  const game = String(name || '').replace(/\s+/g, ' ').trim().slice(0, SERVER_GAME_LENGTH);
+  if (!game) return;
+  if (serverSettingsGames.length >= SERVER_GAME_LIMIT) {
+    toast(t('Możesz dodać maksymalnie 5 gier.'));
+    return;
+  }
+  if (serverSettingsGames.some((item) => item.toLocaleLowerCase() === game.toLocaleLowerCase())) {
+    toast(t('Ta gra jest już dodana.'));
+    return;
+  }
+  serverSettingsGames.push(game);
+  $('serverSettingsGameSearch').value = '';
+  renderServerSettingsGames();
+  renderServerSettingsGameMenu();
+  updateServerSettingsPreview();
+  $('serverSettingsGameSearch').focus();
+}
+
+function updateServerSettingsDescriptionCount() {
+  const counter = $('serverSettingsDescriptionCount');
+  const field = $('serverSettingsDescription');
+  if (counter && field) counter.textContent = String(field.value.length);
+}
+
 function updateServerSettingsPreview() {
   const state = serverState(activeServerId);
   const name = $('serverSettingsName').value.trim() || t('Serwer');
-  const icon = $('serverSettingsIcon').value.trim();
+  const icon = serverSettingsIconValueNow();
   const tag = normalizeServerTag($('serverSettingsTag').value);
   $('serverSettingsAvatar').textContent = icon || initial(name);
   $('serverSettingsAvatar').style.background = safeColor(serverSettingsColor, state?.server?.color || 'var(--panel-2)');
   $('serverSettingsPreviewName').textContent = name;
   $('serverSettingsPreviewTag').textContent = tag;
   $('serverSettingsPreviewTag').hidden = !tag;
+  const online = (state?.members || []).filter((member) => member.online).length;
+  const total = (state?.members || []).length;
+  $('serverSettingsPreviewOnline').textContent = t('{n} online', { n: online });
+  $('serverSettingsPreviewMembers').textContent = prefs.lang === 'en'
+    ? `${total} ${total === 1 ? 'member' : 'members'}`
+    : (total === 1 ? '1 członek' : `${total} członków`);
+  const createdAt = Number(state?.server?.createdAt) || Date.now();
+  const date = new Date(createdAt).toLocaleDateString(prefs.lang === 'en' ? 'en-US' : 'pl-PL', {
+    month: 'short',
+    year: 'numeric',
+  });
+  $('serverSettingsPreviewCreated').textContent = t('Zał. {date}', { date });
+  const tags = [
+    ...serverSettingsGames.map((game) => ({ text: game, game: true })),
+    ...serverSettingsTraits.map((trait) => ({ text: trait, game: false })),
+  ].slice(0, 6);
+  $('serverSettingsPreviewTags').innerHTML = tags
+    .map((item) => `<span class="server-preview-tag${item.game ? ' game' : ''}">${esc(item.text)}</span>`)
+    .join('');
+  renderServerSettingsIconState();
+}
+
+function populateServerSettings(state) {
+  if (!state) return;
+  serverSettingsColor = safeColor(state.server.color, '#3ee0a3');
+  serverSettingsBanner = normalizeServerBannerId(state.server.banner);
+  serverSettingsTraits = normalizeServerTextList(state.server.traits || [], SERVER_TRAIT_LIMIT, SERVER_TRAIT_LENGTH);
+  serverSettingsGames = normalizeServerTextList(state.server.games || [], SERVER_GAME_LIMIT, SERVER_GAME_LENGTH);
+  serverSettingsIconValue = String(state.server.icon || '').slice(0, 4);
+  $('serverSettingsName').value = state.server.name || '';
+  $('serverSettingsIcon').value = serverSettingsIconValue;
+  $('serverSettingsIconCurrent').textContent = serverSettingsIconValue || initial(state.server.name || '');
+  $('serverSettingsTag').value = normalizeServerTag(state.server.tag);
+  $('serverSettingsDescription').value = String(state.server.description || '').slice(0, SERVER_DESCRIPTION_LENGTH);
+  $('serverSettingsTraitInput').value = '';
+  $('serverSettingsGameSearch').value = '';
+  $('serverSettingsIconPicker').hidden = true;
+  $('serverSettingsGameMenu').hidden = true;
+  markColorSelection($('serverSettingsColors'), serverSettingsColor);
+  renderServerSettingsBanners();
+  renderServerSettingsTraits();
+  renderServerSettingsGames();
+  updateServerSettingsDescriptionCount();
+  updateServerSettingsPreview();
 }
 
 function openServerSettings() {
   const state = serverState(activeServerId);
   if (!state?.you?.owner) return;
-  serverSettingsColor = safeColor(state.server.color, '#3ee0a3');
-  $('serverSettingsName').value = state.server.name || '';
-  $('serverSettingsIcon').value = state.server.icon || '';
-  $('serverSettingsTag').value = normalizeServerTag(state.server.tag);
-  markColorSelection($('serverSettingsColors'), serverSettingsColor);
+  populateServerSettings(state);
   $('serverSettingsError').textContent = '';
   $('saveServerSettings').disabled = false;
-  updateServerSettingsPreview();
+  const scroll = $('serverSettingsScroll');
+  if (scroll) scroll.scrollTop = 0;
+  document.querySelectorAll('#serverSettingsNav [data-server-nav]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.serverNav === 'profile');
+  });
   $('serverSettingsOverlay').hidden = false;
-  setTimeout(() => $('serverSettingsName').focus(), 40);
+  document.querySelector('.server-settings-card')?.focus({ preventScroll: true });
 }
 
 function closeServerSettings() {
   $('serverSettingsOverlay').hidden = true;
+  $('serverSettingsIconPicker').hidden = true;
+  $('serverSettingsGameMenu').hidden = true;
   $('serverSettingsError').textContent = '';
   $('saveServerSettings').disabled = false;
 }
@@ -4907,8 +5465,9 @@ function saveServerSettings() {
     errorEl.textContent = t('Serwer jest offline — spróbuj, gdy połączenie wróci.');
     return;
   }
-  const icon = $('serverSettingsIcon').value.trim().slice(0, 4);
+  const icon = serverSettingsIconValueNow();
   const tag = normalizeServerTag($('serverSettingsTag').value);
+  const description = $('serverSettingsDescription').value.trim().slice(0, SERVER_DESCRIPTION_LENGTH);
   $('saveServerSettings').disabled = true;
   try {
     state.ws.send(JSON.stringify({
@@ -4917,11 +5476,62 @@ function saveServerSettings() {
       icon,
       tag,
       color: serverSettingsColor,
+      banner: serverSettingsBanner,
+      description,
+      traits: [...serverSettingsTraits],
+      games: [...serverSettingsGames],
     }));
   } catch {
     $('saveServerSettings').disabled = false;
     errorEl.textContent = t('Nie udało się zapisać ustawień serwera.');
   }
+}
+
+function scrollServerSettingsSection(id) {
+  const section = $(id);
+  if (!section) return;
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function openDeleteServerConfirmFromSettings() {
+  const state = serverState(activeServerId);
+  if (!state?.you?.owner) return;
+  $('leaveServerTitle').textContent = t('Usunąć serwer?');
+  $('leaveServerText').textContent = t('Czy na pewno chcesz usunąć serwer „{name}”? Tej operacji nie można cofnąć.', { name: state.server.name });
+  $('confirmLeaveServer').textContent = t('Usuń serwer');
+  $('confirmLeaveServer').disabled = false;
+  $('leaveServerOverlay').hidden = false;
+}
+
+function handleServerSettingsNav(target) {
+  if (!target) return;
+  document.querySelectorAll('#serverSettingsNav [data-server-nav]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.serverNav === target);
+  });
+  if (target === 'profile') {
+    $('serverSettingsScroll').scrollTo({ top: 0, behavior: 'smooth' });
+    return;
+  }
+  if (target === 'tag') {
+    scrollServerSettingsSection('serverSettingsSectionIdentity');
+    return;
+  }
+  if (target === 'invites') {
+    closeServerSettings();
+    void openInviteModal();
+    return;
+  }
+  if (target === 'insights') {
+    closeServerSettings();
+    openServerInsights();
+    return;
+  }
+  if (target === 'delete') {
+    closeServerSettings();
+    openDeleteServerConfirmFromSettings();
+    return;
+  }
+  toast(t('Ta funkcja pojawi się wkrótce.'));
 }
 
 function openServerInsights() {
@@ -5019,7 +5629,9 @@ function saveServerProfile() {
 function openLeaveServerConfirm() {
   const state = serverState(activeServerId);
   if (!state || state.you?.owner) return;
+  $('leaveServerTitle').textContent = t('Opuścić serwer?');
   $('leaveServerText').textContent = t('Czy na pewno chcesz opuścić serwer „{name}”? Będziesz mógł dołączyć ponownie, jeśli otrzymasz nowe zaproszenie.', { name: state.server.name });
+  $('confirmLeaveServer').textContent = t('Opuść serwer');
   $('confirmLeaveServer').disabled = false;
   $('leaveServerOverlay').hidden = false;
 }
@@ -5247,29 +5859,24 @@ async function createServer() {
   }
 }
 
-async function joinServer() {
-  const raw = $('serverInvite').value.trim();
-  const errorEl = $('joinServerError');
-  errorEl.textContent = '';
+async function joinServerInvite(raw) {
   const parsed = parseInvite(raw);
   if (!parsed) {
-    errorEl.textContent = t('Wklej pełny link, np. chill://192.168.1.5:47830/AB12CD.');
-    return;
+    return {
+      ok: false,
+      error: t('Wklej link zaproszenia, np. chill://192.168.1.5:47830/AB12CD lub https://chill.example.com/?invite=AB12CD.'),
+    };
   }
-  $('joinServerBtn').disabled = true;
-  errorEl.textContent = t('Łączę…');
+  const known = servers.find((server) => server.invite === parsed.invite
+    && ((server.address === parsed.address && Boolean(server.secure) === Boolean(parsed.secure)) || server.owner));
+  if (known) {
+    selectServer(known.id);
+    connectServer(known);
+    focusInvitedChannel(known.id, parsed.channelId);
+    return { ok: true, known: true, server: known };
+  }
+  const memberId = randomMemberId();
   try {
-    const known = servers.find((server) => server.invite === parsed.invite
-      && ((server.address === parsed.address && Boolean(server.secure) === Boolean(parsed.secure)) || server.owner));
-    if (known) {
-      closeServerModal();
-      selectServer(known.id);
-      connectServer(known);
-      focusInvitedChannel(known.id, parsed.channelId);
-      toast(t('Już należysz do tego serwera'));
-      return;
-    }
-    const memberId = randomMemberId();
     const data = await probeServer(parsed, memberId);
     const result = await CHILL.servers.saveJoined({
       address: parsed.address,
@@ -5278,21 +5885,44 @@ async function joinServer() {
       server: data.server,
       memberId,
     });
-    if (!result || !result.ok) throw new Error(result?.error ? translateError(result.error) : t('Nie udało się zapisać serwera.'));
+    if (!result || !result.ok) {
+      return {
+        ok: false,
+        error: result?.error ? translateError(result.error) : t('Nie udało się zapisać serwera.'),
+      };
+    }
     upsertServer(result.server);
     ensureServerState(result.server);
-    closeServerModal();
     selectServer(result.server.id);
     connectServer(result.server);
     focusInvitedChannel(result.server.id, parsed.channelId);
-    toast(t('Dołączono do „{name}”', { name: result.server.name }));
-    errorEl.textContent = '';
+    return { ok: true, server: result.server };
   } catch (err) {
-    errorEl.textContent = err.message || t('Nie udało się dołączyć do serwera.');
-  } finally {
-    $('joinServerBtn').disabled = false;
-    if (!errorEl.textContent) errorEl.textContent = '';
+    return { ok: false, error: err?.message || t('Nie udało się dołączyć do serwera.') };
   }
+}
+
+async function joinServer() {
+  const raw = $('serverInvite').value.trim();
+  const errorEl = $('joinServerError');
+  errorEl.textContent = '';
+  const parsed = parseInvite(raw);
+  if (!parsed) {
+    errorEl.textContent = t('Wklej link zaproszenia, np. chill://192.168.1.5:47830/AB12CD lub https://chill.example.com/?invite=AB12CD.');
+    return;
+  }
+  $('joinServerBtn').disabled = true;
+  errorEl.textContent = t('Łączę…');
+  const outcome = await joinServerInvite(raw);
+  $('joinServerBtn').disabled = false;
+  if (!outcome.ok) {
+    errorEl.textContent = outcome.error;
+    return;
+  }
+  closeServerModal();
+  errorEl.textContent = '';
+  if (outcome.known) toast(t('Już należysz do tego serwera'));
+  else if (outcome.server) toast(t('Dołączono do „{name}”', { name: outcome.server.name }));
 }
 
 // ---------- Import z Discord ----------
@@ -5763,6 +6393,11 @@ async function openInviteModal(channel = null) {
     ? `${state.server.name} • #${invitedChannel.name}`
     : state.server.name;
   $('inviteSaved').textContent = '';
+  if ($('inviteHint')) {
+    $('inviteHint').textContent = CHILL.web
+      ? t('Wyślij ten link znajomemu. Otworzy go w przeglądarce i dołączy do serwera po zalogowaniu.')
+      : t('Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie "Dołącz kodem".');
+  }
   $('leaveServerBtn').textContent = owner ? t('Usuń serwer') : t('Opuść serwer');
   resetLeaveConfirm();
   const link = (base) => invitedChannel ? appendChannelToLink(base, invitedChannel) : base;
@@ -7516,7 +8151,7 @@ function voiceTransport() {
     const channel = state?.channels.find((item) => item.id === current.id);
     if (!state || state.status !== 'online' || !state.ws || state.ws.readyState !== WebSocket.OPEN) return null;
     if (!channel || channel.type === 'voice' || !state.voiceKey) return null;
-    const address = state.server.address || (state.server.owner ? `127.0.0.1:${CHILL.chatPort || 47830}` : '');
+    const address = state.server.address || (state.server.owner ? localChatAddress() : '');
     if (!address) return null;
     return { address, secure: Boolean(state.server.secure), key: state.voiceKey, conversationKey: conversationKey() };
   }
@@ -7526,12 +8161,12 @@ function voiceTransport() {
     if (entry.kind === 'server') {
       const state = serverState(entry.serverId);
       if (!state || state.status !== 'online' || !state.ws || state.ws.readyState !== WebSocket.OPEN || !state.voiceKey) return null;
-      const address = state.server.address || (state.server.owner ? `127.0.0.1:${CHILL.chatPort || 47830}` : '');
+      const address = state.server.address || (state.server.owner ? localChatAddress() : '');
       if (!address) return null;
       return { address, secure: Boolean(state.server.secure), key: state.voiceKey, conversationKey: conversationKey() };
     }
     if (!wsReady() || !localVoiceKey) return null;
-    return { address: `127.0.0.1:${CHILL.chatPort || 47830}`, secure: false, key: localVoiceKey, conversationKey: conversationKey() };
+    return { address: localChatAddress(), secure: location.protocol === 'https:', key: localVoiceKey, conversationKey: conversationKey() };
   }
   return null;
 }
@@ -8738,6 +9373,9 @@ function renderMiniGameHud(state) {
   if (state.mode === 'battle') {
     const hp = Math.max(0, Math.min(100, Number(state.hp) || 0));
     const shield = Math.max(0, Math.min(60, Number(state.shield) || 0));
+    const mag = Math.max(0, Number(state.ammoMag) || 0);
+    const reserve = Math.max(0, Number(state.ammoReserve) || 0);
+    const reloading = Boolean(state.reloading);
     hud.innerHTML = `
       <div class="mg-hud-left">
         <div class="mg-player-line">${esc(state.playerName || t('Ty'))}<span>HP</span></div>
@@ -8751,7 +9389,8 @@ function renderMiniGameHud(state) {
       </div>
       <div class="mg-hud-right">
         <span class="mg-storm${state.outside ? ' danger' : ''}">${esc(state.stormLabel)}</span>
-        <span class="mg-hint-chip">${esc(t('Strzał: LPM / Spacja'))}</span>
+        <span class="mg-ammo${reloading ? ' reloading' : ''}${mag === 0 && !reloading ? ' empty' : ''}"><small>${esc(reloading ? t('Przeładowanie…') : t('Amunicja'))}</small><strong>${mag}</strong><em>/${reserve}</em></span>
+        <span class="mg-hint-chip">${esc(state.locked ? 'WASD · Shift · Space · E · R' : t('Kliknij, aby przejąć mysz'))}</span>
       </div>
     `;
     return;
@@ -10101,6 +10740,12 @@ function bindShortcuts() {
         return;
       }
       if ($('screenShareOverlay') && !$('screenShareOverlay').hidden) { closeScreenSharePicker(); return; }
+      if ($('serverSettingsOverlay') && !$('serverSettingsOverlay').hidden) {
+        if (!$('serverSettingsIconPicker').hidden) { $('serverSettingsIconPicker').hidden = true; return; }
+        if (!$('serverSettingsGameMenu').hidden) { $('serverSettingsGameMenu').hidden = true; return; }
+        closeServerSettings();
+        return;
+      }
       if (!$('serverOverlay').hidden) { closeServerModal(); return; }
       if (!$('inviteOverlay').hidden) { $('inviteOverlay').hidden = true; return; }
       if (!$('settingsOverlay').hidden) { closeSettings(); return; }

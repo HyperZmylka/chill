@@ -1,0 +1,25 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Chill desktop window and local UI",
+  "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*", "http://localhost:*"]
+  },
+  "permissions": [
+    "core:default",
+    "autostart:default",
+    "notification:default",
+    "allow-chill-version",
+    "allow-chill-autostart-get",
+    "allow-chill-autostart-set",
+    "allow-chill-open-external",
+    "allow-chill-screen-sources",
+    "allow-chill-notify",
+    "allow-chill-set-badge",
+    "allow-chill-update-check",
+    "allow-chill-update-install",
+    "allow-chill-activity-ask",
+    "allow-chill-take-pending-invite"
+  ]
+}

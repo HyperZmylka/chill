@@ -139,7 +139,7 @@
         <p class="auth-switch"><span data-i18n="Masz już konto?">Masz już konto?</span> <button type="button" class="link" id="goLogin" data-i18n="Zaloguj się">Zaloguj się</button></p>
       </form>
 
-      <p class="auth-foot" data-i18n="Konto i historia rozmów są zapisane tylko na tym komputerze. Hasło jest szyfrowane lokalnie (scrypt).">Konto i historia rozmów są zapisane tylko na tym komputerze. Hasło jest szyfrowane lokalnie (scrypt).</p>
+      <p class="auth-foot" id="authFoot" data-i18n="Konto i historia rozmów są zapisane tylko na tym komputerze. Hasło jest szyfrowane lokalnie (scrypt).">Konto i historia rozmów są zapisane tylko na tym komputerze. Hasło jest szyfrowane lokalnie (scrypt).</p>
     </div>
   </section>
 </div>
@@ -1270,7 +1270,7 @@
       </div>
       <p class="server-hint invite-network" id="inviteNetworkStatus" aria-live="polite" hidden></p>
       <button type="button" class="btn-secondary invite-retry" id="retryInviteTunnel" data-i18n="Spróbuj ponownie" hidden>Spróbuj ponownie</button>
-      <p class="server-hint" data-i18n="Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie „Dołącz kodem”.">Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie „Dołącz kodem”.</p>
+      <p class="server-hint" id="inviteHint" data-i18n="Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie &quot;Dołącz kodem&quot;.">Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie "Dołącz kodem".</p>
       <div class="divider"></div>
       <div class="settings-actions invite-actions">
         <span class="saved-note" id="inviteSaved"></span>
@@ -1411,50 +1411,181 @@
 
   <!-- Ustawienia serwera -->
   <div class="modal" id="serverSettingsOverlay" hidden>
-    <div class="modal-card server-card">
-      <button type="button" class="icon-btn modal-close" id="closeServerSettings" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
-      <div class="server-modal-head">
-        <h2 data-i18n="Ustawienia serwera">Ustawienia serwera</h2>
-        <p data-i18n="Zmień nazwę, ikonę, tag i kolor serwera.">Zmień nazwę, ikonę, tag i kolor serwera.</p>
-      </div>
+    <div class="server-settings-card" tabindex="-1">
+      <button type="button" class="server-settings-close" id="closeServerSettings" aria-label="Zamknij" data-i18n-aria-label="Zamknij">
+        <span aria-hidden="true">✕</span>
+        <small>ESC</small>
+      </button>
 
-      <div class="server-settings-preview">
-        <span class="server-settings-avatar" id="serverSettingsAvatar" aria-hidden="true">#</span>
-        <span class="server-settings-preview-id">
-          <strong id="serverSettingsPreviewName">Serwer</strong>
-          <small id="serverSettingsPreviewTag" hidden></small>
-        </span>
-      </div>
+      <aside class="server-settings-nav">
+        <div class="server-settings-nav-scroll" id="serverSettingsNav">
+          <p class="server-settings-nav-title">Games</p>
+          <button type="button" class="server-settings-nav-item active" data-server-nav="profile" data-i18n="Profil serwerowy">Profil serwerowy</button>
+          <button type="button" class="server-settings-nav-item" data-server-nav="tag" data-i18n="Tag serwera">Tag serwera</button>
+          <button type="button" class="server-settings-nav-item" data-server-nav="engagement" data-i18n="Zaangażowanie">Zaangażowanie</button>
+          <button type="button" class="server-settings-nav-item" data-server-nav="boosts" data-i18n="Korzyści ze wzmocnień">Korzyści ze wzmocnień</button>
 
-      <label class="field">
-        <span data-i18n="Nazwa serwera">Nazwa serwera</span>
-        <input type="text" id="serverSettingsName" maxlength="40" placeholder="np. Ekipa z podwórka" data-i18n-placeholder="np. Ekipa z podwórka" spellcheck="false">
-      </label>
-      <label class="field">
-        <span data-i18n="Ikona serwera">Ikona serwera</span>
-        <input type="text" id="serverSettingsIcon" maxlength="4" placeholder="np. 🐺" data-i18n-placeholder="np. 🐺" spellcheck="false">
-      </label>
-      <label class="field">
-        <span data-i18n="Tag serwera (opcjonalnie)">Tag serwera (opcjonalnie)</span>
-        <input type="text" id="serverSettingsTag" maxlength="8" placeholder="np. WOLF" data-i18n-placeholder="np. WOLF" spellcheck="false">
-        <small class="server-hint" data-i18n="Krótki tag widoczny przy nazwie serwera.">Krótki tag widoczny przy nazwie serwera.</small>
-      </label>
-      <div class="field">
-        <span data-i18n="Kolor serwera">Kolor serwera</span>
-        <div class="color-row" id="serverSettingsColors">
-          <button type="button" class="color-dot selected" data-server-color="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy" data-i18n-aria-label="Miętowy"></button>
-          <button type="button" class="color-dot" data-server-color="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny" data-i18n-aria-label="Błękitny"></button>
-          <button type="button" class="color-dot" data-server-color="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy" data-i18n-aria-label="Brzoskwiniowy"></button>
-          <button type="button" class="color-dot" data-server-color="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy" data-i18n-aria-label="Różowy"></button>
-          <button type="button" class="color-dot" data-server-color="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy" data-i18n-aria-label="Lawendowy"></button>
-          <button type="button" class="color-dot" data-server-color="#ffd166" style="--dot:#ffd166" aria-label="Żółty" data-i18n-aria-label="Żółty"></button>
+          <p class="server-settings-nav-title" data-i18n="Nastrój">Nastrój</p>
+          <button type="button" class="server-settings-nav-item" data-server-nav="emoji" data-i18n="Emoji">Emoji</button>
+          <button type="button" class="server-settings-nav-item" data-server-nav="stickers" data-i18n="Naklejki">Naklejki</button>
+          <button type="button" class="server-settings-nav-item" data-server-nav="sounds" data-i18n="Panel dźwięków">Panel dźwięków</button>
+
+          <p class="server-settings-nav-title" data-i18n="Osoby">Osoby</p>
+          <button type="button" class="server-settings-nav-item" data-server-nav="members" data-i18n="Członkowie">Członkowie</button>
+          <button type="button" class="server-settings-nav-item" data-server-nav="roles" data-i18n="Role">Role</button>
+          <button type="button" class="server-settings-nav-item" data-server-nav="invites" data-i18n="Zaproszenia">Zaproszenia</button>
+          <button type="button" class="server-settings-nav-item" data-server-nav="access" data-i18n="Dostęp">Dostęp</button>
+
+          <p class="server-settings-nav-title" data-i18n="Aplikacje">Aplikacje</p>
+          <button type="button" class="server-settings-nav-item" data-server-nav="integrations" data-i18n="Integracje">Integracje</button>
+          <button type="button" class="server-settings-nav-item" data-server-nav="apps" data-i18n="Katalog aplikacji">Katalog aplikacji</button>
+
+          <p class="server-settings-nav-title" data-i18n="Moderacja">Moderacja</p>
+          <button type="button" class="server-settings-nav-item" data-server-nav="security" data-i18n="Konfiguracja zabezpieczeń">Konfiguracja zabezpieczeń</button>
+          <button type="button" class="server-settings-nav-item" data-server-nav="audit" data-i18n="Dziennik zdarzeń">Dziennik zdarzeń</button>
+          <button type="button" class="server-settings-nav-item" data-server-nav="bans" data-i18n="Bany">Bany</button>
+
+          <p class="server-settings-nav-title" data-i18n="Przegląd społeczności">Przegląd społeczności</p>
+          <button type="button" class="server-settings-nav-item" data-server-nav="onboarding" data-i18n="Wprowadzenie">Wprowadzenie</button>
+          <button type="button" class="server-settings-nav-item" data-server-nav="insights" data-i18n="Wgląd w serwer">Wgląd w serwer</button>
+
+          <div class="server-settings-nav-sep" role="separator"></div>
+          <button type="button" class="server-settings-nav-item" data-server-nav="template" data-i18n="Szablon serwera">Szablon serwera</button>
+          <button type="button" class="server-settings-nav-item danger" data-server-nav="delete" data-i18n="Usuń serwer">Usuń serwer</button>
+        </div>
+      </aside>
+
+      <div class="server-settings-main">
+        <div class="server-settings-scroll" id="serverSettingsScroll">
+          <div class="server-settings-form">
+            <section class="server-settings-section" id="serverSettingsSectionIcon">
+              <h3 data-i18n="Ikona">Ikona</h3>
+              <p class="server-settings-hint" data-i18n="Wybierz emoji lub znak, który najlepiej opisze Twój serwer.">Wybierz emoji lub znak, który najlepiej opisze Twój serwer.</p>
+              <div class="server-settings-icon-row">
+                <span class="server-settings-icon-current" id="serverSettingsIconCurrent" aria-hidden="true">#</span>
+                <button type="button" class="btn-primary server-settings-icon-btn" id="serverSettingsChangeIcon" data-i18n="Zmień ikonę serwera">Zmień ikonę serwera</button>
+                <button type="button" class="btn-secondary server-settings-icon-btn" id="serverSettingsClearIcon" data-i18n="Usuń ikonę">Usuń ikonę</button>
+                <input type="hidden" id="serverSettingsIcon" maxlength="4">
+              </div>
+              <div class="server-icon-picker" id="serverSettingsIconPicker" hidden>
+                <div class="server-icon-picker-grid" id="serverSettingsIconChoices"></div>
+              </div>
+            </section>
+
+            <div class="server-settings-divider" role="separator"></div>
+
+            <section class="server-settings-section" id="serverSettingsSectionBanner">
+              <h3 data-i18n="Baner">Baner</h3>
+              <p class="server-settings-hint" data-i18n="Wybierz gradient widoczny na karcie podglądu serwera.">Wybierz gradient widoczny na karcie podglądu serwera.</p>
+              <div class="server-banner-grid" id="serverSettingsBanners">
+                <button type="button" class="server-banner-swatch banner-graphite" data-server-banner="graphite" aria-label="Grafit" data-i18n-aria-label="Grafit"></button>
+                <button type="button" class="server-banner-swatch banner-rose" data-server-banner="rose" aria-label="Róż" data-i18n-aria-label="Róż"></button>
+                <button type="button" class="server-banner-swatch banner-crimson" data-server-banner="crimson" aria-label="Czerwień" data-i18n-aria-label="Czerwień"></button>
+                <button type="button" class="server-banner-swatch banner-ember" data-server-banner="ember" aria-label="Pomarańcz" data-i18n-aria-label="Pomarańcz"></button>
+                <button type="button" class="server-banner-swatch banner-gold" data-server-banner="gold" aria-label="Złoto" data-i18n-aria-label="Złoto"></button>
+                <button type="button" class="server-banner-swatch banner-violet" data-server-banner="violet" aria-label="Fiolet" data-i18n-aria-label="Fiolet"></button>
+                <button type="button" class="server-banner-swatch banner-azure" data-server-banner="azure" aria-label="Błękit" data-i18n-aria-label="Błękit"></button>
+                <button type="button" class="server-banner-swatch banner-aqua" data-server-banner="aqua" aria-label="Turkus" data-i18n-aria-label="Turkus"></button>
+                <button type="button" class="server-banner-swatch banner-lime" data-server-banner="lime" aria-label="Limonka" data-i18n-aria-label="Limonka"></button>
+                <button type="button" class="server-banner-swatch banner-slate" data-server-banner="slate" aria-label="Stal" data-i18n-aria-label="Stal"></button>
+              </div>
+            </section>
+
+            <div class="server-settings-divider" role="separator"></div>
+
+            <section class="server-settings-section" id="serverSettingsSectionTraits">
+              <h3 data-i18n="Cechy">Cechy</h3>
+              <p class="server-settings-hint" data-i18n="Dodaj maksymalnie 5 cech, aby przedstawić obszar zainteresowania i charakterystykę swojego serwera.">Dodaj maksymalnie 5 cech, aby przedstawić obszar zainteresowania i charakterystykę swojego serwera.</p>
+              <div class="server-settings-chip-list" id="serverSettingsTraits"></div>
+              <div class="server-settings-add-row">
+                <span class="server-settings-add-emoji" aria-hidden="true">🙂</span>
+                <input type="text" id="serverSettingsTraitInput" maxlength="24" placeholder="Dodaj cechę…" data-i18n-placeholder="Dodaj cechę…" autocomplete="off" spellcheck="false">
+                <button type="button" class="btn-secondary" id="serverSettingsAddTrait" data-i18n="Dodaj">Dodaj</button>
+              </div>
+            </section>
+
+            <div class="server-settings-divider" role="separator"></div>
+
+            <section class="server-settings-section" id="serverSettingsSectionDescription">
+              <h3 data-i18n="Opis">Opis</h3>
+              <p class="server-settings-hint" data-i18n="Jak powstał Twój serwer? Dlaczego warto do niego dołączyć?">Jak powstał Twój serwer? Dlaczego warto do niego dołączyć?</p>
+              <textarea id="serverSettingsDescription" class="server-settings-textarea" maxlength="280" rows="4" placeholder="Odpowiedz innym o tym serwerze." data-i18n-placeholder="Odpowiedz innym o tym serwerze."></textarea>
+              <div class="server-settings-counter"><span id="serverSettingsDescriptionCount">0</span> / 280</div>
+            </section>
+
+            <div class="server-settings-divider" role="separator"></div>
+
+            <section class="server-settings-section" id="serverSettingsSectionGames">
+              <h3 data-i18n="Gry">Gry</h3>
+              <p class="server-settings-hint" data-i18n="W jakie gry grają członkowie Twojego serwera?">W jakie gry grają członkowie Twojego serwera?</p>
+              <div class="server-game-picker">
+                <input type="text" id="serverSettingsGameSearch" maxlength="24" placeholder="Szukaj gry…" data-i18n-placeholder="Szukaj gry…" autocomplete="off" spellcheck="false">
+                <span class="server-game-picker-caret" aria-hidden="true">⌄</span>
+                <div class="server-game-menu" id="serverSettingsGameMenu" hidden></div>
+              </div>
+              <div class="server-settings-chip-list" id="serverSettingsGames"></div>
+            </section>
+
+            <div class="server-settings-divider" role="separator"></div>
+
+            <section class="server-settings-section" id="serverSettingsSectionIdentity">
+              <h3 data-i18n="Nazwa i tag">Nazwa i tag</h3>
+              <p class="server-settings-hint" data-i18n="Te informacje widzą wszyscy członkowie serwera.">Te informacje widzą wszyscy członkowie serwera.</p>
+              <div class="field-grid server-settings-identity-grid">
+                <label class="field">
+                  <span data-i18n="Nazwa serwera">Nazwa serwera</span>
+                  <input type="text" id="serverSettingsName" maxlength="40" placeholder="np. Ekipa z podwórka" data-i18n-placeholder="np. Ekipa z podwórka" spellcheck="false">
+                </label>
+                <label class="field">
+                  <span data-i18n="Tag serwera (opcjonalnie)">Tag serwera (opcjonalnie)</span>
+                  <input type="text" id="serverSettingsTag" maxlength="8" placeholder="np. WOLF" data-i18n-placeholder="np. WOLF" spellcheck="false">
+                </label>
+              </div>
+              <div class="field server-settings-color-field">
+                <span data-i18n="Kolor serwera">Kolor serwera</span>
+                <div class="color-row" id="serverSettingsColors">
+                  <button type="button" class="color-dot selected" data-server-color="#3ee0a3" style="--dot:#3ee0a3" aria-label="Miętowy" data-i18n-aria-label="Miętowy"></button>
+                  <button type="button" class="color-dot" data-server-color="#7cc8ff" style="--dot:#7cc8ff" aria-label="Błękitny" data-i18n-aria-label="Błękitny"></button>
+                  <button type="button" class="color-dot" data-server-color="#ffa46b" style="--dot:#ffa46b" aria-label="Brzoskwiniowy" data-i18n-aria-label="Brzoskwiniowy"></button>
+                  <button type="button" class="color-dot" data-server-color="#ff7aa2" style="--dot:#ff7aa2" aria-label="Różowy" data-i18n-aria-label="Różowy"></button>
+                  <button type="button" class="color-dot" data-server-color="#b8a1ff" style="--dot:#b8a1ff" aria-label="Lawendowy" data-i18n-aria-label="Lawendowy"></button>
+                  <button type="button" class="color-dot" data-server-color="#ffd166" style="--dot:#ffd166" aria-label="Żółty" data-i18n-aria-label="Żółty"></button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+
+        <div class="server-settings-footer">
+          <p class="form-error" id="serverSettingsError" role="alert"></p>
+          <div class="settings-actions">
+            <button type="button" class="btn-secondary" id="cancelServerSettings" data-i18n="Anuluj">Anuluj</button>
+            <button type="button" class="btn-primary" id="saveServerSettings" data-i18n="Zapisz zmiany">Zapisz zmiany</button>
+          </div>
         </div>
       </div>
-      <p class="form-error" id="serverSettingsError" role="alert"></p>
-      <div class="settings-actions">
-        <button type="button" class="btn-secondary" id="cancelServerSettings" data-i18n="Anuluj">Anuluj</button>
-        <button type="button" class="btn-primary" id="saveServerSettings" data-i18n="Zapisz zmiany">Zapisz zmiany</button>
-      </div>
+
+      <aside class="server-settings-preview-pane">
+        <div class="server-settings-preview-card">
+          <div class="server-settings-banner-preview banner-graphite" id="serverSettingsBannerPreview">
+            <span class="server-preview-avatar" id="serverSettingsAvatar" aria-hidden="true">#</span>
+          </div>
+          <div class="server-settings-preview-body">
+            <div class="server-settings-preview-name-row">
+              <strong id="serverSettingsPreviewName">Serwer</strong>
+              <span class="server-settings-preview-tag" id="serverSettingsPreviewTag" hidden></span>
+            </div>
+            <div class="server-settings-preview-stats">
+              <span class="server-settings-online"><span class="server-settings-online-dot" aria-hidden="true"></span><span id="serverSettingsPreviewOnline">0 online</span></span>
+              <span class="server-settings-stats-sep" aria-hidden="true">•</span>
+              <span id="serverSettingsPreviewMembers">0</span>
+            </div>
+            <div class="server-settings-preview-created" id="serverSettingsPreviewCreated"></div>
+            <div class="server-settings-preview-tags" id="serverSettingsPreviewTags"></div>
+          </div>
+        </div>
+        <p class="server-settings-preview-note" data-i18n="Tak Twój serwer widzą inni członkowie.">Tak Twój serwer widzą inni członkowie.</p>
+      </aside>
     </div>
   </div>
 
@@ -1542,7 +1673,7 @@
   <div class="modal" id="leaveServerOverlay" hidden>
     <div class="modal-card delete-card">
       <button type="button" class="icon-btn modal-close" id="closeLeaveServer" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
-      <h2 data-i18n="Opuścić serwer?">Opuścić serwer?</h2>
+      <h2 id="leaveServerTitle">Opuścić serwer?</h2>
       <p class="settings-lead" id="leaveServerText"></p>
       <div class="settings-actions">
         <button type="button" class="btn-secondary" id="cancelLeaveServer" data-i18n="Anuluj">Anuluj</button>
@@ -1570,6 +1701,8 @@
 <script src="stickers.js"></script>
 <script src="voice.js"></script>
 <script src="appearance.js"></script>
+<script src="chill-web.js"></script>
+<script src="tauri-desktop.js"></script>
 <script src="minigames.js"></script>
 <script src="renderer.js"></script>
 </body>

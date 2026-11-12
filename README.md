@@ -168,6 +168,79 @@ npm install
 npm start
 ```
 
+## Tryb przeglądarki
+
+Chill można otworzyć w zwykłej przeglądarce, korzystając z tych samych kont, serwerów i historii co wersja desktopowa:
+
+```bash
+npm run web
+# albo bezpośrednio:
+electron . --web
+```
+
+Po starcie otworzy się `http://127.0.0.1:47830/`. Dodaj `--no-open`, aby nie otwierać przeglądarki automatycznie (`npm run web -- --no-open`).
+
+- Interfejs jest serwowany przez wbudowany serwer HTTP Chill, a operacje kont, serwerów i ustawień przechodzą przez lokalny most `/api/bridge`.
+- Tryb przeglądarki działa wyłącznie na tym komputerze (loopback) i jest chroniony ciasteczkiem `chill_web`. Nie jest wystawiany przez tunel Cloudflare ani do sieci LAN.
+- Wylogowanie w przeglądarce wylogowuje również aplikację desktopową, ponieważ oba interfejsy używają tej samej sesji.
+- Powiadomienia korzystają z API przeglądarki, a autostart jest tylko lokalnym ustawieniem przeglądarki. Udostępnianie ekranu otwiera systemowe okno wyboru przeglądarki; dźwięk systemowy nie jest przesyłany.
+- Skala interfejsu (75–150%) działa również w przeglądarce — przy powiększeniu układ przełącza się na węższy wariant, więc paski i pola pisania nie są ucinane.
+
+## Publiczna wersja w przeglądarce (hosting 24/7)
+
+Chill może działać jako publiczna strona internetowa. Każdy może otworzyć adres w przeglądarce, zarejestrować się, zalogować i korzystać z serwerów, kanałów, wiadomości prywatnych, profili, rozmów głosowych oraz udostępniania ekranu — bez instalowania aplikacji. Wersja desktopowa pozostaje opcjonalna i korzysta z tych samych danych, jeśli uruchomisz ją na tym samym folderze danych.
+
+Serwer publiczny nie wymaga Electrona:
+
+```bash
+npm run public
+# http://127.0.0.1:47830/
+```
+
+- `CHILL_PUBLIC_URL` — publiczny adres strony, np. `https://chill.example.com`. Służy do budowania linków zaproszeń i poprawnego rozpoznawania źródła żądań.
+- `CHILL_DATA_DIR` — trwały folder z kontami, serwerami, historią i sesjami przeglądarek.
+- `PORT` lub `CHILL_PORT` — port nasłuchiwania (domyślnie `47830`).
+- `CHILL_HOST` — opcjonalny adres nasłuchiwania procesu Node, np. `127.0.0.1` za reverse proxy. W Dockerze zostaw `0.0.0.0`; dostęp z zewnątrz kontroluj przez `CHILL_BIND_ADDRESS` w `.env`.
+
+### Docker (zalecany sposób hostingu)
+
+1. Skopiuj `.env.example` do `.env` i wpisz swój publiczny adres w `CHILL_PUBLIC_URL`.
+2. Zbuduj i uruchom kontener:
+
+   ```bash
+   docker compose up -d --build
+   ```
+
+3. Otwórz `CHILL_PUBLIC_URL`. Dane są przechowywane w wolumenie `chill-data`, więc przetrwają restart i przebudowę kontenera.
+4. Aktualizacja: `git pull`, a następnie `docker compose up -d --build`. Wszyscy użytkownicy dostaną nową wersję po odświeżeniu strony.
+
+Bez Dockera możesz uruchomić `npm ci --omit=dev`, ustawić zmienne środowiskowe i użyć `node main.js --public-web` pod dowolnym menedżerem procesów (systemd, PM2, Render, Railway, Fly.io itp.).
+
+Publiczna strona może też działać na serwerze napisanym w Rust, który używa tych samych plików danych i tego samego protokołu:
+
+```bash
+cargo build --release --manifest-path rust/Cargo.toml -p chill-server
+CHILL_PUBLIC_WEB=1 CHILL_PUBLIC_URL=https://chill.example.com \
+CHILL_DATA_DIR=/data CHILL_WEB_ROOT=/app ./rust/target/release/chill-server
+```
+
+Ustaw `CHILL_HOST=127.0.0.1` za reverse proxy albo `0.0.0.0` w kontenerze. `CHILL_WEB_ROOT` powinien wskazywać katalog z `index.html` i plikami interfejsu.
+
+### Domena, HTTPS i reverse proxy
+
+Przeglądarka udostępnia mikrofon i ekran tylko w bezpiecznym kontekście, dlatego publiczna wersja powinna działać przez HTTPS. Przykładowy `Caddyfile` zawiera gotową konfigurację: podmień domenę, ustaw `CHILL_PUBLIC_URL=https://twoja-domena` i przekieruj ruch na `127.0.0.1:47830`. Jeśli Caddy działa na tym samym serwerze co Docker, ustaw w `.env` `CHILL_BIND_ADDRESS=127.0.0.1`, żeby port kontenera nie był widoczny bezpośrednio z internetu. Przy uruchomieniu bez Dockera ustaw `CHILL_HOST=127.0.0.1`.
+
+### Aktualizacje strony
+
+`/api/version` zwraca wersję oraz skrót builda. Otwarta strona sprawdza go co minutę i po powrocie do karty; gdy build się zmieni, pokazuje polski lub angielski pasek „Dostępna jest nowa wersja Chill” z przyciskiem odświeżenia. Wdrożenie nowej wersji na serwerze aktualizuje wszystkich użytkowników — nie trzeba instalować niczego na ich komputerach.
+
+### Ograniczenia wersji publicznej
+
+- Import z Discorda i automatyczne wykrywanie gier są dostępne tylko w aplikacji desktopowej.
+- Znajomi są zapisywani w pamięci przeglądarki (`localStorage`), więc są widoczni na tym urządzeniu. Konta, serwery, kanały, wiadomości, profile i sesje są przechowywane na serwerze.
+- Publiczna strona nie ma panelu administracyjnego. Kopię zapasową danych robi się przez backup wolumenu lub katalogu `CHILL_DATA_DIR`; hasła są przechowywane jako skróty, nigdy jawnie.
+- Link zaproszenia ma postać `https://twoja-domena/?invite=KOD` i można go wysłać każdemu. Traktuj go jak hasło dostępu do serwera.
+
 ## Budowanie instalatora
 
 ```bash
@@ -175,6 +248,25 @@ npm run dist
 ```
 
 Wynik: `dist/Chill-Setup-<wersja>.exe` (instalator NSIS x64).
+
+## Wersja desktopowa Rust + Tauri
+
+Nowa powłoka desktopowa znajduje się w `rust/chill-desktop` i korzysta z tego samego interfejsu HTML/CSS/JS oraz tych samych plików danych co wersja Electron. Serwer czatu działa w niej jako biblioteka Rust (`rust/chill-server`), a okno otwiera lokalny adres `http://127.0.0.1:<port>` w WebView2. Użytkownik końcowy nie potrzebuje Rusta ani Node — otrzymuje gotowy instalator.
+
+Do zbudowania instalatora na komputerze budującym potrzebne są:
+
+- Rust (toolchain MSVC) oraz Visual Studio Build Tools,
+- Node.js i zainstalowane zależności (`npm install`),
+- WebView2 Runtime (Windows 10/11 ma go zwykle fabrycznie).
+
+```bash
+npm run desktop:dev    # uruchomienie developerskie
+npm run desktop:build  # instalator NSIS
+```
+
+Wynik: `rust/target/release/bundle/nsis/Chill_<wersja>_x64-setup.exe`.
+
+Dane desktopowe trafiają domyślnie do `%APPDATA%\Chill` (albo do `CHILL_DATA_DIR`). Aplikacja nasłuchuje na porcie `47830` i w razie zajętości próbuje kolejnych portów z zakresu `47830–47839`. Tray, autostart, powiadomienia, aktualizacje, wykrywanie gier i otwieranie linków zewnętrznych działają przez IPC Tauri. Udostępnianie ekranu korzysta z systemowego wyboru źródła WebView2. Instalator rejestruje schemat `chill://`, a linki zaproszeń działają zarówno przy zimnym starcie, jak i gdy aplikacja jest już uruchomiona lub schowana do zasobnika.
 
 ## Aktualizacje
 
@@ -198,8 +290,13 @@ Szczegóły wydawania nowej wersji: [GITHUB-UPDATER.md](GITHUB-UPDATER.md).
 
 ## Architektura
 
-- `main.js` — okno, tray (także w języku interfejsu), konta, hostowanie serwerów (HTTP/WebSocket), walidacja uprawnień kanałów, `servers.json`, `language.json`, przechowywanie i serwowanie nagrań głosowych, aktualizacje.
+- `main.js` — okno, tray (także w języku interfejsu), konta, hostowanie serwerów (HTTP/WebSocket), walidacja uprawnień kanałów, `servers.json`, `language.json`, przechowywanie i serwowanie nagrań głosowych, aktualizacje, serwowanie interfejsu i most `/api/bridge` w trybie przeglądarki oraz tryb publicznego serwera.
 - `preload.js` — bezpieczny most `window.chill` (context isolation).
+- `electron-shim.js` — zamiennik API Electrona pozwalający uruchomić ten sam backend przez `node main.js --server` bez instalowania Electrona.
+- `chill-web.js` — most `window.chill` dla trybu przeglądarki, powiadomienia, autostart, skalowanie interfejsu i pasek aktualizacji strony.
+- `tauri-desktop.js` — most `window.chill` dla powłoki Tauri: IPC, autostart, powiadomienia, źródła ekranu, odznaka, aktualizacje i wykrywanie gier.
+- `rust/chill-server` — serwer HTTP/WebSocket zgodny z Node: konta, serwery, kanały, DM-y, głos, zaproszenia i tryb publiczny; korzysta z tych samych plików JSON.
+- `rust/chill-desktop` — powłoka Tauri: osadzony serwer Rust, okno z lokalnym UI, tray, autostart, pojedyncza instancja, aktualizacje i wykrywanie gier.
 - `renderer.js` — logowanie, serwery, kanały tekstowe/głosowe i ich menu (przypinanie, wyciszanie, powiadomienia, edycja, powielanie, przenoszenie), zaproszenia, profile i znajomi, DM-y, emoji, GIF-y, naklejki, nagrywanie i odtwarzanie wiadomości głosowych, wzmianki `@`, motywy, ustawienia, tłumaczenia PL/EN, powiadomienia.
 - `game-detect.js` — wykrywanie uruchomionych gier: znane procesy, katalog bibliotek, heurystyka, cache ikon i odczyt ikony z EXE.
 - `appearance.js` — wspólne presety wyglądu, walidacja kolorów i opcji oraz dobór czytelnego koloru tekstu akcentu.
@@ -213,5 +310,11 @@ Czat serwerów działa przez wbudowany serwer WebSocket na porcie `47830`. Każd
 
 ## Zmienne środowiskowe (opcjonalne)
 
-- `CHILL_PORT` — port serwera WebSocket (domyślnie `47830`).
-- `CHILL_DATA_DIR` — folder danych aplikacji (domyślnie `%APPDATA%\Chill`).
+- `PORT` / `CHILL_PORT` — port serwera HTTP i WebSocket (domyślnie `47830`).
+- `CHILL_HOST` — adres nasłuchiwania serwera (domyślnie wszystkie interfejsy; za reverse proxy użyj `127.0.0.1`).
+- `CHILL_DATA_DIR` — folder danych aplikacji (domyślnie `%APPDATA%\Chill`, a w trybie serwera `./chill-data`).
+- `CHILL_WEB=1` — uruchamia lokalny tryb przeglądarki (równoważny z `--web`).
+- `CHILL_PUBLIC_WEB=1` — uruchamia publiczny serwer WWW (równoważny z `--public-web`).
+- `CHILL_SERVER=1` — uruchamia tryb serwera bez okna (równoważny z `--server`).
+- `CHILL_PUBLIC_URL` — publiczny adres strony używany w linkach zaproszeń, np. `https://chill.example.com`.
+- `CHILL_BUILD_ID` — opcjonalny identyfikator builda zwracany przez `/api/version`; domyślnie liczony z plików interfejsu.

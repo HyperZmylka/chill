@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.github
+.gitignore
+*.log
+*.part
+chill-data
+test
+.env
