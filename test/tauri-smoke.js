@@ -486,6 +486,52 @@ let cdp = null;
     check('Spotify ustawia oficjalny embed w aplikacji', spotify.src.startsWith('https://open.spotify.com/embed/track/4cOdK2wGLETKBW3PvgPWqT'), spotify.src);
     check('odtwarzacz Spotify widoczny w aplikacji', spotify.nowHidden === false);
 
+    await waitEval("liveVoice && liveVoice.status === 'connected'", 12_000, 'voice connected');
+    check('Tauri korzysta z systemowego wyboru źródła ekranu', await evaluate("CHILL.app?.screenPicker === 'native'"));
+    check('WebView2 udostępnia getDisplayMedia', await evaluate("typeof navigator.mediaDevices?.getDisplayMedia === 'function'"));
+    const screenSources = await evaluate(`(async () => {
+      const list = await CHILL.app.screenSources();
+      return list.map((item) => ({ id: item.id, kind: item.kind, name: item.name }));
+    })()`);
+    check('lista źródeł zawiera co najmniej jeden ekran', Array.isArray(screenSources) && screenSources.some((item) => item.kind === 'screen'), JSON.stringify(screenSources).slice(0, 180));
+
+    const share = await evaluate(`(async () => {
+      window.__originalGetDisplayMedia = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
+      window.__screenShareCalls = [];
+      navigator.mediaDevices.getDisplayMedia = async (constraints) => {
+        window.__screenShareCalls.push(constraints || {});
+        const canvas = document.createElement('canvas');
+        canvas.width = 320;
+        canvas.height = 180;
+        canvas.getContext('2d').fillRect(0, 0, 320, 180);
+        return canvas.captureStream(5);
+      };
+      document.getElementById('voiceConnectShare').click();
+      const deadline = Date.now() + 8000;
+      while (Date.now() < deadline && !(liveVoice && liveVoice.sharing)) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return {
+        sharing: Boolean(liveVoice?.sharing),
+        overlayHidden: document.getElementById('screenShareOverlay').hidden,
+        calls: window.__screenShareCalls.length,
+        constraints: window.__screenShareCalls[0] || null,
+        hasStream: Boolean(liveVoice?.shareStream),
+        name: liveVoice?.shareName || '',
+      };
+    })()`);
+    check('udostępnianie startuje bez fałszywego pickera', Boolean(share.sharing && share.overlayHidden && share.calls === 1), JSON.stringify(share).slice(0, 240));
+    check('systemowy wybór dostaje parametry wideo', share.constraints?.video?.frameRate?.ideal === await evaluate('LIVE_SCREEN_FPS'), JSON.stringify(share.constraints));
+    check('strumień ekranu jest aktywny', share.hasStream === true);
+
+    const stoppedShare = await evaluate(`(async () => {
+      stopScreenShare({ silent: true });
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      navigator.mediaDevices.getDisplayMedia = window.__originalGetDisplayMedia;
+      return { sharing: Boolean(liveVoice?.sharing), hasStream: Boolean(liveVoice?.shareStream) };
+    })()`);
+    check('udostępnianie ekranu zatrzymuje się czysto', !stoppedShare.sharing && !stoppedShare.hasStream, JSON.stringify(stoppedShare));
+
     await sleep(400);
     check('brak wyjątków JavaScript w aplikacji', exceptions.length === 0, exceptions.slice(0, 3).join(' | '));
     const seriousConsole = consoleErrors.filter((text) => !/Failed to load resource|net::ERR/i.test(text));

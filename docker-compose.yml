@@ -1,7 +1,7 @@
 services:
   chill:
     build: .
-    image: chill-web:4.16.0
+    image: chill-web:4.16.1
     restart: unless-stopped
     ports:
       - "${CHILL_BIND_ADDRESS:-0.0.0.0}:${CHILL_HTTP_PORT:-47830}:47830"

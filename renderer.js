@@ -3093,7 +3093,7 @@ async function startScreenShare(source) {
     stream = null;
     video = null;
     return true;
-  } catch {
+  } catch (error) {
     try { stream?.getTracks().forEach((track) => track.stop()); } catch { /* ignore */ }
     try {
       if (video) {
@@ -3109,7 +3109,8 @@ async function startScreenShare(source) {
       call.shareName = '';
       call.screenLastFrameAt = 0;
     }
-    toast(t('Nie udało się rozpocząć udostępniania ekranu.'));
+    const cancelled = error?.name === 'NotAllowedError' || error?.name === 'AbortError';
+    if (!cancelled) toast(t('Nie udało się rozpocząć udostępniania ekranu.'));
     return false;
   }
 }
@@ -3190,6 +3191,12 @@ async function openScreenSharePicker() {
   }
   if (liveVoice.sharing) {
     stopScreenShare();
+    return;
+  }
+  // Tauri (WebView2) i strona publiczna korzystają z systemowego wyboru
+  // ekranu/okna. Tylko Electron ma własny picker z miniaturami źródeł.
+  if (CHILL.app?.screenPicker === 'native') {
+    void startScreenShare(null);
     return;
   }
   if (!CHILL.app?.screenSources) {

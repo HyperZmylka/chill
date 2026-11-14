@@ -228,6 +228,8 @@
         thumb: null,
         icon: null,
       }],
+      // Przeglądarka pokazuje własne okno wyboru ekranu lub okna.
+      screenPicker: 'native',
       pickScreenSource: () => true,
     },
 
