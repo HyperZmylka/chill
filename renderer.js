@@ -2294,6 +2294,7 @@ const VOICE_SVGS = {
   voice: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H2v6h4l5 4z"></path><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>',
   screen: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="19" height="13" rx="2"></rect><path d="M8 21h8"></path><path d="M12 16.5V21"></path></svg>',
   screenOff: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="3.5" width="19" height="13" rx="2"></rect><path d="M8 21h8"></path><path d="M12 16.5V21"></path><path d="M3 3 21 21"></path></svg>',
+  spotify: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M7.5 9.5a10 10 0 0 1 9 0"></path><path d="M8 12.5a8 8 0 0 1 8 0"></path><path d="M8.5 15.5a5.5 5.5 0 0 1 7 0"></path></svg>',
 };
 
 function normalizeVoiceParticipant(raw) {
@@ -2462,21 +2463,32 @@ function openSpotifySearch(query) {
   else window.open(url, '_blank', 'noopener');
 }
 
+function syncSpotifyControl() {
+  const control = document.querySelector('#voiceViewControls [data-voice-action="spotify"]');
+  if (!control) return;
+  control.classList.toggle('active', spotifyPanelOpen);
+  control.setAttribute('aria-pressed', spotifyPanelOpen ? 'true' : 'false');
+}
+
+function toggleSpotifyPanel() {
+  spotifyPanelOpen = !spotifyPanelOpen;
+  if (spotifyPanelOpen) {
+    const state = current.kind === 'server' ? serverState(current.serverId) : null;
+    const channel = state?.channels.find((item) => item.id === current.id);
+    renderSpotifyPanel(state, channel);
+    setTimeout(() => $('spotifyInput')?.focus(), 30);
+  } else {
+    renderSpotifyPanel(current.kind === 'server' ? serverState(current.serverId) : null, activeVoiceChannel());
+  }
+  syncSpotifyControl();
+}
+
 function bindSpotifyPanel() {
-  $('spotifyToggle')?.addEventListener('click', () => {
-    spotifyPanelOpen = !spotifyPanelOpen;
-    if (spotifyPanelOpen) {
-      const state = current.kind === 'server' ? serverState(current.serverId) : null;
-      const channel = state?.channels.find((item) => item.id === current.id);
-      renderSpotifyPanel(state, channel);
-      setTimeout(() => $('spotifyInput')?.focus(), 30);
-    } else {
-      renderSpotifyPanel(current.kind === 'server' ? serverState(current.serverId) : null, activeVoiceChannel());
-    }
-  });
+  $('spotifyToggle')?.addEventListener('click', toggleSpotifyPanel);
   $('closeSpotify')?.addEventListener('click', () => {
     spotifyPanelOpen = false;
     renderSpotifyPanel(current.kind === 'server' ? serverState(current.serverId) : null, activeVoiceChannel());
+    syncSpotifyControl();
   });
   $('spotifyForm')?.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -3405,6 +3417,7 @@ function renderVoiceView(state, channel) {
       voiceControlButton('mic', muted ? VOICE_SVGS.micOff : VOICE_SVGS.mic, t(muted ? 'Włącz mikrofon' : 'Wycisz mikrofon'), muted ? ' muted' : ''),
       voiceControlButton('deafen', deafened ? VOICE_SVGS.headphonesOff : VOICE_SVGS.headphones, t(deafened ? 'Włącz dźwięk' : 'Wycisz dźwięk'), deafened ? ' muted' : ''),
       voiceControlButton('screen', sharing ? VOICE_SVGS.screenOff : VOICE_SVGS.screen, t(sharing ? 'Zakończ udostępnianie' : 'Udostępnij ekran'), sharing ? ' sharing' : ''),
+      voiceControlButton('spotify', VOICE_SVGS.spotify, t('Spotify'), spotifyPanelOpen ? ' active' : ''),
       voiceControlButton('settings', VOICE_SVGS.settings, t('Ustawienia głosu')),
       voiceControlButton('invite', VOICE_SVGS.invite, t('Zaproś na kanał głosowy')),
       `<button type="button" class="voice-ctrl leave" data-voice-action="leave" title="${esc(t('Rozłącz'))}" aria-label="${esc(t('Rozłącz'))}">${VOICE_SVGS.phoneOff}<span class="voice-ctrl-label">${esc(t('Rozłącz'))}</span></button>`,
@@ -3413,10 +3426,12 @@ function renderVoiceView(state, channel) {
     const label = otherCall ? t('Przenieś się tutaj') : t('Dołącz do kanału głosowego');
     controls = [
       `<button type="button" class="voice-ctrl join" data-voice-action="join" title="${esc(label)}" aria-label="${esc(label)}">${VOICE_SVGS.voice}<span class="voice-ctrl-label">${esc(label)}</span></button>`,
+      voiceControlButton('spotify', VOICE_SVGS.spotify, t('Spotify'), spotifyPanelOpen ? ' active' : ''),
       voiceControlButton('invite', VOICE_SVGS.invite, t('Zaproś na kanał głosowy')),
     ].join('');
   }
   $('voiceViewControls').innerHTML = controls;
+  syncSpotifyControl();
   $('voiceViewInvite').hidden = state.status !== 'online';
   renderSpotifyPanel(state, channel);
   syncVoiceScreenView(state, channel);
@@ -3473,6 +3488,10 @@ function handleVoiceAction(action) {
   }
   if (action === 'settings') {
     openSettings('voice');
+    return;
+  }
+  if (action === 'spotify') {
+    toggleSpotifyPanel();
     return;
   }
   if (action === 'invite') {

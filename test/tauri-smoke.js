@@ -465,9 +465,16 @@ let cdp = null;
     await evaluate("document.querySelector('#channelList .nav-item.voice-channel').click()");
     await waitEval("!document.getElementById('voiceView').hidden", 12_000, 'voice view');
     check('kanał głosowy otwiera się w aplikacji', await evaluate("document.getElementById('voiceViewName').textContent === 'muzyka'"));
-    check('Spotify dostępne na kanale głosowym w aplikacji', await evaluate("document.getElementById('spotifyToggle').hidden === false"));
+    const voiceChrome = await evaluate(`(() => ({
+      chatHeader: getComputedStyle(document.querySelector('.chat-header')).display,
+      voiceHead: getComputedStyle(document.querySelector('.voice-view-head')).display,
+      spotifyControl: Boolean(document.querySelector('#voiceViewControls [data-voice-action="spotify"]')),
+      bodyClass: document.body.className,
+    }))()`);
+    check('na kanale głosowym oba nagłówki są ukryte', voiceChrome.chatHeader === 'none' && voiceChrome.voiceHead === 'none', JSON.stringify(voiceChrome));
+    check('Spotify jest w przyciskach kanału głosowego', voiceChrome.spotifyControl === true);
 
-    await evaluate("document.getElementById('spotifyToggle').click()");
+    await evaluate("document.querySelector('#voiceViewControls [data-voice-action=\"spotify\"]').click()");
     await waitEval("!document.getElementById('spotifyPanel').hidden", 8000, 'spotify panel');
     check('panel Spotify otwiera się w aplikacji', true);
     await evaluate(`(() => {

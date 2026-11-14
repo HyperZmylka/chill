@@ -956,6 +956,10 @@ body[data-theme="white"] .me-action.muted { color: #c43f3f; }
   padding: 22px 26px 18px;
   overflow-y: auto;
 }
+/* Na kanale głosowym oba nagłówki są zbędne — cała wysokość należy do rozmowy. */
+body.voice-stage .chat-header,
+body.voice-stage .voice-view-head { display: none; }
+body.voice-stage .voice-view { padding-top: 26px; }
 .voice-view-head { display: flex; align-items: center; gap: 13px; flex: 0 0 auto; padding-bottom: 18px; }
 .voice-view-icon {
   display: grid; place-items: center;
@@ -1163,6 +1167,7 @@ body[data-theme="white"] .me-action.muted { color: #c43f3f; }
 .voice-ctrl:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent); outline-offset: 2px; }
 .voice-ctrl.muted { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--panel-2)); border-color: color-mix(in srgb, var(--danger) 28%, var(--line)); }
 .voice-ctrl.sharing { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel-2)); border-color: color-mix(in srgb, var(--accent) 38%, var(--line)); }
+.voice-ctrl.active { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--panel-2)); border-color: color-mix(in srgb, var(--accent) 38%, var(--line)); }
 .voice-ctrl.leave { background: #d94452; border-color: #d94452; color: #fff; padding: 0 18px; }
 .voice-ctrl.leave:hover { background: #e45462; border-color: #e45462; }
 .voice-ctrl.join { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); padding: 0 18px; }
