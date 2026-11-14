@@ -3,7 +3,7 @@ resolver = "2"
 members = ["chill-server", "chill-desktop"]
 
 [workspace.package]
-version = "4.16.2"
+version = "4.16.3"
 edition = "2021"
 license = "MIT"
 

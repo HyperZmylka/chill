@@ -6,46 +6,12 @@ on:
       tag:
         description: Release tag to build and upload
         required: true
-        default: v4.16.2
+        default: v4.16.3
 
 permissions:
   contents: write
 
 jobs:
-  electron:
-    name: Electron installer
-    runs-on: windows-latest
-    steps:
-      - name: Checkout release tag
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag }}
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run tests
-        run: node --test test/appearance.test.js test/discord-import.test.js test/stickers.test.js test/voice.test.js test/game-detect.test.js test/minigames.test.js test/gifs.test.js
-
-      - name: Build installer
-        run: npm run dist -- --publish never
-
-      - name: Upload installer to release
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $tag = "${{ inputs.tag }}"
-          $installer = Get-ChildItem dist -Filter 'Chill-Setup-*.exe' | Select-Object -First 1
-          if (-not $installer) { throw 'Installer not found' }
-          gh release upload $tag $installer.FullName --clobber
-
   tauri:
     name: Tauri installer
     runs-on: windows-latest
@@ -72,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run tests
+        run: node --test test/appearance.test.js test/discord-import.test.js test/stickers.test.js test/voice.test.js test/game-detect.test.js test/minigames.test.js test/gifs.test.js
+
       - name: Build Tauri installer
         run: npm run desktop:build
 
@@ -87,3 +56,31 @@ jobs:
           $target = Join-Path $installer.Directory.FullName "Chill-Tauri-Setup-$version.exe"
           Copy-Item $installer.FullName $target -Force
           gh release upload $tag $target --clobber
+
+  server:
+    name: Rust server (Linux x64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust -> target
+
+      - name: Build server
+        run: cargo build --release -p chill-server --manifest-path rust/Cargo.toml
+
+      - name: Upload server binary to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp rust/target/release/chill-server chill-server-linux-x64
+          chmod +x chill-server-linux-x64
+          gh release upload "${{ inputs.tag }}" chill-server-linux-x64 --clobber

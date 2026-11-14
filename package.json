@@ -1,20 +1,15 @@
 {
   "name": "chill",
   "productName": "Chill",
-  "version": "4.16.2",
+  "version": "4.16.3",
   "description": "Chill — spokojny komunikator desktopowy: serwery, kanały tekstowe i głosowe, rozmowy na żywo, udostępnianie ekranu, wiadomości prywatne, wiadomości głosowe, emoji, naklejki, GIF-y i aktualizacje.",
   "main": "main.js",
   "private": true,
   "author": "HyperZmylka",
   "homepage": "https://github.com/HyperZmylka/chill",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron .",
-    "web": "electron . --web",
     "server": "node main.js --server",
     "public": "node main.js --public-web",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder",
     "desktop:prepare": "node scripts/prepare-tauri-ui.js",
     "desktop:dev": "node scripts/prepare-tauri-ui.js && cd rust/chill-desktop && tauri dev",
     "desktop:build": "node scripts/prepare-tauri-ui.js && cd rust/chill-desktop && tauri build"
@@ -23,65 +18,6 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.12.4",
-    "electron": "^29.4.6",
-    "electron-builder": "^25.1.8"
-  },
-  "build": {
-    "appId": "app.chill.desktop",
-    "productName": "Chill",
-    "copyright": "Copyright © 2026 HyperZmylka",
-    "artifactName": "Chill-Setup-${version}.exe",
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "build/icon.png",
-      "sign": null
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "runAfterFinish": true,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Chill",
-      "menuCategory": true
-    },
-    "files": [
-      "main.js",
-      "preload.js",
-      "index.html",
-      "style.css",
-      "minigames.css",
-      "renderer.js",
-      "chill-web.js",
-      "tauri-desktop.js",
-      "discord-import.js",
-      "game-detect.js",
-      "gifs.js",
-      "attachments.js",
-      "stickers.js",
-      "voice.js",
-      "tunnel.js",
-      "appearance.js",
-      "minigames.js",
-      "build/icon.png",
-      "node_modules/**/*"
-    ],
-    "extraResources": [
-      {
-        "from": "build/icon.png",
-        "to": "build/icon.png"
-      }
-    ]
-  },
-  "allowScripts": {
-    "electron@29.4.6": true
+    "@tauri-apps/cli": "^2.12.4"
   }
 }

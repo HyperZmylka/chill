@@ -275,29 +275,10 @@ fn update_asset_url(assets: &[Value]) -> Option<String> {
             .map(str::to_string)
     }
 
-    // Najpierw instalator Tauri: nowy wariant i surowa nazwa NSIS.
-    for asset in assets {
+    // Chill jest publikowany wyłącznie jako aplikacja Tauri.
+    assets.iter().find_map(|asset| {
         let name = name(asset);
         if name.ends_with(".exe") && (name.contains("tauri") || name.contains("_x64-setup")) {
-            if let Some(url) = url(asset) {
-                return Some(url);
-            }
-        }
-    }
-
-    // Potem każdy instalator poza wariantem Electron.
-    for asset in assets {
-        let name = name(asset);
-        if name.ends_with(".exe") && !name.contains("chill-setup-") {
-            if let Some(url) = url(asset) {
-                return Some(url);
-            }
-        }
-    }
-
-    // Starsze wydania mają tylko instalator Electron.
-    assets.iter().find_map(|asset| {
-        if name(asset).ends_with(".exe") {
             url(asset)
         } else {
             None
@@ -376,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_electron_installer() {
+    fn ignores_electron_only_release() {
         let assets = vec![
             json!({
                 "name": "latest.yml",
@@ -387,10 +368,7 @@ mod tests {
                 "browser_download_url": "https://example.com/electron.exe"
             }),
         ];
-        assert_eq!(
-            update_asset_url(&assets).as_deref(),
-            Some("https://example.com/electron.exe")
-        );
+        assert_eq!(update_asset_url(&assets), None);
     }
 
     #[test]

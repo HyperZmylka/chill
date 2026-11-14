@@ -1,6 +1,6 @@
 # Chill
 
-Spokojny komunikator desktopowy (Electron) z własną identyfikacją wizualną — miętowo-błękitny akcent, ciemna zieleń i messengerowy układ rozmów. Bez kopiowania cudzych znaków towarowych i grafik.
+Spokojny komunikator desktopowy (Rust + Tauri) z własną identyfikacją wizualną — miętowo-błękitny akcent, ciemna zieleń i messengerowy układ rozmów. Bez kopiowania cudzych znaków towarowych i grafik.
 
 ## Najważniejsze funkcje
 
@@ -165,20 +165,18 @@ Konta są **lokalne** — nie ma chmury ani zewnętrznego serwera uwierzytelnian
 
 ```bash
 npm install
-npm start
+npm run desktop:dev
 ```
 
 ## Tryb przeglądarki
 
-Chill można otworzyć w zwykłej przeglądarce, korzystając z tych samych kont, serwerów i historii co wersja desktopowa:
+Chill można otworzyć w zwykłej przeglądarce, korzystając z tych samych kont, serwerów i historii co aplikacja desktopowa. Uruchom aplikację Tauri (serwer działa wtedy w środku) i otwórz `http://127.0.0.1:47830/`, albo uruchom sam serwer Rust:
 
 ```bash
-npm run web
-# albo bezpośrednio:
-electron . --web
+cargo run --release --manifest-path rust/Cargo.toml -p chill-server
 ```
 
-Po starcie otworzy się `http://127.0.0.1:47830/`. Dodaj `--no-open`, aby nie otwierać przeglądarki automatycznie (`npm run web -- --no-open`).
+Serwer nasłuchuje domyślnie na `http://127.0.0.1:47830/`. Nie uruchamiaj jednocześnie aplikacji Tauri i osobnego serwera na tym samym porcie.
 
 - Interfejs jest serwowany przez wbudowany serwer HTTP Chill, a operacje kont, serwerów i ustawień przechodzą przez lokalny most `/api/bridge`.
 - Tryb przeglądarki działa wyłącznie na tym komputerze (loopback) i jest chroniony ciasteczkiem `chill_web`. Nie jest wystawiany przez tunel Cloudflare ani do sieci LAN.
@@ -190,17 +188,25 @@ Po starcie otworzy się `http://127.0.0.1:47830/`. Dodaj `--no-open`, aby nie ot
 
 Chill może działać jako publiczna strona internetowa. Każdy może otworzyć adres w przeglądarce, zarejestrować się, zalogować i korzystać z serwerów, kanałów, wiadomości prywatnych, profili, rozmów głosowych oraz udostępniania ekranu — bez instalowania aplikacji. Wersja desktopowa pozostaje opcjonalna i korzysta z tych samych danych, jeśli uruchomisz ją na tym samym folderze danych.
 
-Serwer publiczny nie wymaga Electrona:
+Serwer publiczny to binarka Rust — nie wymaga Node ani Electrona:
 
 ```bash
-npm run public
+cargo build --release --manifest-path rust/Cargo.toml -p chill-server
+CHILL_PUBLIC_WEB=1 \
+CHILL_PUBLIC_URL=https://chill.example.com \
+CHILL_DATA_DIR=/data \
+CHILL_WEB_ROOT=/app \
+./rust/target/release/chill-server
 # http://127.0.0.1:47830/
 ```
+
+Wersja Node (`node main.js --public-web`) pozostaje wyłącznie jako awaryjna ścieżka rollbacku i korzysta z tych samych plików danych.
 
 - `CHILL_PUBLIC_URL` — publiczny adres strony, np. `https://chill.example.com`. Służy do budowania linków zaproszeń i poprawnego rozpoznawania źródła żądań.
 - `CHILL_DATA_DIR` — trwały folder z kontami, serwerami, historią i sesjami przeglądarek.
 - `PORT` lub `CHILL_PORT` — port nasłuchiwania (domyślnie `47830`).
-- `CHILL_HOST` — opcjonalny adres nasłuchiwania procesu Node, np. `127.0.0.1` za reverse proxy. W Dockerze zostaw `0.0.0.0`; dostęp z zewnątrz kontroluj przez `CHILL_BIND_ADDRESS` w `.env`.
+- `CHILL_HOST` — opcjonalny adres nasłuchiwania procesu, np. `127.0.0.1` za reverse proxy. W Dockerze zostaw `0.0.0.0`; dostęp z zewnątrz kontroluj przez `CHILL_BIND_ADDRESS` w `.env`.
+- `CHILL_WEB_ROOT` — katalog z `index.html` i pozostałymi plikami interfejsu.
 
 ### Docker (zalecany sposób hostingu)
 
@@ -214,17 +220,7 @@ npm run public
 3. Otwórz `CHILL_PUBLIC_URL`. Dane są przechowywane w wolumenie `chill-data`, więc przetrwają restart i przebudowę kontenera.
 4. Aktualizacja: `git pull`, a następnie `docker compose up -d --build`. Wszyscy użytkownicy dostaną nową wersję po odświeżeniu strony.
 
-Bez Dockera możesz uruchomić `npm ci --omit=dev`, ustawić zmienne środowiskowe i użyć `node main.js --public-web` pod dowolnym menedżerem procesów (systemd, PM2, Render, Railway, Fly.io itp.).
-
-Publiczna strona może też działać na serwerze napisanym w Rust, który używa tych samych plików danych i tego samego protokołu:
-
-```bash
-cargo build --release --manifest-path rust/Cargo.toml -p chill-server
-CHILL_PUBLIC_WEB=1 CHILL_PUBLIC_URL=https://chill.example.com \
-CHILL_DATA_DIR=/data CHILL_WEB_ROOT=/app ./rust/target/release/chill-server
-```
-
-Ustaw `CHILL_HOST=127.0.0.1` za reverse proxy albo `0.0.0.0` w kontenerze. `CHILL_WEB_ROOT` powinien wskazywać katalog z `index.html` i plikami interfejsu.
+Bez Dockera uruchom binarkę pod dowolnym menedżerem procesów (systemd, supervisord, Render, Railway, Fly.io itp.). Ustaw `CHILL_HOST=127.0.0.1` za reverse proxy albo `0.0.0.0` w kontenerze. `CHILL_WEB_ROOT` powinien wskazywać katalog z `index.html` i plikami interfejsu.
 
 ### Domena, HTTPS i reverse proxy
 
@@ -241,17 +237,9 @@ Przeglądarka udostępnia mikrofon i ekran tylko w bezpiecznym kontekście, dlat
 - Publiczna strona nie ma panelu administracyjnego. Kopię zapasową danych robi się przez backup wolumenu lub katalogu `CHILL_DATA_DIR`; hasła są przechowywane jako skróty, nigdy jawnie.
 - Link zaproszenia ma postać `https://twoja-domena/?invite=KOD` i można go wysłać każdemu. Traktuj go jak hasło dostępu do serwera.
 
-## Budowanie instalatora
+## Budowanie aplikacji desktopowej (Tauri + Rust)
 
-```bash
-npm run dist
-```
-
-Wynik: `dist/Chill-Setup-<wersja>.exe` (instalator NSIS x64).
-
-## Wersja desktopowa Rust + Tauri
-
-Nowa powłoka desktopowa znajduje się w `rust/chill-desktop` i korzysta z tego samego interfejsu HTML/CSS/JS oraz tych samych plików danych co wersja Electron. Serwer czatu działa w niej jako biblioteka Rust (`rust/chill-server`), a okno otwiera lokalny adres `http://127.0.0.1:<port>` w WebView2. Użytkownik końcowy nie potrzebuje Rusta ani Node — otrzymuje gotowy instalator.
+Jedyną publikowaną aplikacją desktopową jest Tauri. Powłoka znajduje się w `rust/chill-desktop` i korzysta z tego samego interfejsu HTML/CSS/JS oraz tych samych plików danych. Serwer czatu działa w niej jako biblioteka Rust (`rust/chill-server`), a okno otwiera lokalny adres `http://127.0.0.1:<port>` w WebView2. Użytkownik końcowy nie potrzebuje Rusta ani Node — otrzymuje gotowy instalator.
 
 Do zbudowania instalatora na komputerze budującym potrzebne są:
 
@@ -292,7 +280,8 @@ Szczegóły wydawania nowej wersji: [GITHUB-UPDATER.md](GITHUB-UPDATER.md).
 
 - `main.js` — okno, tray (także w języku interfejsu), konta, hostowanie serwerów (HTTP/WebSocket), walidacja uprawnień kanałów, `servers.json`, `language.json`, przechowywanie i serwowanie nagrań głosowych, aktualizacje, serwowanie interfejsu i most `/api/bridge` w trybie przeglądarki oraz tryb publicznego serwera.
 - `preload.js` — bezpieczny most `window.chill` (context isolation).
-- `electron-shim.js` — zamiennik API Electrona pozwalający uruchomić ten sam backend przez `node main.js --server` bez instalowania Electrona.
+- `main.js` — legacy backend Node, używany już tylko jako awaryjna ścieżka rollbacku i do testów porównawczych; produkcja działa na `rust/chill-server`.
+- `electron-shim.js` - zamiennik API Electrona pozwalający uruchomić legacy backend przez `node main.js --server` bez instalowania Electrona.
 - `chill-web.js` — most `window.chill` dla trybu przeglądarki, powiadomienia, autostart, skalowanie interfejsu i pasek aktualizacji strony.
 - `tauri-desktop.js` — most `window.chill` dla powłoki Tauri: IPC, autostart, powiadomienia, źródła ekranu, odznaka, aktualizacje i wykrywanie gier.
 - `rust/chill-server` — serwer HTTP/WebSocket zgodny z Node: konta, serwery, kanały, DM-y, głos, zaproszenia i tryb publiczny; korzysta z tych samych plików JSON.
