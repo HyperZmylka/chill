@@ -136,6 +136,13 @@ fn handle_message(state: &AppState, conn_id: u64, local: bool, ip: &str, msg: &V
         "server:dm" => handle_server_dm(state, conn_id, msg),
         "server:dm:typing" => handle_server_dm_typing(state, conn_id, msg),
         "server:typing" => handle_server_typing(state, conn_id, msg),
+        "friends:request" => handle_friend_request(state, conn_id, msg),
+        "friends:accept" => handle_friend_accept(state, conn_id, msg),
+        "friends:decline" => handle_friend_decline(state, conn_id, msg),
+        "friends:remove" => handle_friend_remove(state, conn_id, msg),
+        "spotify:set" => handle_spotify_set(state, conn_id, msg),
+        "spotify:clear" => handle_spotify_clear(state, conn_id, msg),
+        "voice:refresh" => handle_voice_refresh(state, conn_id, local, msg),
         "voice:join" => handle_voice_join(state, conn_id, msg),
         "voice:leave" => handle_voice_leave(state, conn_id),
         "voice:update" => handle_voice_update(state, conn_id, msg),
@@ -255,6 +262,7 @@ fn handle_join(state: &AppState, conn_id: u64, local: bool, msg: &Value) {
             "voiceKey": voice_key,
         }),
     );
+    send(state, conn_id, &state.friend_state_payload(&account.id));
     state.broadcast_global("user:update", json!({ "users": state.users_payload() }));
 }
 
@@ -505,6 +513,7 @@ fn handle_join_server(state: &AppState, conn_id: u64, local: bool, ip: &str, msg
     }
     let dms = state.server_dms_payload(&server, &member_id);
     let voice = state.voice_rooms_payload(&server.id);
+    let spotify = state.spotify_rooms_payload(&server.id);
     send(
         state,
         conn_id,
@@ -516,6 +525,7 @@ fn handle_join_server(state: &AppState, conn_id: u64, local: bool, ip: &str, msg
             "dms": dms,
             "you": { "memberId": member_id, "owner": owner },
             "voice": voice,
+            "spotify": spotify,
             "voiceKey": voice_key,
         }),
     );
@@ -656,7 +666,7 @@ fn handle_server_message(state: &AppState, conn_id: u64, msg: &Value) {
         state.broadcast_server(&server_id, payload, None);
     }
     if let Some(message) = dropped {
-        state.remove_voice_from_messages(&[message]);
+        state.remove_media_from_messages(&[message]);
     }
 }
 
@@ -685,6 +695,20 @@ fn handle_server_dm(state: &AppState, conn_id: u64, msg: &Value) {
             );
             return;
         }
+        drop(store);
+        if state.cfg.public_web && !state.are_friends(&session.member_id, &to) {
+            send_server_error(
+                state,
+                conn_id,
+                "not-friends",
+                "Aby wysłać wiadomość, najpierw zaczekaj na akceptację zaproszenia.",
+            );
+            return;
+        }
+        let mut store = state.servers.write();
+        let Some(server) = store.hosted.iter_mut().find(|server| server.id == session.server_id) else {
+            return;
+        };
         let message = Message {
             id: new_message_id(),
             channel_id: None,
@@ -730,7 +754,7 @@ fn handle_server_dm(state: &AppState, conn_id: u64, msg: &Value) {
         }
     }
     if let Some(message) = dropped {
-        state.remove_voice_from_messages(&[message]);
+        state.remove_media_from_messages(&[message]);
     }
 }
 
@@ -789,6 +813,41 @@ fn handle_server_typing(state: &AppState, conn_id: u64, msg: &Value) {
             "typing": payload_bool(msg, "typing"),
         }),
         Some(conn_id),
+    );
+}
+
+fn handle_voice_refresh(state: &AppState, conn_id: u64, local: bool, msg: &Value) {
+    let Some(conn) = state.conn(conn_id) else { return };
+    let scope = payload_string(msg, "scope");
+    if scope == "local" {
+        if !local {
+            return;
+        }
+        let Some(user_id) = conn.user_id.clone() else { return };
+        if state.find_user(&user_id).is_none() {
+            return;
+        }
+        let key = state.issue_voice_token(conn_id, "local", &user_id);
+        send(
+            state,
+            conn_id,
+            &json!({ "type": "voice:token", "scope": scope, "key": key }),
+        );
+        return;
+    }
+    let Some(session) = conn.server.clone() else { return };
+    if scope != format!("server:{}", session.server_id) {
+        return;
+    }
+    let Some(server) = state.find_hosted(&session.server_id) else { return };
+    if !server.members.iter().any(|member| member.id == session.member_id) {
+        return;
+    }
+    let key = state.issue_voice_token(conn_id, &scope, &session.member_id);
+    send(
+        state,
+        conn_id,
+        &json!({ "type": "voice:token", "scope": scope, "key": key }),
     );
 }
 
@@ -855,6 +914,7 @@ fn handle_voice_join(state: &AppState, conn_id: u64, msg: &Value) {
             "serverId": server.id,
             "channelId": channel_id,
             "participants": state.voice_participants(&server.id, &channel_id),
+            "spotify": state.spotify_state(&server.id, &channel_id),
         }),
     );
     state.broadcast_voice_channel(&server.id, &channel_id);
@@ -1319,8 +1379,9 @@ fn handle_channel_delete(state: &AppState, conn_id: u64, msg: &Value) {
     let Some(server) = updated else { return };
     let Some(channel) = removed_channel else { return };
     state.remove_voice_channel(&server.id, &channel_id);
+    state.clear_spotify_state(&server.id, &channel_id);
     state.save_servers();
-    state.remove_voice_from_messages(&removed_messages);
+    state.remove_media_from_messages(&removed_messages);
     state.broadcast_server(
         &server.id,
         json!({
@@ -1507,6 +1568,198 @@ fn handle_server_activity(state: &AppState, conn_id: u64, msg: &Value) {
     state.broadcast_server_members(&server);
 }
 
+fn current_user_id(state: &AppState, conn_id: u64) -> Option<String> {
+    state.conn(conn_id).and_then(|conn| conn.user_id)
+}
+
+fn handle_friend_request(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(from) = current_user_id(state, conn_id) else { return };
+    let to = take_chars(payload_string(msg, "to").trim(), 64);
+    if to.is_empty() || to == from {
+        return;
+    }
+    match state.friend_request(&from, &to) {
+        Ok(()) => state.send_friend_state(&from),
+        Err(message) => send(
+            state,
+            conn_id,
+            &json!({ "type": "friends:error", "code": "request-failed", "message": message }),
+        ),
+    }
+}
+
+fn handle_friend_accept(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(user_id) = current_user_id(state, conn_id) else { return };
+    let from = take_chars(payload_string(msg, "from").trim(), 64);
+    if from.is_empty() || from == user_id {
+        return;
+    }
+    state.friend_accept(&from, &user_id);
+    state.send_friend_state(&user_id);
+}
+
+fn handle_friend_decline(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(user_id) = current_user_id(state, conn_id) else { return };
+    let from = take_chars(payload_string(msg, "from").trim(), 64);
+    if from.is_empty() || from == user_id {
+        return;
+    }
+    state.friend_decline(&from, &user_id);
+    state.send_friend_state(&user_id);
+}
+
+fn handle_friend_remove(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(user_id) = current_user_id(state, conn_id) else { return };
+    let other = take_chars(
+        &[
+            payload_string(msg, "id"),
+            payload_string(msg, "from"),
+            payload_string(msg, "to"),
+        ]
+        .into_iter()
+        .find(|value| !value.trim().is_empty())
+        .unwrap_or_default(),
+        64,
+    );
+    if other.is_empty() || other == user_id {
+        return;
+    }
+    state.friend_remove(&user_id, &other);
+    state.send_friend_state(&user_id);
+}
+
+fn spotify_kind_label(kind: &str) -> &'static str {
+    match kind {
+        "track" => "Utwór",
+        "album" => "Album",
+        "playlist" => "Playlista",
+        "episode" => "Odcinek",
+        "show" => "Podcast",
+        "artist" => "Artysta",
+        _ => "Spotify",
+    }
+}
+
+fn normalize_spotify_link(raw: &str) -> Option<Value> {
+    let text = raw.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let (kind, id) = if let Some(rest) = text.strip_prefix("spotify:") {
+        let mut parts = rest.splitn(2, ':');
+        let kind = parts.next()?.to_lowercase();
+        let id = parts.next()?.to_string();
+        (kind, id)
+    } else {
+        let candidate = if text.starts_with("http://") || text.starts_with("https://") {
+            text.to_string()
+        } else if text.starts_with("open.spotify.com/") || text.starts_with("embed.spotify.com/") {
+            format!("https://{}", text)
+        } else {
+            return None;
+        };
+        let url = url::Url::parse(&candidate).ok()?;
+        let host = url.host_str().unwrap_or("").to_lowercase();
+        if host != "open.spotify.com" && host != "embed.spotify.com" && host != "play.spotify.com" {
+            return None;
+        }
+        let mut parts: Vec<String> = url
+            .path_segments()
+            .map(|segments| segments.filter(|part| !part.is_empty()).map(str::to_string).collect())
+            .unwrap_or_default();
+        if parts.first().map(|part| part == "embed").unwrap_or(false) {
+            parts.remove(0);
+        }
+        if parts.first().map(|part| part == "intl-pl").unwrap_or(false) {
+            parts.remove(0);
+        }
+        if parts.len() < 2 {
+            return None;
+        }
+        (parts[0].to_lowercase(), parts[1].clone())
+    };
+    if !matches!(
+        kind.as_str(),
+        "track" | "album" | "playlist" | "episode" | "show" | "artist"
+    ) {
+        return None;
+    }
+    if id.len() < 16 || id.len() > 64 || !id.chars().all(|c| c.is_ascii_alphanumeric()) {
+        return None;
+    }
+    Some(json!({
+        "kind": kind,
+        "id": id,
+        "url": format!("https://open.spotify.com/{}/{}", kind, id),
+        "embed": format!("https://open.spotify.com/embed/{}/{}?utm_source=generator&theme=0", kind, id),
+    }))
+}
+
+fn handle_spotify_set(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(session) = conn.server.clone() else { return };
+    let Some(server) = state.find_hosted(&session.server_id) else { return };
+    let channel_id = payload_string(msg, "channelId");
+    let Some(channel) = server.channels.iter().find(|channel| channel.id == channel_id) else {
+        return;
+    };
+    if channel.channel_type != "voice" {
+        send_server_error(
+            state,
+            conn_id,
+            "voice-channel",
+            "Ten kanał nie jest kanałem głosowym.",
+        );
+        return;
+    }
+    let Some(link) = normalize_spotify_link(&payload_string(msg, "url")) else {
+        send(
+            state,
+            conn_id,
+            &json!({
+                "type": "spotify:error",
+                "code": "invalid-link",
+                "message": "Nieprawidłowy link Spotify.",
+            }),
+        );
+        return;
+    };
+    let kind = link.get("kind").and_then(Value::as_str).unwrap_or("track");
+    let title = take_chars(
+        payload_string(msg, "title").trim(),
+        120,
+    );
+    let title = if title.is_empty() {
+        spotify_kind_label(kind).to_string()
+    } else {
+        title
+    };
+    let value = json!({
+        "kind": link.get("kind").cloned().unwrap_or(Value::Null),
+        "id": link.get("id").cloned().unwrap_or(Value::Null),
+        "url": link.get("url").cloned().unwrap_or(Value::Null),
+        "embed": link.get("embed").cloned().unwrap_or(Value::Null),
+        "title": title,
+        "by": session.member_id,
+        "byName": session.name,
+        "at": now_ms(),
+    });
+    state.set_spotify_state(&server.id, &channel_id, value);
+    state.broadcast_spotify(&server.id, &channel_id);
+}
+
+fn handle_spotify_clear(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(session) = conn.server.clone() else { return };
+    let channel_id = payload_string(msg, "channelId");
+    if channel_id.is_empty() {
+        return;
+    }
+    if state.clear_spotify_state(&session.server_id, &channel_id) {
+        state.broadcast_spotify(&session.server_id, &channel_id);
+    }
+}
+
 fn handle_dm(state: &AppState, conn_id: u64, local: bool, msg: &Value) {
     if !local {
         return;
@@ -1519,6 +1772,18 @@ fn handle_dm(state: &AppState, conn_id: u64, local: bool, msg: &Value) {
         return;
     }
     if state.find_user(&to).is_none() {
+        return;
+    }
+    if !state.are_friends(&user_id, &to) {
+        send(
+            state,
+            conn_id,
+            &json!({
+                "type": "dm:error",
+                "code": "not-friends",
+                "message": "Aby wysłać wiadomość, najpierw zaczekaj na akceptację zaproszenia.",
+            }),
+        );
         return;
     }
     let Some(user) = state.online.read().get(&user_id).cloned() else {
@@ -1547,7 +1812,7 @@ fn handle_dm(state: &AppState, conn_id: u64, local: bool, msg: &Value) {
     }
     state.save_chat();
     if let Some(message) = dropped {
-        state.remove_voice_from_messages(&[message]);
+        state.remove_media_from_messages(&[message]);
     }
     let payload = json!({ "type": "dm", "message": message });
     send(state, conn_id, &payload);

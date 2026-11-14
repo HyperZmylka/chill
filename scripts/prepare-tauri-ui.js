@@ -13,6 +13,7 @@ const files = [
   'renderer.js',
   'minigames.js',
   'gifs.js',
+  'attachments.js',
   'stickers.js',
   'voice.js',
   'appearance.js',

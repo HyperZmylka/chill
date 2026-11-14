@@ -3,6 +3,7 @@
 
 const CHILL = window.chill || {};
 const VOICE = window.CHILL_VOICE;
+const ATTACHMENTS = window.CHILL_ATTACHMENTS;
 const APPEARANCE = window.CHILL_APPEARANCE;
 const CHAT_BASE = CHILL.chatUrl || `http://127.0.0.1:${CHILL.chatPort || 47830}`;
 const WS_URL = `${CHAT_BASE.replace(/^http/, 'ws')}/chat`;
@@ -12,15 +13,18 @@ function localChatAddress() {
 }
 const $ = (id) => document.getElementById(id);
 
-// ---------- GIF-y (statyczny katalog GIPHY + KLIPY) ----------
+// ---------- GIF-y (statyczny katalog GIPHY + KLIPY + Tenor) ----------
 const GIFS = Array.isArray(window.CHILL_GIFS) ? window.CHILL_GIFS : [];
 const GIF_BASE = 'https://media.giphy.com/media';
 const GIF_ID_RE = /^[A-Za-z0-9]{5,40}$/;
 const GIF_MESSAGE_RE = /^https:\/\/media\.giphy\.com\/media\/([A-Za-z0-9]{5,40})\/giphy\.gif$/;
 const KLIPY_MEDIA_RE = /^https:\/\/static2?\.klipy\.com\/ii\/[a-f0-9]{32}\/[a-f0-9]{2}\/[a-f0-9]{2}\/[A-Za-z0-9]+\.(?:webp|gif)$/;
 const KLIPY_PAGE_RE = /^[a-z0-9][a-z0-9-]{2,79}$/;
+const TENOR_MEDIA_RE = /^https:\/\/media1?\.tenor\.com\/(?:m\/)?[A-Za-z0-9_%-]{6,40}\/[A-Za-z0-9._~%-]+\.(?:webp|gif)$/;
+const TENOR_PAGE_RE = /^https:\/\/tenor\.com\/view\/[A-Za-z0-9_%~-]{2,200}$/;
 const GIF_ALL_CATEGORIES = 'Wszystkie';
 const GIF_KLIPY_CATEGORY = 'KLIPY';
+const GIF_TENOR_CATEGORY = 'Tenor';
 const GIF_CATEGORY_QUERY = {
   Popularne: 'popular trending',
   Reakcje: 'reactions reaction reakcja',
@@ -29,6 +33,7 @@ const GIF_CATEGORY_QUERY = {
   Jedzenie: 'food drink',
   Gry: 'games gaming gra',
   KLIPY: 'klipy',
+  Tenor: 'tenor memy memes',
 };
 const GIF_QUERY_ALIASES = {
   serce: ['serca'],
@@ -43,14 +48,24 @@ const GIF_QUERY_ALIASES = {
 };
 let gifState = { category: GIF_ALL_CATEGORIES, query: '' };
 let gifPreviewObserver = null;
+let gifPageObserver = null;
+let gifRemoteState = { query: '', next: '', items: [], loading: false, done: false, error: '', requestId: 0 };
+let gifSearchTimer = null;
+const GIF_KLIPY_API_KEY_STORAGE = 'chill:klipy-api-key';
+const GIF_KLIPY_API_KEY_DEFAULT = 'dVJ1dUigwpzYSxwJuOyiXZycOZlwyYqO7XJ3RkYSITJch8SLwr0O47qhSQHiPcXB';
+const GIF_KLIPY_API = 'https://api.klipy.com/v2';
 
 const GIF_BY_ID = new Map();
 const KLIPY_BY_URL = new Map();
+const TENOR_BY_URL = new Map();
 for (const gif of GIFS) {
   if (!gif) continue;
   if (gif.source === 'klipy') {
     if (KLIPY_MEDIA_RE.test(String(gif.webp || ''))) KLIPY_BY_URL.set(gif.webp, gif);
     if (KLIPY_MEDIA_RE.test(String(gif.gif || ''))) KLIPY_BY_URL.set(gif.gif, gif);
+  } else if (gif.source === 'tenor') {
+    if (TENOR_MEDIA_RE.test(String(gif.webp || ''))) TENOR_BY_URL.set(gif.webp, gif);
+    if (TENOR_MEDIA_RE.test(String(gif.gif || ''))) TENOR_BY_URL.set(gif.gif, gif);
   } else if (GIF_ID_RE.test(String(gif.id || ''))) {
     GIF_BY_ID.set(gif.id, gif);
   }
@@ -122,6 +137,10 @@ let activeServerId = null;
 const serverStates = new Map();
 let allUsers = [];
 let friends = [];
+let friendState = { friends: [], incoming: [], outgoing: [] };
+let pendingAttachment = null;
+let attachmentUploading = false;
+let spotifyPanelOpen = false;
 let profileTarget = null;
 let profileSelectedGame = '';
 let profileGamesExpanded = false;
@@ -136,7 +155,8 @@ let localVoiceKey = '';
 let voiceSession = null;
 let voiceStarting = false;
 let voiceAudio = null;
-let voicePlayback = { messageId: '', url: '', duration: 0, playing: false };
+let voicePlayback = { messageId: '', url: '', duration: 0, playing: false, voice: null, retried: false };
+const voiceTokenWaiters = new Map();
 let liveVoice = null;
 let liveVoicePlayback = null;
 let liveVoiceCaptureToken = 0;
@@ -334,6 +354,12 @@ const I18N_EN = {
   'Emoji': 'Emoji',
   'Szukaj emoji…': 'Search emoji…',
   'Szukaj GIF-ów…': 'Search GIFs…',
+  'Wklej klucz API KLIPY z partner.klipy.com. Klucz zapisze się tylko na tym urządzeniu.': 'Paste your KLIPY API key from partner.klipy.com. It will be stored only on this device.',
+  'Wyniki z internetu wymagają klucza KLIPY.': 'Online results need a KLIPY API key.',
+  'Skonfiguruj klucz API': 'Set up API key',
+  'Nie udało się pobrać GIF-ów. Sprawdź klucz API i połączenie.': 'Could not load GIFs. Check the API key and connection.',
+  'Ładowanie GIF-ów…': 'Loading GIFs…',
+  'Przewiń, aby załadować więcej': 'Scroll to load more',
   'Naklejki': 'Stickers',
   'Naklejka': 'Sticker',
   'Szukaj naklejek…': 'Search stickers…',
@@ -359,6 +385,61 @@ const I18N_EN = {
   'Nie można odtworzyć wiadomości głosowej.': 'Could not play the voice message.',
   'Maksymalna długość nagrania to 120 sekund.': 'The maximum recording length is 120 seconds.',
   'Nie wysłano nagrania — zmieniono rozmowę.': 'Recording not sent — the conversation changed.',
+  'Dodaj plik': 'Add file',
+  'Upuść plik, aby go wysłać': 'Drop a file to send it',
+  'Możesz dodać opis w polu wiadomości.': 'You can add a caption in the message field.',
+  'Usuń załącznik': 'Remove attachment',
+  'Przeciągnij plik tutaj': 'Drag a file here',
+  'Wyślij plik': 'Send file',
+  'Nie udało się wysłać pliku.': 'Could not send the file.',
+  'Plik jest za duży. Maksymalny rozmiar to 12 MB.': 'The file is too large. The maximum size is 12 MB.',
+  'Nie można teraz dodać pliku — połącz z serwerem.': 'Cannot add a file right now — connect to the server.',
+  'Załącznik': 'Attachment',
+  'Pobierz plik': 'Download file',
+  'Otwórz plik': 'Open file',
+  'Wysyłanie pliku…': 'Sending file…',
+  'Zaproszenie do znajomych': 'Friend request',
+  'Zaproszenia do znajomych': 'Friend requests',
+  'Akceptuj': 'Accept',
+  'Odrzuć': 'Decline',
+  'Anuluj zaproszenie': 'Cancel request',
+  'Usuń znajomego': 'Remove friend',
+  'Wyślij zaproszenie': 'Send friend request',
+  'Zaproszenie wysłane': 'Friend request sent',
+  'Zaproszenie oczekuje': 'Friend request pending',
+  'Zaproszenie zaakceptowane': 'Friend request accepted',
+  'Nie udało się wysłać zaproszenia.': 'Could not send the friend request.',
+  'Ta osoba musi zaakceptować zaproszenie, zanim będziecie mogli pisać.': 'This person must accept the request before you can message each other.',
+  'Możecie teraz pisać do siebie.': 'You can message each other now.',
+  'Aby wysłać wiadomość, najpierw zaczekaj na akceptację zaproszenia.': 'Wait for the friend request to be accepted before messaging.',
+  'Brak znajomych — dodaj osobę z listy członków': 'No friends — add someone from the member list',
+  'Nowe zaproszenie do znajomych': 'New friend request',
+  'Nowe zaproszenie do znajomych: {name}': 'New friend request from {name}',
+  'Odrzucono zaproszenie.': 'Friend request declined.',
+  'Usunięto znajomego.': 'Friend removed.',
+  'Spotify': 'Spotify',
+  'Muzyka dla całego kanału': 'Music for the whole channel',
+  'Odtwórz': 'Play',
+  'Wyłącz muzykę': 'Stop music',
+  'Otwórz Spotify': 'Open Spotify',
+  'Link Spotify lub nazwa utworu…': 'Spotify link or track name…',
+  'Wklej link do utworu, albumu lub playlisty Spotify. Wszyscy na kanale zobaczą ten sam odtwarzacz.': 'Paste a Spotify track, album or playlist link. Everyone in the channel will see the same player.',
+  'Jeśli wpiszesz nazwę utworu, otworzymy wyszukiwarkę Spotify — skopiuj link i wklej go tutaj.': 'If you enter a track name, we will open Spotify search — copy the link and paste it here.',
+  'Nieprawidłowy link Spotify.': 'Invalid Spotify link.',
+  'Muzyka została wyłączona.': 'Music has been stopped.',
+  'Dodane przez {name}': 'Added by {name}',
+  'Odtwarzacz jest zsynchronizowany dla wszystkich na kanale.': 'The player is synced for everyone in the channel.',
+  'Spotify jest dostępne na kanałach głosowych.': 'Spotify is available in voice channels.',
+  'Otworzyliśmy wyszukiwarkę Spotify — skopiuj link do utworu i wklej go tutaj.': 'We opened Spotify search — copy the track link and paste it here.',
+  'Nie udało się włączyć muzyki.': 'Could not start the music.',
+  'Utwór': 'Track',
+  'Album': 'Album',
+  'Playlista': 'Playlist',
+  'Odcinek': 'Episode',
+  'Podcast': 'Podcast',
+  'Artysta': 'Artist',
+  'Otwórz w aplikacji': 'Open in the app',
+  'Kopiuj link do aplikacji': 'Copy app link',
   'Wszystkie': 'All',
   'Popularne': 'Popular',
   'Reakcje': 'Reactions',
@@ -730,6 +811,10 @@ const I18N_EN = {
   'Brak znajomych — kliknij osobę na liście członków': 'No friends — click someone in the member list',
   'Brak członków': 'No members',
   'Dodaj tę osobę do znajomych, aby zacząć prywatną rozmowę.': 'Add this person as a friend to start a private conversation.',
+  'Ta osoba wysłała Ci zaproszenie do znajomych.': 'This person sent you a friend request.',
+  'Połącz z serwerem, aby zobaczyć załącznik.': 'Connect to the server to view the attachment.',
+  'Nie wysłano pliku — zmieniono rozmowę.': 'File not sent — the conversation changed.',
+  'Nie można wysłać wiadomości.': 'Could not send the message.',
   'Masz tę osobę w znajomych.': 'This person is in your friends list.',
   'Konto lokalne — możesz napisać od razu.': 'Local account — you can message right away.',
   'Ta osoba jest teraz online na serwerze.': 'This person is online on the server.',
@@ -2231,6 +2316,201 @@ function voiceParticipants(state, channelId) {
   return Array.isArray(list) ? list : [];
 }
 
+// ---------- Spotify na kanałach głosowych ----------
+const SPOTIFY_KINDS = new Set(['track', 'album', 'playlist', 'episode', 'show', 'artist']);
+
+function parseSpotifyLink(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  let kind = '';
+  let id = '';
+  const uri = /^spotify:(track|album|playlist|episode|show|artist):([A-Za-z0-9]{16,64})$/i.exec(text);
+  if (uri) {
+    kind = uri[1].toLowerCase();
+    id = uri[2];
+  } else {
+    let candidate = text;
+    if (!/^https?:\/\//i.test(candidate)) {
+      if (!/^(open\.spotify\.com|embed\.spotify\.com)\//i.test(candidate)) return null;
+      candidate = `https://${candidate}`;
+    }
+    let url;
+    try {
+      url = new URL(candidate);
+    } catch {
+      return null;
+    }
+    const host = url.hostname.toLowerCase();
+    if (host !== 'open.spotify.com' && host !== 'embed.spotify.com' && host !== 'play.spotify.com') return null;
+    const parts = url.pathname.split('/').filter(Boolean);
+    if (parts[0] === 'embed') parts.shift();
+    if (parts[0] === 'intl-pl') parts.shift();
+    if (parts.length < 2 || !SPOTIFY_KINDS.has(parts[0].toLowerCase())) return null;
+    kind = parts[0].toLowerCase();
+    id = parts[1];
+  }
+  if (!SPOTIFY_KINDS.has(kind) || !/^[A-Za-z0-9]{16,64}$/.test(id)) return null;
+  return {
+    kind,
+    id,
+    url: `https://open.spotify.com/${kind}/${id}`,
+    embed: `https://open.spotify.com/embed/${kind}/${id}?utm_source=generator&theme=0`,
+  };
+}
+
+function spotifyKindLabel(kind) {
+  return t({
+    track: 'Utwór',
+    album: 'Album',
+    playlist: 'Playlista',
+    episode: 'Odcinek',
+    show: 'Podcast',
+    artist: 'Artysta',
+  }[kind] || 'Spotify');
+}
+
+function spotifyRoomState(state, channelId) {
+  return state?.spotifyRooms?.get(String(channelId || '')) || null;
+}
+
+function activeVoiceChannel() {
+  if (current.kind !== 'server') return null;
+  return serverState(current.serverId)?.channels.find((item) => item.id === current.id && item.type === 'voice') || null;
+}
+
+function renderSpotifyPanel(state, channel) {
+  const panel = $('spotifyPanel');
+  const toggle = $('spotifyToggle');
+  if (!panel || !toggle) return;
+  const isVoice = channel?.type === 'voice';
+  toggle.hidden = !isVoice;
+  if (!isVoice) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = !spotifyPanelOpen;
+  toggle.classList.toggle('active', spotifyPanelOpen);
+  if (!spotifyPanelOpen) return;
+
+  const item = spotifyRoomState(state, channel.id);
+  const now = $('spotifyNow');
+  const empty = $('spotifyEmpty');
+  const frame = $('spotifyFrame');
+  if (now) now.hidden = !item;
+  if (empty) empty.hidden = Boolean(item);
+  if (!item) {
+    if (frame) frame.removeAttribute('src');
+    return;
+  }
+  if (frame && frame.getAttribute('src') !== item.embed) frame.setAttribute('src', item.embed);
+  const title = $('spotifyTitle');
+  if (title) title.textContent = item.title || spotifyKindLabel(item.kind);
+  const by = $('spotifyBy');
+  if (by) {
+    by.textContent = item.byName
+      ? t('Dodane przez {name}', { name: item.byName })
+      : spotifyKindLabel(item.kind);
+  }
+  const hint = $('spotifyHint');
+  if (hint) hint.textContent = t('Odtwarzacz jest zsynchronizowany dla wszystkich na kanale.');
+}
+
+function spotifySocket(serverId) {
+  const state = serverState(serverId);
+  if (!state?.ws || state.ws.readyState !== WebSocket.OPEN) return null;
+  return state.ws;
+}
+
+function setSpotifyMusic(channelId, link) {
+  if (current.kind !== 'server') return false;
+  const state = serverState(current.serverId);
+  const socket = spotifySocket(current.serverId);
+  if (!state || !socket) {
+    toast(t('Łączę z serwerem — spróbuj za chwilę.'));
+    return false;
+  }
+  try {
+    socket.send(JSON.stringify({
+      type: 'spotify:set',
+      channelId,
+      url: link.url,
+      title: spotifyKindLabel(link.kind),
+    }));
+    return true;
+  } catch {
+    toast(t('Nie udało się włączyć muzyki.'));
+    return false;
+  }
+}
+
+function clearSpotifyMusic(channelId) {
+  const socket = current.kind === 'server' ? spotifySocket(current.serverId) : null;
+  if (!socket) {
+    toast(t('Łączę z serwerem — spróbuj za chwilę.'));
+    return;
+  }
+  try {
+    socket.send(JSON.stringify({ type: 'spotify:clear', channelId }));
+  } catch { /* ignore */ }
+}
+
+function openSpotifySearch(query) {
+  const phrase = String(query || '').trim();
+  if (!phrase) return;
+  const url = `https://open.spotify.com/search/${encodeURIComponent(phrase)}`;
+  if (CHILL.app?.openExternal) CHILL.app.openExternal(url);
+  else window.open(url, '_blank', 'noopener');
+}
+
+function bindSpotifyPanel() {
+  $('spotifyToggle')?.addEventListener('click', () => {
+    spotifyPanelOpen = !spotifyPanelOpen;
+    if (spotifyPanelOpen) {
+      const state = current.kind === 'server' ? serverState(current.serverId) : null;
+      const channel = state?.channels.find((item) => item.id === current.id);
+      renderSpotifyPanel(state, channel);
+      setTimeout(() => $('spotifyInput')?.focus(), 30);
+    } else {
+      renderSpotifyPanel(current.kind === 'server' ? serverState(current.serverId) : null, activeVoiceChannel());
+    }
+  });
+  $('closeSpotify')?.addEventListener('click', () => {
+    spotifyPanelOpen = false;
+    renderSpotifyPanel(current.kind === 'server' ? serverState(current.serverId) : null, activeVoiceChannel());
+  });
+  $('spotifyForm')?.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (current.kind !== 'server') return;
+    const input = $('spotifyInput');
+    const state = serverState(current.serverId);
+    const channel = state?.channels.find((item) => item.id === current.id);
+    if (!channel || channel.type !== 'voice') {
+      toast(t('Spotify jest dostępne na kanałach głosowych.'));
+      return;
+    }
+    const value = String(input?.value || '').trim();
+    if (!value) return;
+    const link = parseSpotifyLink(value);
+    if (!link) {
+      openSpotifySearch(value);
+      toast(t('Otworzyliśmy wyszukiwarkę Spotify — skopiuj link do utworu i wklej go tutaj.'));
+      return;
+    }
+    if (setSpotifyMusic(channel.id, link) && input) input.value = '';
+  });
+  $('spotifyOpenBtn')?.addEventListener('click', () => {
+    if (current.kind !== 'server') return;
+    const item = spotifyRoomState(serverState(current.serverId), current.id);
+    if (!item?.url) return;
+    if (CHILL.app?.openExternal) CHILL.app.openExternal(item.url);
+    else window.open(item.url, '_blank', 'noopener');
+  });
+  $('spotifyClearBtn')?.addEventListener('click', () => {
+    if (current.kind !== 'server') return;
+    clearSpotifyMusic(current.id);
+  });
+}
+
 function voiceChannelFor(serverId, channelId) {
   return serverState(serverId)?.channels.find((channel) => channel.id === channelId) || null;
 }
@@ -3131,6 +3411,7 @@ function renderVoiceView(state, channel) {
   }
   $('voiceViewControls').innerHTML = controls;
   $('voiceViewInvite').hidden = state.status !== 'online';
+  renderSpotifyPanel(state, channel);
   syncVoiceScreenView(state, channel);
 }
 
@@ -3203,6 +3484,7 @@ function handleVoiceAction(action) {
 }
 
 function bindLiveVoice() {
+  bindSpotifyPanel();
   $('voiceConnectLeave')?.addEventListener('click', () => {
     stopLiveVoice({ reason: t('Rozłączono z kanałem głosowym.') });
   });
@@ -3378,9 +3660,17 @@ function moveMention(step) {
 function bindChat() {
   $('composer').addEventListener('submit', sendCurrentMessage);
   const input = $('messageInput');
+  $('attachBtn')?.addEventListener('click', () => $('attachmentInput')?.click());
+  $('attachmentInput')?.addEventListener('change', (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file) setPendingAttachment(file);
+  });
+  $('composerAttachmentRemove')?.addEventListener('click', () => clearPendingAttachment());
+  bindAttachmentDrop();
   input.addEventListener('input', () => {
     resizeInput();
-    $('sendBtn').disabled = !input.value.trim() || !wsReady();
+    refreshComposerSendState();
     sendTyping();
     updateMentionPop();
   });
@@ -3551,6 +3841,7 @@ function handleMessage(msg) {
   switch (msg.type) {
     case 'joined': {
       allUsers = Array.isArray(msg.users) ? msg.users : [];
+      friendState = { friends: [], incoming: [], outgoing: [] };
       localVoiceKey = String(msg.voiceKey || '');
       for (const key of [...history.keys()]) {
         if (key.startsWith('dm:') && !key.startsWith('dm:srv:')) history.delete(key);
@@ -3590,6 +3881,35 @@ function handleMessage(msg) {
       renderMembers();
       const user = allUsers.find((u) => u.id === other);
       notifyIncoming(m, user?.name || t('Wiadomość prywatna'), current.kind === 'dm' && current.id === other);
+      break;
+    }
+
+    case 'friends:state': {
+      const before = new Set((friendState.incoming || []).map((item) => item.id));
+      friendState = {
+        friends: Array.isArray(msg.friends) ? msg.friends.filter((id) => typeof id === 'string') : [],
+        incoming: Array.isArray(msg.incoming) ? msg.incoming.filter((item) => item && typeof item.id === 'string') : [],
+        outgoing: Array.isArray(msg.outgoing) ? msg.outgoing.filter((item) => item && typeof item.id === 'string') : [],
+      };
+      const fresh = friendState.incoming.filter((item) => !before.has(item.id));
+      if (fresh.length && document.visibilityState !== 'hidden') {
+        const person = allUsers.find((user) => user.id === fresh[0].id);
+        toast(t('Nowe zaproszenie do znajomych: {name}', { name: person?.name || t('Użytkownik') }));
+      }
+      renderDmList();
+      renderMembers();
+      if (current.kind === 'dm') renderHeader();
+      if (!$('userProfileOverlay').hidden) renderUserProfile();
+      break;
+    }
+
+    case 'friends:error': {
+      toast(msg.message ? translateError(msg.message) : t('Nie udało się wysłać zaproszenia.'));
+      break;
+    }
+
+    case 'dm:error': {
+      toast(msg.message ? translateError(msg.message) : t('Nie można wysłać wiadomości.'));
       break;
     }
 
@@ -3637,6 +3957,11 @@ function handleMessage(msg) {
         renderIdentity();
         if (!$('settingsOverlay').hidden) fillProfileForm();
       }
+      break;
+    }
+
+    case 'voice:token': {
+      resolveVoiceToken(msg);
       break;
     }
 
@@ -3860,6 +4185,11 @@ function handleServerFrame(serverId, msg) {
           .filter(Boolean);
         if (participants.length) state.voiceRooms.set(channelId, participants);
       }
+      state.spotifyRooms = new Map();
+      for (const room of Array.isArray(msg.spotify) ? msg.spotify : []) {
+        const channelId = String(room?.channelId || '');
+        if (channelId && room?.state?.embed) state.spotifyRooms.set(channelId, room.state);
+      }
       state.channels = (Array.isArray(msg.server?.channels) ? msg.server.channels : []).map((channel) => ({
         ...channel,
         type: channel.type === 'voice' ? 'voice' : 'text',
@@ -3950,6 +4280,8 @@ function handleServerFrame(serverId, msg) {
         .map(normalizeVoiceParticipant)
         .filter(Boolean);
       if (participants.length) state.voiceRooms.set(channelId, participants);
+      if (msg.spotify?.embed) state.spotifyRooms.set(channelId, msg.spotify);
+      else if (msg.spotify === null) state.spotifyRooms.delete(channelId);
       if (activeServerId === serverId) {
         renderChannels();
         if (current.kind === 'server' && current.serverId === serverId && current.id === channelId) {
@@ -3958,6 +4290,28 @@ function handleServerFrame(serverId, msg) {
         }
       }
       renderVoiceConnectedPanel();
+      break;
+    }
+
+    case 'server:spotify': {
+      const channelId = String(msg.channelId || '');
+      if (!channelId) break;
+      if (msg.state?.embed) state.spotifyRooms.set(channelId, msg.state);
+      else state.spotifyRooms.delete(channelId);
+      if (current.kind === 'server' && current.serverId === serverId && current.id === channelId) {
+        const channel = state.channels.find((item) => item.id === channelId);
+        renderSpotifyPanel(state, channel);
+      }
+      break;
+    }
+
+    case 'voice:token': {
+      resolveVoiceToken(msg);
+      break;
+    }
+
+    case 'spotify:error': {
+      toast(msg.message ? translateError(msg.message) : t('Nieprawidłowy link Spotify.'));
       break;
     }
 
@@ -4659,6 +5013,25 @@ function bindServers() {
       $('inviteSaved').textContent = t('Skopiowano');
       setTimeout(() => { $('inviteSaved').textContent = ''; }, 2500);
     }).catch(() => toast(t('Nie udało się skopiować linku.')));
+  });
+  $('copyInviteAppBtn')?.addEventListener('click', () => {
+    const value = $('inviteAppLink')?.textContent || '';
+    if (!value || value === 'chill://…') return;
+    copyText(value).then(() => {
+      $('inviteSaved').textContent = t('Skopiowano');
+      setTimeout(() => { $('inviteSaved').textContent = ''; }, 2500);
+    }).catch(() => toast(t('Nie udało się skopiować linku.')));
+  });
+  $('openInviteAppBtn')?.addEventListener('click', () => {
+    const value = $('inviteAppLink')?.textContent || '';
+    if (!value || value === 'chill://…') return;
+    if (CHILL.web) {
+      window.location.href = value;
+    } else if (CHILL.app?.openExternal) {
+      CHILL.app.openExternal(value);
+    } else {
+      window.location.href = value;
+    }
   });
   $('retryInviteTunnel').addEventListener('click', () => { void openInviteModal(inviteChannel); });
   $('leaveServerBtn').addEventListener('click', leaveActiveServer);
@@ -6322,6 +6695,30 @@ function appendChannelToLink(link, channel) {
   return `${base}${base.includes('?') ? '&' : '?'}channel=${encodeURIComponent(channel.id)}`;
 }
 
+function inviteAppLink(webLink, invite) {
+  const base = String(webLink || '');
+  if (!base) return '';
+  if (base.startsWith('chill://')) return base;
+  try {
+    const url = new URL(base);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return '';
+    const code = String(invite || url.searchParams.get('invite') || '').trim();
+    if (!code) return '';
+    return `chill://${url.host}/${encodeURIComponent(code)}${url.protocol === 'https:' ? '?tls=1' : ''}`;
+  } catch {
+    return '';
+  }
+}
+
+function updateInviteLinks(state, link, channel) {
+  const webLink = String(link || '');
+  if ($('inviteLink')) $('inviteLink').textContent = webLink;
+  const app = channel ? appendChannelToLink(inviteAppLink(webLink, state.server.invite), channel) : inviteAppLink(webLink, state.server.invite);
+  const box = $('inviteAppBox');
+  if (box) box.hidden = !app;
+  if ($('inviteAppLink')) $('inviteAppLink').textContent = app;
+}
+
 function channelShareLink(state, channel) {
   return appendChannelToLink(serverShareBase(state), channel);
 }
@@ -6401,7 +6798,7 @@ async function openInviteModal(channel = null) {
   $('leaveServerBtn').textContent = owner ? t('Usuń serwer') : t('Opuść serwer');
   resetLeaveConfirm();
   const link = (base) => invitedChannel ? appendChannelToLink(base, invitedChannel) : base;
-  $('inviteLink').textContent = link(serverShareBase(state));
+  updateInviteLinks(state, link(serverShareBase(state)), invitedChannel);
 
   const statusEl = $('inviteNetworkStatus');
   const retryBtn = $('retryInviteTunnel');
@@ -6423,7 +6820,7 @@ async function openInviteModal(channel = null) {
   const result = await resolveServerInvite(state);
   if (seq !== inviteRequestSeq) return;
   if (copyBtn) copyBtn.disabled = false;
-  if (result?.ok && result.shareLink) $('inviteLink').textContent = link(result.shareLink);
+  if (result?.ok && result.shareLink) updateInviteLinks(state, link(result.shareLink), invitedChannel);
 
   if (owner) {
     if (result?.internet) {
@@ -6528,6 +6925,7 @@ function pushHistory(key, message) {
 function selectConversation(kind, id) {
   closeServerMenu();
   resetVoiceSession();
+  clearPendingAttachment();
   activeServerId = null;
   current = { kind, id };
   hideMentionPop();
@@ -6564,6 +6962,7 @@ function ensureServerState(server) {
       members: [],
       you: null,
       voiceRooms: new Map(),
+      spotifyRooms: new Map(),
       voiceKey: '',
       error: '',
       reconnectTimer: null,
@@ -6916,6 +7315,62 @@ function serverFriendId(serverId, memberId) {
   return `srv:${serverId}:${memberId}`;
 }
 
+function accountById(id) {
+  return allUsers.find((user) => user.id === id) || null;
+}
+
+function isAccountFriend(id) {
+  return Boolean(id) && friendState.friends.includes(id);
+}
+
+function incomingFriendRequest(id) {
+  return (friendState.incoming || []).find((item) => item.id === id) || null;
+}
+
+function outgoingFriendRequest(id) {
+  return (friendState.outgoing || []).find((item) => item.id === id) || null;
+}
+
+function sendFriendAction(type, payload = {}) {
+  if (!wsReady()) {
+    toast(t('Łączę z serwerem — spróbuj za chwilę.'));
+    return false;
+  }
+  ws.send(JSON.stringify({ type, ...payload }));
+  return true;
+}
+
+function requestAccountFriend(id) {
+  if (!id || id === myId) return;
+  if (isAccountFriend(id)) return;
+  if (outgoingFriendRequest(id)) {
+    toast(t('Zaproszenie wysłane'));
+    return;
+  }
+  if (incomingFriendRequest(id)) {
+    sendFriendAction('friends:accept', { from: id });
+    return;
+  }
+  if (sendFriendAction('friends:request', { to: id })) toast(t('Zaproszenie wysłane'));
+}
+
+function acceptAccountFriend(id) {
+  if (!id) return;
+  sendFriendAction('friends:accept', { from: id });
+}
+
+function declineAccountFriend(id) {
+  if (!id) return;
+  sendFriendAction('friends:decline', { from: id });
+  toast(t('Odrzucono zaproszenie.'));
+}
+
+function removeAccountFriend(id) {
+  if (!id) return;
+  sendFriendAction('friends:remove', { id });
+  toast(t('Usunięto znajomego.'));
+}
+
 function friendByDmId(dmId) {
   return friends.find((item) => item.dmId === dmId) || null;
 }
@@ -6931,6 +7386,7 @@ function serverFriendDisplay(friend) {
   return {
     dmId: friend.dmId,
     name: member?.name || friend.name || t('Znajomy'),
+    avatar: member?.avatar || friend.avatar || '',
     color: safeColor(member?.color || friend.color, '#3ee0a3'),
     online,
     owner: Boolean(member?.owner),
@@ -6957,6 +7413,7 @@ function dmEntry(dmId) {
     friend: null,
     name: user.name,
     username: user.username,
+    avatar: user.avatar,
     color: user.color,
     online: Boolean(user.online),
     status: user.online ? user.status : 'offline',
@@ -7026,14 +7483,19 @@ function renderDmList() {
   if (!container) return;
   const query = $('conversationSearch').value.trim().toLowerCase();
   const entries = [];
+  const seen = new Set();
 
-  for (const user of allUsers) {
-    if (user.id === myId) continue;
+  for (const id of friendState.friends || []) {
+    const user = accountById(id);
+    if (!user || user.id === myId || seen.has(user.id)) continue;
+    seen.add(user.id);
     const status = user.online ? user.status : 'offline';
     const playing = user.online ? String(user.playing || '').trim() : '';
     entries.push({
+      kind: 'dm',
       dmId: user.id,
       name: user.name,
+      avatar: user.avatar,
       color: user.color,
       online: Boolean(user.online),
       status,
@@ -7041,14 +7503,19 @@ function renderDmList() {
       playingIcon: playing ? safeGameIcon(user.playingIcon) : '',
       sub: playing ? t('Gra w {game}', { game: playing }) : statusLabel(status),
       search: `${user.name} ${user.username || ''}`,
+      sortGroup: 0,
     });
   }
 
   for (const friend of friends.filter((item) => item.kind === 'server')) {
+    if (seen.has(friend.memberId) || accountById(friend.memberId)) continue;
     const info = serverFriendDisplay(friend);
+    seen.add(info.dmId);
     entries.push({
+      kind: 'dm',
       dmId: friend.dmId,
       name: info.name,
+      avatar: '',
       color: info.color,
       online: info.online,
       status: info.online ? 'online' : 'offline',
@@ -7056,20 +7523,111 @@ function renderDmList() {
       playingIcon: info.playingIcon,
       sub: `${info.serverName} • ${info.online ? t('Online') : t('Offline')}`,
       search: `${info.name} ${info.serverName}`,
+      sortGroup: 0,
+    });
+  }
+
+  for (const request of friendState.incoming || []) {
+    const user = accountById(request.id);
+    if (!user || seen.has(`${user.id}:in`) || user.id === myId) continue;
+    seen.add(`${user.id}:in`);
+    entries.push({
+      kind: 'incoming',
+      requestId: user.id,
+      name: user.name,
+      avatar: user.avatar,
+      color: user.color,
+      online: Boolean(user.online),
+      status: user.online ? user.status : 'offline',
+      sub: t('Zaproszenie do znajomych'),
+      search: `${user.name} ${user.username || ''}`,
+      sortGroup: 1,
+    });
+  }
+
+  for (const request of friendState.outgoing || []) {
+    const user = accountById(request.id);
+    if (!user || seen.has(`${user.id}:out`) || user.id === myId) continue;
+    seen.add(`${user.id}:out`);
+    entries.push({
+      kind: 'outgoing',
+      requestId: user.id,
+      name: user.name,
+      avatar: user.avatar,
+      color: user.color,
+      online: Boolean(user.online),
+      status: user.online ? user.status : 'offline',
+      sub: t('Zaproszenie oczekuje'),
+      search: `${user.name} ${user.username || ''}`,
+      sortGroup: 2,
     });
   }
 
   const filtered = entries
     .filter((entry) => !query || entry.search.toLowerCase().includes(query))
-    .sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name, prefs.lang === 'en' ? 'en' : 'pl'));
+    .sort((a, b) => (a.sortGroup - b.sortGroup)
+      || Number(b.online) - Number(a.online)
+      || a.name.localeCompare(b.name, prefs.lang === 'en' ? 'en' : 'pl'));
 
   container.innerHTML = '';
   if (!filtered.length) {
-    container.innerHTML = `<div class="nav-empty">${esc(t('Brak znajomych — kliknij osobę na liście członków'))}</div>`;
+    container.innerHTML = `<div class="nav-empty">${esc(t('Brak znajomych — dodaj osobę z listy członków'))}</div>`;
     return;
   }
 
   for (const entry of filtered) {
+    if (entry.kind !== 'dm') {
+      const row = document.createElement('div');
+      row.className = `nav-request ${entry.kind}`;
+      row.innerHTML = `
+        <span class="nav-avatar">
+          <span class="status-dot ${esc(entry.status)}"></span>
+        </span>
+        <span class="nav-label">${esc(entry.name)}<span class="nav-sub">${esc(entry.sub)}</span></span>
+      `;
+      applyAvatar(row.querySelector('.nav-avatar'), entry.name, entry.color, entry.avatar);
+      if (entry.kind === 'incoming') {
+        const actions = document.createElement('span');
+        actions.className = 'nav-request-actions';
+        const accept = document.createElement('button');
+        accept.type = 'button';
+        accept.className = 'nav-request-btn accept';
+        accept.title = t('Akceptuj');
+        accept.setAttribute('aria-label', t('Akceptuj'));
+        accept.textContent = '✓';
+        accept.addEventListener('click', (event) => {
+          event.stopPropagation();
+          acceptAccountFriend(entry.requestId);
+        });
+        const decline = document.createElement('button');
+        decline.type = 'button';
+        decline.className = 'nav-request-btn decline';
+        decline.title = t('Odrzuć');
+        decline.setAttribute('aria-label', t('Odrzuć'));
+        decline.textContent = '✕';
+        decline.addEventListener('click', (event) => {
+          event.stopPropagation();
+          declineAccountFriend(entry.requestId);
+        });
+        actions.append(accept, decline);
+        row.appendChild(actions);
+      } else {
+        const cancel = document.createElement('button');
+        cancel.type = 'button';
+        cancel.className = 'nav-request-cancel';
+        cancel.title = t('Anuluj zaproszenie');
+        cancel.setAttribute('aria-label', t('Anuluj zaproszenie'));
+        cancel.textContent = '✕';
+        cancel.addEventListener('click', (event) => {
+          event.stopPropagation();
+          removeAccountFriend(entry.requestId);
+        });
+        row.appendChild(cancel);
+      }
+      container.appendChild(row);
+      continue;
+    }
+
     const key = `dm:${entry.dmId}`;
     const isActive = current.kind === 'dm' && current.id === entry.dmId;
     const count = isActive ? 0 : unread.get(key) || 0;
@@ -7078,13 +7636,13 @@ function renderDmList() {
     button.type = 'button';
     button.className = `nav-item${isActive ? ' active' : ''}${count ? ' unread' : ''}`;
     button.innerHTML = `
-      <span class="nav-avatar" style="background:${safeColor(entry.color, '#3ee0a3')}">
-        ${esc(initial(entry.name))}
+      <span class="nav-avatar">
         <span class="status-dot ${esc(entry.status)}"></span>
       </span>
       <span class="nav-label">${esc(entry.name)}<span class="nav-sub${entry.playing ? ' playing' : ''}">${subHtml}</span></span>
       ${count ? `<span class="nav-badge">${count > 99 ? '99+' : count}</span>` : ''}
     `;
+    applyAvatar(button.querySelector('.nav-avatar'), entry.name, entry.color, entry.avatar);
     button.addEventListener('click', () => selectConversation('dm', entry.dmId));
     container.appendChild(button);
   }
@@ -7114,8 +7672,7 @@ function renderMembers() {
       item.type = 'button';
       item.className = 'member';
       item.innerHTML = `
-        <span class="member-avatar" style="background:${safeColor(member.color, '#3ee0a3')}">
-          ${esc(initial(member.name))}
+        <span class="member-avatar">
           <span class="status-dot ${esc(status)}"></span>
         </span>
         <span class="member-info">
@@ -7123,6 +7680,7 @@ function renderMembers() {
           <small class="${playing ? 'playing' : ''}">${subHtml}</small>
         </span>
       `;
+      applyAvatar(item.querySelector('.member-avatar'), member.name, member.color, member.avatar);
       if (member.id === state.you?.memberId) item.addEventListener('click', () => openSettings('profile'));
       else item.addEventListener('click', () => openServerProfile(state.server.id, member.id, member));
       container.appendChild(item);
@@ -7145,8 +7703,7 @@ function renderMembers() {
     item.type = 'button';
     item.className = 'member';
     item.innerHTML = `
-      <span class="member-avatar" style="background:${safeColor(user.color, '#3ee0a3')}">
-        ${esc(initial(user.name))}
+      <span class="member-avatar">
         <span class="status-dot ${esc(status)}"></span>
       </span>
       <span class="member-info">
@@ -7154,6 +7711,7 @@ function renderMembers() {
         <small class="${playing ? 'playing' : ''}">${subHtml}</small>
       </span>
     `;
+    applyAvatar(item.querySelector('.member-avatar'), user.name, user.color, user.avatar);
     item.addEventListener('click', () => {
       if (user.id === myId) openSettings('profile');
       else openLocalProfile(user.id, user);
@@ -7265,18 +7823,20 @@ function handleForProfile(user) {
 function applyAvatar(el, name, color, avatar) {
   if (!el) return;
   const value = safeProfileAvatar(avatar);
+  const statusDot = el.querySelector(':scope > .status-dot');
   el.classList.toggle('avatar-photo', Boolean(value && PROFILE_IMAGE_RE.test(value)));
   el.classList.toggle('avatar-emoji', Boolean(value && !PROFILE_IMAGE_RE.test(value)));
   el.style.backgroundImage = '';
   el.style.background = safeColor(color, '#3ee0a3');
+  el.textContent = '';
   if (value && PROFILE_IMAGE_RE.test(value)) {
-    el.textContent = '';
     el.style.backgroundImage = `url("${value}")`;
   } else if (value) {
     el.textContent = value;
   } else {
     el.textContent = initial(name);
   }
+  if (statusDot) el.appendChild(statusDot);
 }
 
 function applyBanner(el, banner) {
@@ -7675,27 +8235,55 @@ function renderUserProfile() {
   const addBtn = $('addFriendBtn');
   const dmBtn = $('dmFriendBtn');
   const note = $('userProfileNote');
-  addBtn.hidden = !isServer || Boolean(friend);
-  dmBtn.hidden = isServer && !friend;
+  const account = isServer ? accountById(source.id) : (accountById(source.id) || source);
+  const accountFriend = account ? isAccountFriend(account.id) : false;
+  const incoming = account ? incomingFriendRequest(account.id) : null;
+  const outgoing = account ? outgoingFriendRequest(account.id) : null;
+  const legacyFriend = isServer ? friendByServerMember(target.serverId, source.id) : null;
+
+  addBtn.hidden = account ? accountFriend : Boolean(friend);
+  dmBtn.hidden = account ? !accountFriend : (isServer && !legacyFriend);
   dmBtn.disabled = false;
-  addBtn.disabled = false;
-  addBtn.textContent = t('Dodaj do znajomych');
+  addBtn.disabled = Boolean(outgoing);
+  if (account) {
+    addBtn.textContent = incoming ? t('Akceptuj') : outgoing ? t('Zaproszenie wysłane') : t('Dodaj do znajomych');
+  } else {
+    addBtn.textContent = t('Dodaj do znajomych');
+  }
   dmBtn.textContent = t('Napisz wiadomość');
 
-  if (isServer && !friend) {
+  if (account && accountFriend) {
+    note.textContent = t('Możecie teraz pisać do siebie.');
+  } else if (account && incoming) {
+    note.textContent = t('Ta osoba wysłała Ci zaproszenie do znajomych.');
+  } else if (account && outgoing) {
+    note.textContent = t('Ta osoba musi zaakceptować zaproszenie, zanim będziecie mogli pisać.');
+  } else if (account) {
     note.textContent = t('Dodaj tę osobę do znajomych, aby zacząć prywatną rozmowę.');
-  } else if (isServer) {
+  } else if (legacyFriend) {
     note.textContent = t('Masz tę osobę w znajomych.');
   } else {
-    note.textContent = t('Konto lokalne — możesz napisać od razu.');
+    note.textContent = t('Dodaj tę osobę do znajomych, aby zacząć prywatną rozmowę.');
   }
 }
 
 function addProfileFriend() {
   const target = profileTarget;
-  if (!target || target.kind !== 'server') return;
-  const state = serverState(target.serverId);
-  const member = state?.members.find((item) => item.id === target.member.id) || target.member;
+  if (!target) return;
+  const member = target.kind === 'server'
+    ? (serverState(target.serverId)?.members.find((item) => item.id === target.member.id) || target.member)
+    : target.user;
+  const account = accountById(member.id);
+  if (account) {
+    if (isAccountFriend(account.id)) {
+      renderUserProfile();
+      return;
+    }
+    if (incomingFriendRequest(account.id)) acceptAccountFriend(account.id);
+    else requestAccountFriend(account.id);
+    return;
+  }
+  if (target.kind !== 'server') return;
   const friend = upsertServerFriend(target.serverId, member);
   if (!friend) {
     $('userProfileError').textContent = t('Nie udało się dodać do znajomych.');
@@ -7710,11 +8298,26 @@ function addProfileFriend() {
 function messageProfileFriend() {
   const target = profileTarget;
   if (!target) return;
-  const dmId = target.kind === 'server'
-    ? serverFriendId(target.serverId, target.member.id)
-    : target.user.id;
-  closeUserProfile();
-  selectConversation('dm', dmId);
+  const member = target.kind === 'server' ? target.member : target.user;
+  const account = accountById(member.id) || (target.kind === 'local' ? member : null);
+  if (account) {
+    if (!isAccountFriend(account.id)) {
+      toast(t('Aby wysłać wiadomość, najpierw zaczekaj na akceptację zaproszenia.'));
+      return;
+    }
+    closeUserProfile();
+    selectConversation('dm', account.id);
+    return;
+  }
+  if (target.kind === 'server') {
+    const friend = friendByServerMember(target.serverId, member.id);
+    if (!friend) {
+      toast(t('Aby wysłać wiadomość, najpierw zaczekaj na akceptację zaproszenia.'));
+      return;
+    }
+    closeUserProfile();
+    selectConversation('dm', friend.dmId);
+  }
 }
 
 function bindUserProfile() {
@@ -7832,7 +8435,7 @@ function updateComposer() {
   } else {
     input.placeholder = t('Wybierz kanał, aby napisać…');
   }
-  $('sendBtn').disabled = !enabled || recording || !input.value.trim();
+  $('sendBtn').disabled = !enabled || recording || attachmentUploading || (!input.value.trim() && !pendingAttachment);
   $('typingBar').hidden = !enabled || recording || typingUsers.size === 0;
   if (!enabled) {
     closeEmojiPicker();
@@ -8064,6 +8667,7 @@ function buildMessage(message, grouped) {
   bubble.className = 'bubble';
   const sticker = stickerMessageDescriptor(message.text);
   const voice = VOICE ? VOICE.parse(message.text) : null;
+  const attachment = ATTACHMENTS ? ATTACHMENTS.parse(message.text) : null;
   if (sticker) {
     bubble.classList.add('bubble-sticker');
     const img = document.createElement('img');
@@ -8078,6 +8682,15 @@ function buildMessage(message, grouped) {
   } else if (voice) {
     bubble.classList.add('bubble-voice');
     bubble.appendChild(buildVoicePlayer(message, voice));
+  } else if (attachment) {
+    bubble.classList.add('bubble-attachment');
+    bubble.appendChild(buildAttachmentBlock(attachment));
+    if (attachment.caption) {
+      const caption = document.createElement('div');
+      caption.className = 'chat-attachment-caption';
+      caption.innerHTML = formatMessageText(attachment.caption);
+      bubble.appendChild(caption);
+    }
   } else {
     const gif = gifMessageDescriptor(message.text);
     const chatUrl = gif ? gifChatSource(gif) : '';
@@ -8090,7 +8703,8 @@ function buildMessage(message, grouped) {
       img.src = chatUrl;
       img.alt = 'GIF';
       img.title = gifAttributionLabel(gif);
-      if (gifSource(gif) === 'klipy' && gif.w > 0 && gif.h > 0) {
+      const source = gifSource(gif);
+      if ((source === 'klipy' || source === 'tenor') && gif.w > 0 && gif.h > 0) {
         img.width = gif.w;
         img.height = gif.h;
       }
@@ -8153,7 +8767,7 @@ function voiceTransport() {
     if (!channel || channel.type === 'voice' || !state.voiceKey) return null;
     const address = state.server.address || (state.server.owner ? localChatAddress() : '');
     if (!address) return null;
-    return { address, secure: Boolean(state.server.secure), key: state.voiceKey, conversationKey: conversationKey() };
+    return { address, scope: `server:${state.server.id}`, secure: Boolean(state.server.secure), key: state.voiceKey, conversationKey: conversationKey() };
   }
   if (current.kind === 'dm') {
     const entry = dmEntry(current.id);
@@ -8163,10 +8777,10 @@ function voiceTransport() {
       if (!state || state.status !== 'online' || !state.ws || state.ws.readyState !== WebSocket.OPEN || !state.voiceKey) return null;
       const address = state.server.address || (state.server.owner ? localChatAddress() : '');
       if (!address) return null;
-      return { address, secure: Boolean(state.server.secure), key: state.voiceKey, conversationKey: conversationKey() };
+      return { address, scope: `server:${state.server.id}`, secure: Boolean(state.server.secure), key: state.voiceKey, conversationKey: conversationKey() };
     }
     if (!wsReady() || !localVoiceKey) return null;
-    return { address: localChatAddress(), secure: location.protocol === 'https:', key: localVoiceKey, conversationKey: conversationKey() };
+    return { address: localChatAddress(), scope: 'local', secure: location.protocol === 'https:', key: localVoiceKey, conversationKey: conversationKey() };
   }
   return null;
 }
@@ -8175,6 +8789,205 @@ function voiceSourceUrl(voice) {
   const transport = voiceTransport();
   if (!transport || !voice || !voice.id) return '';
   return `${transport.secure ? 'https' : 'http'}://${transport.address}/voice/${voice.id}?key=${encodeURIComponent(transport.key)}`;
+}
+
+function voiceSocketForScope(scope) {
+  if (scope.startsWith('server:')) {
+    const serverId = scope.slice(7);
+    const state = serverState(serverId)
+      || (current.kind === 'dm' ? serverState(dmEntry(current.id)?.serverId) : null);
+    return state?.ws || null;
+  }
+  return ws;
+}
+
+function requestVoiceToken(scope) {
+  const socket = voiceSocketForScope(scope);
+  if (!socket || socket.readyState !== WebSocket.OPEN) return Promise.resolve('');
+  return new Promise((resolve) => {
+    const previous = voiceTokenWaiters.get(scope);
+    if (previous) {
+      clearTimeout(previous.timer);
+      previous.resolve('');
+    }
+    const timer = setTimeout(() => {
+      voiceTokenWaiters.delete(scope);
+      resolve('');
+    }, 5000);
+    voiceTokenWaiters.set(scope, { resolve, timer });
+    try {
+      socket.send(JSON.stringify({ type: 'voice:refresh', scope }));
+    } catch {
+      clearTimeout(timer);
+      voiceTokenWaiters.delete(scope);
+      resolve('');
+    }
+  });
+}
+
+function resolveVoiceToken(msg) {
+  const scope = String(msg.scope || '');
+  const key = String(msg.key || '');
+  const waiter = voiceTokenWaiters.get(scope);
+  if (waiter) {
+    clearTimeout(waiter.timer);
+    voiceTokenWaiters.delete(scope);
+    waiter.resolve(key);
+  }
+  if (!key || !scope) return;
+  if (scope === 'local') {
+    localVoiceKey = key;
+    return;
+  }
+  if (scope.startsWith('server:')) {
+    const state = serverState(scope.slice(7));
+    if (state) state.voiceKey = key;
+  }
+}
+
+async function retryVoicePlayback() {
+  const active = voicePlayback;
+  const transport = voiceTransport();
+  if (!active.messageId || !active.voice || !transport) return false;
+  const key = await requestVoiceToken(transport.scope);
+  if (!key || voicePlayback.messageId !== active.messageId) return false;
+  if (transport.scope === 'local') {
+    localVoiceKey = key;
+  } else {
+    const state = serverState(transport.scope.slice(7));
+    if (state) state.voiceKey = key;
+  }
+  const url = `${transport.secure ? 'https' : 'http'}://${transport.address}/voice/${active.voice.id}?key=${encodeURIComponent(key)}`;
+  const audio = ensureVoiceAudio();
+  active.url = url;
+  active.playing = true;
+  audio.dataset.messageId = active.messageId;
+  audio.dataset.url = url;
+  audio.src = url;
+  updateVoicePlayerUi();
+  try {
+    await audio.play();
+    return true;
+  } catch {
+    active.playing = false;
+    updateVoicePlayerUi();
+    return false;
+  }
+}
+
+function attachmentSourceUrl(attachment) {
+  const transport = voiceTransport();
+  if (!transport || !attachment || !attachment.id) return '';
+  return `${transport.secure ? 'https' : 'http'}://${transport.address}/attachment/${attachment.id}?key=${encodeURIComponent(transport.key)}`;
+}
+
+function attachmentOpen(attachment, url) {
+  if (!url) return;
+  if (CHILL.app?.openExternal) {
+    CHILL.app.openExternal(url);
+    return;
+  }
+  window.open(url, '_blank', 'noopener');
+}
+
+function buildAttachmentBlock(attachment) {
+  const wrap = document.createElement('div');
+  const kind = ATTACHMENTS ? ATTACHMENTS.kind(attachment.mime) : 'file';
+  wrap.className = `chat-attachment ${kind}`;
+  const url = attachmentSourceUrl(attachment);
+  if (!url) {
+    wrap.classList.add('offline');
+    wrap.innerHTML = `<span class="chat-attachment-icon" aria-hidden="true">📎</span><span class="chat-attachment-info"><strong>${esc(attachment.name)}</strong><small>${esc(t('Połącz z serwerem, aby zobaczyć załącznik.'))}</small></span>`;
+    return wrap;
+  }
+
+  if (kind === 'image') {
+    const link = document.createElement('a');
+    link.className = 'chat-attachment-image-link';
+    link.href = url;
+    link.rel = 'noopener noreferrer';
+    link.title = t('Otwórz plik');
+    const img = document.createElement('img');
+    img.className = 'chat-attachment-image';
+    img.src = url;
+    img.alt = attachment.name;
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.addEventListener('click', (event) => {
+      event.preventDefault();
+      attachmentOpen(attachment, url);
+    });
+    link.appendChild(img);
+    wrap.appendChild(link);
+    const meta = document.createElement('span');
+    meta.className = 'chat-attachment-name';
+    meta.textContent = attachment.name;
+    wrap.appendChild(meta);
+    return wrap;
+  }
+
+  if (kind === 'video') {
+    const video = document.createElement('video');
+    video.className = 'chat-attachment-video';
+    video.controls = true;
+    video.preload = 'metadata';
+    video.src = url;
+    wrap.appendChild(video);
+    const meta = document.createElement('span');
+    meta.className = 'chat-attachment-name';
+    meta.textContent = attachment.name;
+    wrap.appendChild(meta);
+    return wrap;
+  }
+
+  if (kind === 'audio') {
+    const audio = document.createElement('audio');
+    audio.className = 'chat-attachment-audio';
+    audio.controls = true;
+    audio.preload = 'metadata';
+    audio.src = url;
+    wrap.appendChild(audio);
+    const meta = document.createElement('span');
+    meta.className = 'chat-attachment-name';
+    meta.textContent = attachment.name;
+    wrap.appendChild(meta);
+    return wrap;
+  }
+
+  const link = document.createElement('a');
+  link.className = 'chat-attachment-file';
+  link.href = url;
+  link.download = attachment.name;
+  link.rel = 'noopener noreferrer';
+  link.innerHTML = `
+    <span class="chat-attachment-icon" aria-hidden="true">📎</span>
+    <span class="chat-attachment-info">
+      <strong>${esc(attachment.name)}</strong>
+      <small>${esc(ATTACHMENTS ? ATTACHMENTS.formatSize(attachment.size) : '')} • ${esc(t('Pobierz plik'))}</small>
+    </span>
+  `;
+  link.addEventListener('click', (event) => {
+    if (CHILL.app?.openExternal) {
+      event.preventDefault();
+      CHILL.app.openExternal(url);
+    }
+  });
+  wrap.appendChild(link);
+  return wrap;
+}
+
+function handleVoicePlaybackFailure(messageId) {
+  if (!voicePlayback.messageId || voicePlayback.messageId !== messageId) return;
+  voicePlayback.playing = false;
+  updateVoicePlayerUi();
+  if (voicePlayback.retried) {
+    toast(t('Nie można odtworzyć wiadomości głosowej.'));
+    return;
+  }
+  voicePlayback.retried = true;
+  void retryVoicePlayback().then((ok) => {
+    if (!ok) toast(t('Nie można odtworzyć wiadomości głosowej.'));
+  });
 }
 
 function ensureVoiceAudio() {
@@ -8207,9 +9020,7 @@ function ensureVoiceAudio() {
   });
   voiceAudio.addEventListener('error', () => {
     if (!voicePlayback.messageId) return;
-    voicePlayback.playing = false;
-    updateVoicePlayerUi();
-    toast(t('Nie można odtworzyć wiadomości głosowej.'));
+    handleVoicePlaybackFailure(voicePlayback.messageId);
   });
   applyVoiceVolume();
   return voiceAudio;
@@ -8274,11 +9085,8 @@ function toggleVoicePlayback(message, voice) {
   if (voicePlayback.messageId === message.id && audio.dataset.url === url) {
     if (audio.paused) {
       voicePlayback.playing = true;
-      audio.play().catch(() => {
-        voicePlayback.playing = false;
-        updateVoicePlayerUi();
-        toast(t('Nie można odtworzyć wiadomości głosowej.'));
-      });
+      voicePlayback.retried = false;
+      audio.play().catch(() => handleVoicePlaybackFailure(message.id));
     } else {
       audio.pause();
     }
@@ -8292,17 +9100,14 @@ function toggleVoicePlayback(message, voice) {
     url,
     duration: voice.seconds || 0,
     playing: true,
+    voice,
+    retried: false,
   };
   audio.dataset.messageId = message.id;
   audio.dataset.url = url;
   audio.src = url;
   updateVoicePlayerUi();
-  audio.play().catch(() => {
-    if (voicePlayback.messageId !== message.id) return;
-    voicePlayback.playing = false;
-    updateVoicePlayerUi();
-    toast(t('Nie można odtworzyć wiadomości głosowej.'));
-  });
+  audio.play().catch(() => handleVoicePlaybackFailure(message.id));
 }
 
 function seekVoicePlayback(message, voice, ratio) {
@@ -8326,7 +9131,7 @@ function resetVoicePlayback() {
     voiceAudio.dataset.url = '';
     try { voiceAudio.load(); } catch { /* ignore */ }
   }
-  voicePlayback = { messageId: '', url: '', duration: 0, playing: false };
+  voicePlayback = { messageId: '', url: '', duration: 0, playing: false, voice: null, retried: false };
 }
 
 function buildVoicePlayer(message, voice) {
@@ -8729,7 +9534,7 @@ function restoreVoiceComposer() {
   const enabled = !composer.hidden;
   $('messageInput').disabled = !enabled;
   $('voiceBtn').hidden = !enabled;
-  $('sendBtn').disabled = !enabled || !$('messageInput').value.trim();
+  refreshComposerSendState();
 }
 
 async function uploadVoiceBlob(blob, seconds) {
@@ -8835,11 +9640,130 @@ function setMessageSearch(open) {
   }
 }
 
+function clearPendingAttachment() {
+  if (pendingAttachment?.previewUrl) {
+    try { URL.revokeObjectURL(pendingAttachment.previewUrl); } catch { /* ignore */ }
+  }
+  pendingAttachment = null;
+  const box = $('composerAttachment');
+  if (box) box.hidden = true;
+  const thumb = $('composerAttachmentThumb');
+  if (thumb) {
+    thumb.style.backgroundImage = '';
+    thumb.textContent = '📎';
+  }
+  refreshComposerSendState();
+}
+
+function refreshComposerSendState() {
+  const input = $('messageInput');
+  if (!input) return;
+  const enabled = !$('composer')?.hidden && !voiceSession;
+  $('sendBtn').disabled = !enabled || attachmentUploading || (!input.value.trim() && !pendingAttachment);
+  const attach = $('attachBtn');
+  if (attach) attach.disabled = !enabled || attachmentUploading;
+}
+
+function setPendingAttachment(file) {
+  if (!file || !ATTACHMENTS) return;
+  if (!voiceTransport()) {
+    toast(t('Nie można teraz dodać pliku — połącz z serwerem.'));
+    return;
+  }
+  if (file.size > ATTACHMENTS.MAX_BYTES) {
+    toast(t('Plik jest za duży. Maksymalny rozmiar to 12 MB.'), 4200);
+    return;
+  }
+  clearPendingAttachment();
+  const previewUrl = ATTACHMENTS.kind(file.type) === 'image' ? URL.createObjectURL(file) : '';
+  pendingAttachment = {
+    file,
+    name: ATTACHMENTS.safeName(file.name),
+    mime: ATTACHMENTS.normalizeMime(file.type),
+    size: file.size,
+    previewUrl,
+  };
+  const box = $('composerAttachment');
+  const thumb = $('composerAttachmentThumb');
+  const name = $('composerAttachmentName');
+  const meta = $('composerAttachmentMeta');
+  if (box) box.hidden = false;
+  if (name) name.textContent = pendingAttachment.name;
+  if (meta) meta.textContent = `${ATTACHMENTS.formatSize(file.size)} • ${t('Wyślij plik')}`;
+  if (thumb) {
+    if (previewUrl) {
+      thumb.textContent = '';
+      thumb.style.backgroundImage = `url("${previewUrl}")`;
+    } else {
+      thumb.style.backgroundImage = '';
+      thumb.textContent = '📎';
+    }
+  }
+  $('messageInput').focus();
+  refreshComposerSendState();
+}
+
+async function sendAttachmentMessage(caption) {
+  if (!pendingAttachment || attachmentUploading) return;
+  const transport = voiceTransport();
+  if (!transport) {
+    toast(t('Nie można teraz dodać pliku — połącz z serwerem.'));
+    return;
+  }
+  const targetKey = conversationKey();
+  const attachment = pendingAttachment;
+  attachmentUploading = true;
+  refreshComposerSendState();
+  const url = `${transport.secure ? 'https' : 'http'}://${transport.address}/attachment?key=${encodeURIComponent(transport.key)}&n=${encodeURIComponent(attachment.name)}&m=${encodeURIComponent(attachment.mime)}`;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': attachment.mime || 'application/octet-stream' },
+      body: attachment.file,
+      signal: controller.signal,
+    });
+    let data = null;
+    try { data = await response.json(); } catch { /* ignore */ }
+    if (!response.ok || !data?.ok || !data.id) {
+      if (response.status === 413 || data?.error === 'too-large') {
+        throw new Error(t('Plik jest za duży. Maksymalny rozmiar to 12 MB.'));
+      }
+      throw new Error(t('Nie udało się wysłać pliku.'));
+    }
+    if (conversationKey() !== targetKey) {
+      toast(t('Nie wysłano pliku — zmieniono rozmowę.'));
+      return;
+    }
+    const token = ATTACHMENTS.token(data.id, data.name || attachment.name, data.mime || attachment.mime, data.size || attachment.size);
+    const text = caption ? `${token}\n${caption}` : token;
+    if (!deliverMessage(text)) throw new Error(t('Nie udało się wysłać pliku.'));
+    clearPendingAttachment();
+    const input = $('messageInput');
+    input.value = '';
+    resizeInput();
+    $('sendBtn').disabled = true;
+    input.focus();
+  } catch (error) {
+    toast(error?.message || t('Nie udało się wysłać pliku.'), 4200);
+  } finally {
+    clearTimeout(timeout);
+    attachmentUploading = false;
+    refreshComposerSendState();
+  }
+}
+
 function sendCurrentMessage(e) {
-  e.preventDefault();
+  if (e?.preventDefault) e.preventDefault();
   hideMentionPop();
+  if (attachmentUploading) return;
   const input = $('messageInput');
   const text = input.value.trim();
+  if (pendingAttachment) {
+    void sendAttachmentMessage(text);
+    return;
+  }
   if (!text) return;
   if (!deliverMessage(text)) return;
 
@@ -8848,6 +9772,60 @@ function sendCurrentMessage(e) {
   $('sendBtn').disabled = true;
   input.focus();
   stopTyping();
+}
+
+let dropDepth = 0;
+
+function bindAttachmentDrop() {
+  const main = $('main');
+  if (!main) return;
+  const hint = $('dropHint');
+  const show = () => {
+    if (current.kind === 'home' || current.kind === 'minigames') return;
+    if (hint) hint.hidden = false;
+  };
+  const hide = () => {
+    dropDepth = 0;
+    if (hint) hint.hidden = true;
+  };
+  main.addEventListener('dragenter', (event) => {
+    if (!Array.from(event.dataTransfer?.types || []).includes('Files')) return;
+    event.preventDefault();
+    dropDepth += 1;
+    show();
+  });
+  main.addEventListener('dragover', (event) => {
+    if (!Array.from(event.dataTransfer?.types || []).includes('Files')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+  });
+  main.addEventListener('dragleave', (event) => {
+    if (!Array.from(event.dataTransfer?.types || []).includes('Files')) return;
+    dropDepth = Math.max(0, dropDepth - 1);
+    if (!dropDepth) hide();
+  });
+  main.addEventListener('drop', (event) => {
+    const files = event.dataTransfer?.files;
+    if (!files || !files.length) return;
+    event.preventDefault();
+    hide();
+    setPendingAttachment(files[0]);
+  });
+  const input = $('messageInput');
+  if (input) {
+    input.addEventListener('paste', (event) => {
+      const items = event.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.kind !== 'file') continue;
+        const file = item.getAsFile();
+        if (!file) continue;
+        event.preventDefault();
+        setPendingAttachment(file);
+        break;
+      }
+    });
+  }
 }
 
 function deliverMessage(text) {
@@ -8881,6 +9859,10 @@ function deliverMessage(text) {
         toast(t('Serwer jest offline — spróbuj, gdy połączenie wróci.'));
         return false;
       }
+      if (accountById(entry.memberId) && !isAccountFriend(entry.memberId)) {
+        toast(t('Aby wysłać wiadomość, najpierw zaczekaj na akceptację zaproszenia.'));
+        return false;
+      }
       const message = {
         id: `sdm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         authorId: state.you.memberId,
@@ -8893,6 +9875,10 @@ function deliverMessage(text) {
       state.ws.send(JSON.stringify({ type: 'server:dm', to: entry.memberId, text }));
       pushHistory(conversationKey(), message);
     } else {
+      if (!isAccountFriend(current.id)) {
+        toast(t('Aby wysłać wiadomość, najpierw zaczekaj na akceptację zaproszenia.'));
+        return false;
+      }
       if (!wsReady()) {
         toast(t('Łączę z serwerem — spróbuj za chwilę.'));
         connect();
@@ -9783,7 +10769,7 @@ function bindGif() {
       gifState.query = '';
       search.value = '';
       renderGifCategories();
-      renderGifs();
+      loadGifResults(true);
       search.focus();
     }
   });
@@ -9795,7 +10781,8 @@ function bindGif() {
     gifState.query = search.value;
     const isSearching = Boolean(gifState.query.trim());
     if (wasSearching !== isSearching) renderGifCategories();
-    renderGifs();
+    clearTimeout(gifSearchTimer);
+    gifSearchTimer = setTimeout(() => loadGifResults(true), 300);
   });
   search.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -9810,14 +10797,28 @@ function bindGif() {
     gifState.query = '';
     search.value = '';
     renderGifCategories();
-    renderGifs();
+    loadGifResults(true);
     search.focus();
+  });
+  $('gifApiBtn')?.addEventListener('click', () => {
+    const currentKey = getKlipyApiKey();
+    const key = window.prompt(t('Wklej klucz API KLIPY z partner.klipy.com. Klucz zapisze się tylko na tym urządzeniu.'), currentKey);
+    if (key === null) return;
+    const trimmed = key.trim();
+    try {
+      if (trimmed) localStorage.setItem(GIF_KLIPY_API_KEY_STORAGE, trimmed);
+      else localStorage.removeItem(GIF_KLIPY_API_KEY_STORAGE);
+    } catch { /* storage can be unavailable in private mode */ }
+    loadGifResults(true);
   });
   $('giphyLink').addEventListener('click', () => {
     CHILL.app?.openExternal?.('https://giphy.com');
   });
   $('klipyLink').addEventListener('click', () => {
     CHILL.app?.openExternal?.('https://klipy.com');
+  });
+  $('tenorLink').addEventListener('click', () => {
+    CHILL.app?.openExternal?.('https://tenor.com');
   });
 }
 
@@ -9828,8 +10829,75 @@ function closeGifPicker() {
     gifPreviewObserver.disconnect();
     gifPreviewObserver = null;
   }
+  if (gifPageObserver) {
+    gifPageObserver.disconnect();
+    gifPageObserver = null;
+  }
   const button = $('gifBtn');
   if (button) button.setAttribute('aria-expanded', 'false');
+}
+
+function getKlipyApiKey() {
+  try { return String(localStorage.getItem(GIF_KLIPY_API_KEY_STORAGE) || '').trim(); }
+  catch { return ''; }
+}
+
+function klipyQueryForPicker() {
+  const typed = gifState.query.trim();
+  if (typed) return typed;
+  if (gifState.category === GIF_KLIPY_CATEGORY || gifState.category === GIF_ALL_CATEGORIES) return 'trending';
+  return GIF_CATEGORY_QUERY[gifState.category] || gifState.category;
+}
+
+function mapKlipyResult(item) {
+  if (!item || item.type === 'ad') return null;
+  const formats = item.media_formats || {};
+  const full = formats.gif?.url || formats.mediumgif?.url || '';
+  const preview = formats.tinygif?.url || formats.nanogif?.url || formats.preview?.url || full;
+  const dimensions = formats.tinygif?.dims || formats.preview?.dims || formats.gif?.dims || [0, 0];
+  if (!KLIPY_MEDIA_RE.test(full) || !KLIPY_MEDIA_RE.test(preview)) return null;
+  return {
+    source: 'klipy', id: String(item.id || ''), title: String(item.title || item.content_description || 'GIF'),
+    category: 'KLIPY', tags: Array.isArray(item.tags) ? item.tags.join(' ') : '',
+    w: Number(dimensions[0]) || 0, h: Number(dimensions[1]) || 0,
+    gif: full, webp: preview, page: String(item.itemurl || item.url || ''),
+  };
+}
+
+async function loadGifResults(reset = false) {
+  const key = getKlipyApiKey();
+  if (!key) {
+    gifRemoteState = { query: '', next: '', items: [], loading: false, done: true, error: '', requestId: gifRemoteState.requestId + 1 };
+    renderGifs();
+    return;
+  }
+  const query = klipyQueryForPicker();
+  if (reset) {
+    gifRemoteState = { query, next: '', items: [], loading: false, done: false, error: '', requestId: gifRemoteState.requestId + 1 };
+  } else if (gifRemoteState.loading || gifRemoteState.done || gifRemoteState.query !== query) return;
+  const requestId = gifRemoteState.requestId;
+  gifRemoteState.loading = true;
+  renderGifs();
+  const params = new URLSearchParams({ key, q: query, limit: '30', country: 'PL', locale: 'pl_PL', contentfilter: 'high', media_filter: 'gif,tinygif,nanogif' });
+  if (gifRemoteState.next) params.set('pos', gifRemoteState.next);
+  try {
+    const response = await fetch(`${GIF_KLIPY_API}/search?${params}`, { headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    if (requestId !== gifRemoteState.requestId) return;
+    const incoming = (Array.isArray(data.results) ? data.results : []).map(mapKlipyResult).filter(Boolean);
+    gifRemoteState.items = reset ? incoming : gifRemoteState.items.concat(incoming);
+    gifRemoteState.next = String(data.next || '');
+    gifRemoteState.done = !gifRemoteState.next || incoming.length === 0;
+    gifRemoteState.error = '';
+  } catch (error) {
+    if (requestId === gifRemoteState.requestId) gifRemoteState.error = error?.message || 'error';
+  } finally {
+    if (requestId === gifRemoteState.requestId) {
+      gifRemoteState.loading = false;
+      renderGifs();
+    }
+  }
 }
 
 function renderGifCategories() {
@@ -9837,6 +10905,7 @@ function renderGifCategories() {
   if (!container) return;
   const categories = [GIF_ALL_CATEGORIES];
   if (GIFS.some((gif) => gif?.source === 'klipy')) categories.push(GIF_KLIPY_CATEGORY);
+  if (GIFS.some((gif) => gif?.source === 'tenor')) categories.push(GIF_TENOR_CATEGORY);
   for (const gif of GIFS) {
     if (gif?.category && !categories.includes(gif.category)) categories.push(gif.category);
   }
@@ -9860,11 +10929,12 @@ function renderGifs() {
   if (!grid) return;
   const query = foldGifText(gifState.query);
   const terms = query.split(/\s+/).filter(Boolean);
-  const list = GIFS.filter((gif) => {
+  const hasApiKey = Boolean(getKlipyApiKey());
+  const list = hasApiKey ? gifRemoteState.items : GIFS.filter((gif) => {
     if (!isGifEntry(gif)) return false;
     if (terms.length) {
       const categorySearch = GIF_CATEGORY_QUERY[gif.category] || '';
-      const source = gif.source === 'klipy' ? 'klipy' : 'giphy';
+      const source = gifSource(gif);
       const haystack = foldGifText(`${gif.title} ${gif.category} ${source} ${categorySearch} ${gif.tags}`);
       return terms.every((term) => {
         if (haystack.includes(term)) return true;
@@ -9873,16 +10943,36 @@ function renderGifs() {
     }
     if (gifState.category === GIF_ALL_CATEGORIES) return true;
     if (gifState.category === GIF_KLIPY_CATEGORY) return gif.source === 'klipy';
+    if (gifState.category === GIF_TENOR_CATEGORY) return gif.source === 'tenor';
     return gif.category === gifState.category;
   });
   if (gifPreviewObserver) {
     gifPreviewObserver.disconnect();
     gifPreviewObserver = null;
   }
+  if (gifPageObserver) {
+    gifPageObserver.disconnect();
+    gifPageObserver = null;
+  }
   grid.innerHTML = '';
   grid.classList.toggle('is-empty', !list.length);
   if (!list.length) {
-    grid.innerHTML = `<div class="gif-empty">${esc(t('Nic nie znaleziono'))}</div>`;
+    const empty = document.createElement('div');
+    empty.className = 'gif-empty';
+    empty.textContent = !hasApiKey && gifState.query.trim()
+      ? t('Wyniki z internetu wymagają klucza KLIPY.')
+      : gifRemoteState.error ? t('Nie udało się pobrać GIF-ów. Sprawdź klucz API i połączenie.')
+        : gifRemoteState.loading ? t('Ładowanie GIF-ów…') : t('Nic nie znaleziono');
+    grid.appendChild(empty);
+    if (!hasApiKey && gifState.query.trim()) {
+      const setup = document.createElement('button');
+      setup.type = 'button';
+      setup.className = 'gif-inline-setup';
+      setup.textContent = t('Skonfiguruj klucz API');
+      setup.addEventListener('click', () => $('gifApiBtn')?.click());
+      empty.appendChild(document.createElement('br'));
+      empty.appendChild(setup);
+    }
     return;
   }
   const columns = [document.createElement('div'), document.createElement('div')];
@@ -9944,12 +11034,32 @@ function renderGifs() {
     if (observer) observer.observe(img);
     else img.src = img.dataset.src;
   });
+  if (hasApiKey && (gifRemoteState.loading || !gifRemoteState.done)) {
+    const sentinel = document.createElement('div');
+    sentinel.className = 'gif-load-more';
+    sentinel.textContent = gifRemoteState.loading ? t('Ładowanie GIF-ów…') : t('Przewiń, aby załadować więcej');
+    grid.appendChild(sentinel);
+    if (!gifRemoteState.loading && typeof IntersectionObserver === 'function') {
+      gifPageObserver = new IntersectionObserver((entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          gifPageObserver?.disconnect();
+          gifPageObserver = null;
+          loadGifResults(false);
+        }
+      }, { root: grid, rootMargin: '240px 0px' });
+      gifPageObserver.observe(sentinel);
+    }
+  }
 }
 
 function sendGif(gif) {
   if (!isGifEntry(gif) || $('composer').hidden) return;
   const url = gifMessageUrl(gif);
   if (!url) return;
+  if (gifSource(gif) === 'klipy' && gif.id && getKlipyApiKey()) {
+    const params = new URLSearchParams({ key: getKlipyApiKey(), id: gif.id, q: klipyQueryForPicker(), country: 'PL', locale: 'pl_PL' });
+    fetch(`${GIF_KLIPY_API}/registershare?${params}`).catch(() => {});
+  }
   hideMentionPop();
   if (!deliverMessage(url)) return;
   closeGifPicker();
@@ -9964,59 +11074,105 @@ function gifMessageDescriptor(text) {
     const id = match[1];
     return GIF_BY_ID.get(id) || { source: 'giphy', id, title: 'GIF', w: 0, h: 0 };
   }
-  if (!KLIPY_MEDIA_RE.test(value)) return null;
-  const known = KLIPY_BY_URL.get(value);
-  if (known) return known;
+  const knownKlipy = KLIPY_BY_URL.get(value);
+  if (knownKlipy) return knownKlipy;
+  const knownTenor = TENOR_BY_URL.get(value);
+  if (knownTenor) return knownTenor;
+  if (KLIPY_MEDIA_RE.test(value)) {
+    return {
+      source: 'klipy',
+      id: '',
+      title: 'GIF',
+      w: 0,
+      h: 0,
+      webp: value.endsWith('.webp') ? value : '',
+      gif: value.endsWith('.gif') ? value : '',
+    };
+  }
+  if (!TENOR_MEDIA_RE.test(value)) return null;
   return {
-    source: 'klipy',
+    source: 'tenor',
     id: '',
     title: 'GIF',
     w: 0,
     h: 0,
     webp: value.endsWith('.webp') ? value : '',
     gif: value.endsWith('.gif') ? value : '',
+    page: '',
   };
 }
 
 function gifSource(gif) {
-  return gif?.source === 'klipy' ? 'klipy' : 'giphy';
+  if (gif?.source === 'klipy') return 'klipy';
+  if (gif?.source === 'tenor') return 'tenor';
+  return 'giphy';
 }
 
 function gifMessageUrl(gif) {
-  if (gifSource(gif) === 'klipy') {
+  const source = gifSource(gif);
+  if (source === 'klipy') {
     return KLIPY_MEDIA_RE.test(String(gif?.gif || '')) ? gif.gif : '';
+  }
+  if (source === 'tenor') {
+    return TENOR_MEDIA_RE.test(String(gif?.gif || '')) ? gif.gif : '';
   }
   return gifFullUrl(gif?.id);
 }
 
 function gifChatSource(gif) {
-  if (gifSource(gif) === 'klipy') return gif?.webp || gif?.gif || '';
+  const source = gifSource(gif);
+  if (source === 'klipy') return gif?.webp || gif?.gif || '';
+  if (source === 'tenor') {
+    if (TENOR_MEDIA_RE.test(String(gif?.webp || ''))) return gif.webp;
+    return TENOR_MEDIA_RE.test(String(gif?.gif || '')) ? gif.gif : '';
+  }
   return gifChatUrl(gif?.id);
 }
 
 function gifChatFallback(gif) {
-  if (gifSource(gif) === 'klipy') return gif?.gif || gif?.webp || '';
+  const source = gifSource(gif);
+  if (source === 'klipy') return gif?.gif || gif?.webp || '';
+  if (source === 'tenor') {
+    if (TENOR_MEDIA_RE.test(String(gif?.gif || ''))) return gif.gif;
+    return TENOR_MEDIA_RE.test(String(gif?.webp || '')) ? gif.webp : '';
+  }
   return gifFullUrl(gif?.id);
 }
 
 function gifOpenUrl(gif) {
-  if (gifSource(gif) === 'klipy') {
+  const source = gifSource(gif);
+  if (source === 'klipy') {
+    if (/^https:\/\/(?:www\.)?klipy\.com\//.test(String(gif?.page || ''))) return gif.page;
     const id = String(gif?.id || '');
     if (KLIPY_PAGE_RE.test(id)) return `https://klipy.com/gifs/${id}`;
+    return gif?.gif || gif?.webp || '';
+  }
+  if (source === 'tenor') {
+    if (TENOR_PAGE_RE.test(String(gif?.page || ''))) return gif.page;
     return gif?.gif || gif?.webp || '';
   }
   return gifFullUrl(gif?.id);
 }
 
 function gifAttributionLabel(gif) {
-  return gifSource(gif) === 'klipy' ? 'GIF • KLIPY' : 'GIF • GIPHY';
+  const source = gifSource(gif);
+  if (source === 'klipy') return 'GIF • KLIPY';
+  if (source === 'tenor') return 'GIF • Tenor';
+  return 'GIF • GIPHY';
 }
 
 function isGifEntry(gif) {
   if (!gif) return false;
-  if (gifSource(gif) === 'klipy') {
+  const source = gifSource(gif);
+  if (source === 'klipy') {
     return KLIPY_MEDIA_RE.test(String(gif.webp || ''))
       && KLIPY_MEDIA_RE.test(String(gif.gif || ''))
+      && Number(gif.w) > 0
+      && Number(gif.h) > 0;
+  }
+  if (source === 'tenor') {
+    return TENOR_MEDIA_RE.test(String(gif.webp || ''))
+      && TENOR_MEDIA_RE.test(String(gif.gif || ''))
       && Number(gif.w) > 0
       && Number(gif.h) > 0;
   }
@@ -10024,17 +11180,28 @@ function isGifEntry(gif) {
 }
 
 function gifPreviewSource(gif) {
-  if (gifSource(gif) === 'klipy') return gif?.webp || gif?.gif || '';
+  const source = gifSource(gif);
+  if (source === 'klipy') return gif?.webp || gif?.gif || '';
+  if (source === 'tenor') {
+    if (TENOR_MEDIA_RE.test(String(gif?.webp || ''))) return gif.webp;
+    return TENOR_MEDIA_RE.test(String(gif?.gif || '')) ? gif.gif : '';
+  }
   return gifPreviewUrl(gif?.id);
 }
 
 function gifPreviewFallbackSource(gif) {
-  if (gifSource(gif) === 'klipy') return gif?.gif || gif?.webp || '';
+  const source = gifSource(gif);
+  if (source === 'klipy') return gif?.gif || gif?.webp || '';
+  if (source === 'tenor') {
+    if (TENOR_MEDIA_RE.test(String(gif?.gif || ''))) return gif.gif;
+    return TENOR_MEDIA_RE.test(String(gif?.webp || '')) ? gif.webp : '';
+  }
   return gifPreviewFallbackUrl(gif?.id);
 }
 
 function gifPreviewTinySource(gif) {
   if (gifSource(gif) === 'klipy') return '';
+  if (gifSource(gif) === 'tenor') return '';
   return gifTinyPreviewUrl(gif?.id);
 }
 

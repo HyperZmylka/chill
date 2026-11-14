@@ -21,6 +21,7 @@ use crate::state::*;
 
 const MAX_BRIDGE_BODY: usize = 4 * 1024 * 1024;
 const MAX_VOICE_BODY: usize = 4 * 1024 * 1024;
+const MAX_ATTACHMENT_BODY: usize = 12 * 1024 * 1024;
 const MIN_VOICE_SECONDS: f64 = 0.5;
 const MAX_VOICE_SECONDS: f64 = 120.0;
 
@@ -66,6 +67,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             "/voice/{id}",
             get(voice_download).delete(voice_delete),
+        )
+        .route("/attachment", post(attachment_upload))
+        .route(
+            "/attachment/{id}",
+            get(attachment_download).delete(attachment_delete),
         )
         .route("/chat", get(ws_upgrade))
         .route("/{*path}", get(asset))
@@ -269,6 +275,7 @@ async fn asset(
         "gifs.js" => ("gifs.js", "text/javascript; charset=utf-8"),
         "stickers.js" => ("stickers.js", "text/javascript; charset=utf-8"),
         "voice.js" => ("voice.js", "text/javascript; charset=utf-8"),
+        "attachments.js" => ("attachments.js", "text/javascript; charset=utf-8"),
         "appearance.js" => ("appearance.js", "text/javascript; charset=utf-8"),
         "chill-web.js" => ("chill-web.js", "text/javascript; charset=utf-8"),
         "tauri-desktop.js" => ("tauri-desktop.js", "text/javascript; charset=utf-8"),
@@ -482,6 +489,91 @@ fn extension_for_mime(mime: &str) -> &'static str {
         "audio/wav" | "audio/x-wav" => "wav",
         _ => "",
     }
+}
+
+fn normalize_attachment_mime(value: &str) -> String {
+    let base = value
+        .split(';')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    let valid = !base.is_empty()
+        && base.len() <= 100
+        && base
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '+' | '.' | '-'));
+    if valid {
+        base
+    } else {
+        "application/octet-stream".to_string()
+    }
+}
+
+fn safe_attachment_name(value: &str) -> String {
+    let cleaned: String = value
+        .chars()
+        .filter(|c| !c.is_control() && !matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*'))
+        .collect();
+    let name = take_chars(cleaned.trim(), 120);
+    if name.is_empty() {
+        "plik".to_string()
+    } else {
+        name
+    }
+}
+
+fn attachment_extension_for_mime(mime: &str, name: &str) -> String {
+    let ext = match mime {
+        "image/png" => "png",
+        "image/jpeg" => "jpg",
+        "image/webp" => "webp",
+        "image/gif" => "gif",
+        "video/mp4" => "mp4",
+        "video/webm" => "webm",
+        "video/quicktime" => "mov",
+        "audio/mpeg" => "mp3",
+        "audio/ogg" => "ogg",
+        "audio/wav" | "audio/x-wav" => "wav",
+        "audio/webm" => "weba",
+        "audio/mp4" => "m4a",
+        "application/pdf" => "pdf",
+        "application/zip" => "zip",
+        "text/plain" => "txt",
+        _ => "",
+    };
+    if !ext.is_empty() {
+        return ext.to_string();
+    }
+    name.rsplit_once('.')
+        .map(|(_, ext)| {
+            ext.chars()
+                .filter(|c| c.is_ascii_alphanumeric())
+                .take(8)
+                .collect::<String>()
+                .to_lowercase()
+        })
+        .filter(|ext| !ext.is_empty())
+        .unwrap_or_else(|| "bin".to_string())
+}
+
+fn attachment_inline(mime: &str) -> bool {
+    matches!(
+        mime,
+        "image/png"
+            | "image/jpeg"
+            | "image/webp"
+            | "image/gif"
+            | "video/mp4"
+            | "video/webm"
+            | "video/quicktime"
+            | "audio/mpeg"
+            | "audio/ogg"
+            | "audio/wav"
+            | "audio/x-wav"
+            | "audio/webm"
+            | "audio/mp4"
+    )
 }
 
 fn clamp_seconds(value: f64) -> f64 {
@@ -753,5 +845,233 @@ async fn voice_delete(
         );
     }
     state.remove_voice_item(&id, false);
+    json_response(StatusCode::OK, &json!({ "ok": true }))
+}
+
+async fn attachment_upload(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
+    body: axum::body::Bytes,
+) -> Response {
+    let token = query.get("key").cloned().unwrap_or_default();
+    let Some(auth) = state.active_voice_token(&token) else {
+        return json_response(
+            StatusCode::UNAUTHORIZED,
+            &json!({ "ok": false, "error": "unauthorized" }),
+        );
+    };
+    let name = safe_attachment_name(query.get("n").map(String::as_str).unwrap_or(""));
+    let mime = normalize_attachment_mime(
+        query
+            .get("m")
+            .map(String::as_str)
+            .or_else(|| headers.get(CONTENT_TYPE).and_then(|value| value.to_str().ok()))
+            .unwrap_or("application/octet-stream"),
+    );
+    if let Some(length) = headers
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<usize>().ok())
+    {
+        if length > MAX_ATTACHMENT_BODY {
+            return json_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                &json!({ "ok": false, "error": "too-large" }),
+            );
+        }
+    }
+    if body.len() > MAX_ATTACHMENT_BODY {
+        return json_response(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            &json!({ "ok": false, "error": "too-large" }),
+        );
+    }
+    if body.is_empty() {
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            &json!({ "ok": false, "error": "empty-file" }),
+        );
+    }
+    let id = random_hex(16);
+    let ext = attachment_extension_for_mime(&mime, &name);
+    let file = format!("{}.{}", id, ext);
+    let dir = state.attachments_dir();
+    if tokio::fs::create_dir_all(&dir).await.is_err() {
+        return json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &json!({ "ok": false, "error": "save-failed" }),
+        );
+    }
+    if tokio::fs::write(dir.join(&file), &body).await.is_err() {
+        return json_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &json!({ "ok": false, "error": "save-failed" }),
+        );
+    }
+    {
+        let mut store = state.attachments.write();
+        store.items.insert(
+            id.clone(),
+            AttachmentItem {
+                id: id.clone(),
+                scope: auth.scope,
+                owner_id: auth.member_id,
+                name: name.clone(),
+                mime: mime.clone(),
+                ext,
+                file,
+                size: body.len() as u64,
+                at: now_ms(),
+            },
+        );
+    }
+    state.save_attachments();
+    json_response(
+        StatusCode::OK,
+        &json!({ "ok": true, "id": id, "name": name, "mime": mime, "size": body.len() }),
+    )
+}
+
+async fn attachment_download(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+    method: Method,
+) -> Response {
+    if id.len() != 32 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return json_response(
+            StatusCode::NOT_FOUND,
+            &json!({ "ok": false, "error": "not-found" }),
+        );
+    }
+    let token = query.get("key").cloned().unwrap_or_default();
+    let Some(auth) = state.active_voice_token(&token) else {
+        return json_response(
+            StatusCode::UNAUTHORIZED,
+            &json!({ "ok": false, "error": "unauthorized" }),
+        );
+    };
+    let item = state.attachments.read().items.get(&id).cloned();
+    let Some(item) = item else {
+        return json_response(
+            StatusCode::NOT_FOUND,
+            &json!({ "ok": false, "error": "not-found" }),
+        );
+    };
+    if item.scope != auth.scope {
+        return json_response(
+            StatusCode::NOT_FOUND,
+            &json!({ "ok": false, "error": "not-found" }),
+        );
+    }
+    let path = state.attachments_dir().join(&item.file);
+    let Ok(data) = tokio::fs::read(&path).await else {
+        return json_response(
+            StatusCode::NOT_FOUND,
+            &json!({ "ok": false, "error": "not-found" }),
+        );
+    };
+    let size = data.len() as u64;
+    let inline = attachment_inline(&item.mime);
+    let mut response;
+    if method == Method::HEAD {
+        response = Response::new(Body::empty());
+        response
+            .headers_mut()
+            .insert(CONTENT_LENGTH, HeaderValue::from_str(&size.to_string()).unwrap());
+    } else if let Some((start, end)) = headers
+        .get(RANGE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| parse_byte_range(value, size))
+    {
+        let slice = data[start as usize..=(end as usize)].to_vec();
+        response = Response::new(Body::from(slice));
+        *response.status_mut() = StatusCode::PARTIAL_CONTENT;
+        response.headers_mut().insert(
+            CONTENT_LENGTH,
+            HeaderValue::from_str(&(end - start + 1).to_string()).unwrap(),
+        );
+        response.headers_mut().insert(
+            CONTENT_RANGE,
+            HeaderValue::from_str(&format!("bytes {}-{}/{}", start, end, size)).unwrap(),
+        );
+    } else {
+        response = Response::new(Body::from(data));
+        response
+            .headers_mut()
+            .insert(CONTENT_LENGTH, HeaderValue::from_str(&size.to_string()).unwrap());
+    }
+    response.headers_mut().insert(
+        CONTENT_TYPE,
+        HeaderValue::from_str(if inline { &item.mime } else { "application/octet-stream" })
+            .unwrap_or(HeaderValue::from_static("application/octet-stream")),
+    );
+    response.headers_mut().insert(
+        CACHE_CONTROL,
+        HeaderValue::from_static("private, max-age=86400"),
+    );
+    response
+        .headers_mut()
+        .insert("accept-ranges", HeaderValue::from_static("bytes"));
+    let ascii_name: String = item
+        .name
+        .chars()
+        .map(|c| if c.is_ascii_graphic() || c == ' ' { c } else { '_' })
+        .map(|c| if c == '"' || c == '\\' { '_' } else { c })
+        .collect();
+    let disposition = format!(
+        "{}; filename=\"{}\"; filename*=UTF-8''{}",
+        if inline { "inline" } else { "attachment" },
+        ascii_name,
+        url::form_urlencoded::byte_serialize(item.name.as_bytes()).collect::<String>()
+    );
+    if let Ok(value) = HeaderValue::from_str(&disposition) {
+        response
+            .headers_mut()
+            .insert("content-disposition", value);
+    }
+    response
+}
+
+async fn attachment_delete(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+) -> Response {
+    if id.len() != 32 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return json_response(
+            StatusCode::NOT_FOUND,
+            &json!({ "ok": false, "error": "not-found" }),
+        );
+    }
+    let token = query.get("key").cloned().unwrap_or_default();
+    let Some(auth) = state.active_voice_token(&token) else {
+        return json_response(
+            StatusCode::UNAUTHORIZED,
+            &json!({ "ok": false, "error": "unauthorized" }),
+        );
+    };
+    let item = state.attachments.read().items.get(&id).cloned();
+    let Some(item) = item else {
+        return json_response(
+            StatusCode::NOT_FOUND,
+            &json!({ "ok": false, "error": "not-found" }),
+        );
+    };
+    if item.scope != auth.scope {
+        return json_response(
+            StatusCode::NOT_FOUND,
+            &json!({ "ok": false, "error": "not-found" }),
+        );
+    }
+    if item.owner_id != auth.member_id {
+        return json_response(
+            StatusCode::FORBIDDEN,
+            &json!({ "ok": false, "error": "forbidden" }),
+        );
+    }
+    state.remove_attachment_item(&id, true);
     json_response(StatusCode::OK, &json!({ "ok": true }))
 }

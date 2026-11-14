@@ -16,7 +16,7 @@ use tokio::task::JoinHandle;
 use crate::config::Config;
 use crate::state::AppState;
 
-pub const MAX_BODY: usize = 8 * 1024 * 1024;
+pub const MAX_BODY: usize = 13 * 1024 * 1024;
 
 /// Binds the embedded HTTP server, returning the actual address, state and task.
 pub async fn start(mut config: Config) -> Result<Started> {

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: https://*.giphy.com https://*.klipy.com https://cdn.discordapp.com; media-src 'self' blob: data: http: https:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws: wss: http: https:;">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' blob: data: http: https: https://*.giphy.com https://*.klipy.com https://*.tenor.com https://cdn.discordapp.com https://*.scdn.co https://*.spotifycdn.com; media-src 'self' blob: data: http: https:; frame-src https://open.spotify.com https://embed.spotify.com; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src ws: wss: http: https:;">
 <title>Chill</title>
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="minigames.css">
@@ -334,6 +334,13 @@
     </header>
 
     <div class="chat-body">
+      <div class="drop-hint" id="dropHint" hidden>
+        <div class="drop-hint-card">
+          <span class="drop-hint-icon" aria-hidden="true">📎</span>
+          <strong data-i18n="Upuść plik, aby go wysłać">Upuść plik, aby go wysłać</strong>
+          <small data-i18n="Możesz dodać opis w polu wiadomości.">Możesz dodać opis w polu wiadomości.</small>
+        </div>
+      </div>
       <div class="messages" id="messages"></div>
       <section class="voice-view" id="voiceView" hidden aria-label="Kanał głosowy" data-i18n-aria-label="Kanał głosowy">
         <header class="voice-view-head">
@@ -342,8 +349,39 @@
             <h2 id="voiceViewName">Kanał głosowy</h2>
             <p id="voiceViewSub"></p>
           </div>
+          <button type="button" class="invite-btn spotify-toggle" id="spotifyToggle" title="Spotify" data-i18n-title="Spotify">Spotify</button>
           <button type="button" class="invite-btn" id="voiceViewInvite" title="Zaproś na kanał głosowy" data-i18n-title="Zaproś na kanał głosowy">Zaproś</button>
         </header>
+        <section class="spotify-panel" id="spotifyPanel" hidden aria-label="Spotify" data-i18n-aria-label="Spotify">
+          <header class="spotify-head">
+            <span class="spotify-logo" aria-hidden="true">♫</span>
+            <div>
+              <strong>Spotify</strong>
+              <small data-i18n="Muzyka dla całego kanału">Muzyka dla całego kanału</small>
+            </div>
+            <button type="button" class="icon-btn tiny" id="closeSpotify" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+          </header>
+          <div class="spotify-now" id="spotifyNow" hidden>
+            <iframe id="spotifyFrame" title="Spotify" width="100%" height="152" frameborder="0" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
+            <div class="spotify-meta">
+              <strong id="spotifyTitle">Spotify</strong>
+              <small id="spotifyBy"></small>
+            </div>
+            <div class="spotify-actions">
+              <button type="button" class="btn-secondary" id="spotifyOpenBtn" data-i18n="Otwórz Spotify">Otwórz Spotify</button>
+              <button type="button" class="btn-secondary danger" id="spotifyClearBtn" data-i18n="Wyłącz muzykę">Wyłącz muzykę</button>
+            </div>
+          </div>
+          <div class="spotify-empty" id="spotifyEmpty">
+            <span class="spotify-empty-icon" aria-hidden="true">🎵</span>
+            <p data-i18n="Wklej link do utworu, albumu lub playlisty Spotify. Wszyscy na kanale zobaczą ten sam odtwarzacz.">Wklej link do utworu, albumu lub playlisty Spotify. Wszyscy na kanale zobaczą ten sam odtwarzacz.</p>
+          </div>
+          <form class="spotify-form" id="spotifyForm">
+            <input type="text" id="spotifyInput" placeholder="Link Spotify lub nazwa utworu…" data-i18n-placeholder="Link Spotify lub nazwa utworu…" maxlength="240" spellcheck="false">
+            <button type="submit" class="btn-secondary" id="spotifySubmit" data-i18n="Odtwórz">Odtwórz</button>
+          </form>
+          <p class="spotify-hint" id="spotifyHint" data-i18n="Jeśli wpiszesz nazwę utworu, otworzymy wyszukiwarkę Spotify — skopiuj link i wklej go tutaj.">Jeśli wpiszesz nazwę utworu, otworzymy wyszukiwarkę Spotify — skopiuj link i wklej go tutaj.</p>
+        </section>
         <div class="voice-view-screen" id="voiceViewScreen" hidden>
           <div class="voice-screen-frame">
             <canvas id="voiceScreenCanvas" width="16" height="9" aria-label="Udostępniony ekran" data-i18n-aria-label="Udostępniony ekran"></canvas>
@@ -369,8 +407,22 @@
     </div>
 
     <form class="composer" id="composer" autocomplete="off">
+      <div class="composer-attachment" id="composerAttachment" hidden>
+        <span class="composer-attachment-thumb" id="composerAttachmentThumb" aria-hidden="true">📎</span>
+        <span class="composer-attachment-info">
+          <strong id="composerAttachmentName">plik</strong>
+          <small id="composerAttachmentMeta"></small>
+        </span>
+        <button type="button" class="composer-attachment-remove" id="composerAttachmentRemove" title="Usuń załącznik" aria-label="Usuń załącznik" data-i18n-title="Usuń załącznik" data-i18n-aria-label="Usuń załącznik">✕</button>
+      </div>
       <div class="composer-field">
         <textarea id="messageInput" rows="1" placeholder="Napisz wiadomość…" data-i18n-placeholder="Napisz wiadomość…" maxlength="4000" spellcheck="true"></textarea>
+        <button type="button" class="composer-btn attach-btn" id="attachBtn" title="Dodaj plik" aria-label="Dodaj plik" data-i18n-title="Dodaj plik" data-i18n-aria-label="Dodaj plik">
+          <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 11.5l-8.6 8.6a5 5 0 0 1-7.1-7.1l8.7-8.7a3.3 3.3 0 0 1 4.7 4.7l-8.7 8.7a1.7 1.7 0 0 1-2.4-2.4l8-8"/>
+          </svg>
+        </button>
+        <input type="file" id="attachmentInput" hidden>
         <button type="button" class="composer-btn" id="emojiBtn" title="Emoji" aria-label="Emoji" data-i18n-title="Emoji" data-i18n-aria-label="Emoji">☺</button>
         <button type="button" class="composer-btn sticker-btn" id="stickerBtn" title="Naklejki" aria-label="Naklejki" aria-controls="stickerOverlay" aria-expanded="false" data-i18n-title="Naklejki" data-i18n-aria-label="Naklejki">
           <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -431,13 +483,16 @@
         <strong>GIF</strong>
         <button type="button" class="icon-btn tiny" id="closeGif" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
       </header>
-      <input type="search" class="gif-search" id="gifSearch" placeholder="Szukaj GIF-ów…" data-i18n-placeholder="Szukaj GIF-ów…" spellcheck="false">
+      <input type="search" class="gif-search" id="gifSearch" placeholder="Search KLIPY" spellcheck="false">
       <div class="gif-categories" id="gifCategories"></div>
       <div class="gif-grid" id="gifGrid"></div>
       <footer class="gif-foot">
         <button type="button" class="gif-attribution" id="giphyLink" title="GIPHY">Powered by GIPHY</button>
         <span class="gif-foot-sep" aria-hidden="true">·</span>
         <button type="button" class="gif-attribution" id="klipyLink" title="KLIPY">Powered by KLIPY</button>
+        <span class="gif-foot-sep" aria-hidden="true">·</span>
+        <button type="button" class="gif-attribution" id="tenorLink" title="Tenor">Powered by Tenor</button>
+        <button type="button" class="gif-attribution gif-api-setup" id="gifApiBtn" title="KLIPY API">KLIPY API ⚙</button>
       </footer>
     </div>
   </main>
@@ -1268,6 +1323,11 @@
         <code id="inviteLink">chill://…</code>
         <button type="button" class="btn-secondary" id="copyInviteBtn" data-i18n="Kopiuj">Kopiuj</button>
       </div>
+      <div class="invite-box invite-app-box" id="inviteAppBox" hidden>
+        <code id="inviteAppLink">chill://…</code>
+        <button type="button" class="btn-secondary" id="copyInviteAppBtn" data-i18n="Kopiuj">Kopiuj</button>
+        <button type="button" class="btn-secondary" id="openInviteAppBtn" data-i18n="Otwórz w aplikacji">Otwórz w aplikacji</button>
+      </div>
       <p class="server-hint invite-network" id="inviteNetworkStatus" aria-live="polite" hidden></p>
       <button type="button" class="btn-secondary invite-retry" id="retryInviteTunnel" data-i18n="Spróbuj ponownie" hidden>Spróbuj ponownie</button>
       <p class="server-hint" id="inviteHint" data-i18n="Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie &quot;Dołącz kodem&quot;.">Wyślij ten link znajomemu. Musi mieć uruchomiony Chill i wpisać go w oknie "Dołącz kodem".</p>
@@ -1700,6 +1760,7 @@
 <script src="gifs.js"></script>
 <script src="stickers.js"></script>
 <script src="voice.js"></script>
+<script src="attachments.js"></script>
 <script src="appearance.js"></script>
 <script src="chill-web.js"></script>
 <script src="tauri-desktop.js"></script>

@@ -128,8 +128,10 @@ fn compute_build(root: &Path) -> String {
         "gifs.js",
         "stickers.js",
         "voice.js",
+        "attachments.js",
         "appearance.js",
         "chill-web.js",
+        "tauri-desktop.js",
         "main.js",
     ];
     let mut hash = Sha1::new();

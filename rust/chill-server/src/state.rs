@@ -100,11 +100,14 @@ pub struct AppState {
     pub servers: RwLock<ServersStore>,
     pub chat: RwLock<ChatStore>,
     pub voice: RwLock<VoiceStore>,
+    pub attachments: RwLock<AttachmentStore>,
+    pub friendships: RwLock<FriendshipStore>,
     pub online: RwLock<HashMap<String, OnlineUser>>,
     pub connections: Mutex<HashMap<u64, Conn>>,
     pub user_conns: Mutex<HashMap<String, u64>>,
     pub voice_rooms:
         Mutex<HashMap<String, HashMap<String, HashMap<String, VoiceParticipant>>>>,
+    pub spotify_rooms: Mutex<HashMap<String, HashMap<String, Value>>>,
     pub voice_tokens: Mutex<HashMap<String, VoiceToken>>,
     pub login_attempts: Mutex<HashMap<String, LoginAttempt>>,
     pub join_failures: Mutex<HashMap<String, Vec<u64>>>,
@@ -127,6 +130,9 @@ impl AppState {
             chat.rooms = json!({});
         }
         let voice = load_json::<VoiceStore>(&cfg.data_dir.join("voice").join("index.json"));
+        let attachments =
+            load_json::<AttachmentStore>(&cfg.data_dir.join("attachments").join("index.json"));
+        let friendships = load_json::<FriendshipStore>(&cfg.data_dir.join("friendships.json"));
         let mut rng = rand::thread_rng();
         let mut token_bytes = [0u8; 24];
         rng.fill_bytes(&mut token_bytes);
@@ -140,10 +146,13 @@ impl AppState {
             servers: RwLock::new(servers),
             chat: RwLock::new(chat),
             voice: RwLock::new(voice),
+            attachments: RwLock::new(attachments),
+            friendships: RwLock::new(friendships),
             online: RwLock::new(HashMap::new()),
             connections: Mutex::new(HashMap::new()),
             user_conns: Mutex::new(HashMap::new()),
             voice_rooms: Mutex::new(HashMap::new()),
+            spotify_rooms: Mutex::new(HashMap::new()),
             voice_tokens: Mutex::new(HashMap::new()),
             login_attempts: Mutex::new(HashMap::new()),
             join_failures: Mutex::new(HashMap::new()),
@@ -169,6 +178,15 @@ impl AppState {
     pub fn voice_index_path(&self) -> PathBuf {
         self.voice_dir().join("index.json")
     }
+    pub fn attachments_dir(&self) -> PathBuf {
+        self.cfg.data_dir.join("attachments")
+    }
+    pub fn attachments_index_path(&self) -> PathBuf {
+        self.attachments_dir().join("index.json")
+    }
+    pub fn friendships_path(&self) -> PathBuf {
+        self.cfg.data_dir.join("friendships.json")
+    }
 
     pub fn save_accounts(&self) {
         persist(&self.accounts_path(), &*self.accounts.read(), true);
@@ -185,6 +203,13 @@ impl AppState {
     pub fn save_voice(&self) {
         fs::create_dir_all(self.voice_dir()).ok();
         persist(&self.voice_index_path(), &*self.voice.read(), false);
+    }
+    pub fn save_attachments(&self) {
+        fs::create_dir_all(self.attachments_dir()).ok();
+        persist(&self.attachments_index_path(), &*self.attachments.read(), false);
+    }
+    pub fn save_friendships(&self) {
+        persist(&self.friendships_path(), &*self.friendships.read(), false);
     }
 
     // ---------- Accounts ----------
@@ -503,6 +528,7 @@ impl AppState {
             .iter()
             .map(|account| {
                 let mut value = account.public_value();
+                value["name"] = json!(account.display_name());
                 let record = online.get(&account.id);
                 let is_online = record.map(OnlineUser::is_online).unwrap_or(false);
                 let playing = if is_online {
@@ -823,6 +849,283 @@ impl AppState {
         changed
     }
 
+    // ---------- Attachments ----------
+    pub fn attachment_referenced_elsewhere(&self, id: &str) -> bool {
+        if id.is_empty() {
+            return false;
+        }
+        let collect = |messages: &[Message]| {
+            messages
+                .iter()
+                .any(|message| attachment_id_from_text(&message.text).as_deref() == Some(id))
+        };
+        let servers = self.servers.read();
+        for server in &servers.hosted {
+            for list in server.messages.values() {
+                if collect(list) {
+                    return true;
+                }
+            }
+            for list in server.dms.values() {
+                if collect(list) {
+                    return true;
+                }
+            }
+        }
+        drop(servers);
+        let chat = self.chat.read();
+        for list in chat.dms.values() {
+            if collect(list) {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn remove_attachment_item(&self, id: &str, force: bool) -> bool {
+        if id.len() != 32 || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+            return false;
+        }
+        if !force && self.attachment_referenced_elsewhere(id) {
+            return false;
+        }
+        let item = {
+            let mut store = self.attachments.write();
+            store.items.remove(id)
+        };
+        let Some(item) = item else { return false };
+        let _ = fs::remove_file(self.attachments_dir().join(&item.file));
+        self.save_attachments();
+        true
+    }
+
+    pub fn remove_attachments_from_messages(&self, messages: &[Message]) -> bool {
+        let mut changed = false;
+        for message in messages {
+            if let Some(id) = attachment_id_from_text(&message.text) {
+                if self.remove_attachment_item(&id, false) {
+                    changed = true;
+                }
+            }
+        }
+        changed
+    }
+
+    pub fn remove_media_from_messages(&self, messages: &[Message]) -> bool {
+        let voice = self.remove_voice_from_messages(messages);
+        let attachments = self.remove_attachments_from_messages(messages);
+        voice || attachments
+    }
+
+    // ---------- Friends ----------
+    pub fn friend_state_payload(&self, user_id: &str) -> Value {
+        let mut friends: Vec<String> = Vec::new();
+        let mut incoming: Vec<Value> = Vec::new();
+        let mut outgoing: Vec<Value> = Vec::new();
+        for entry in self.friendships.read().entries.values() {
+            if entry.a != user_id && entry.b != user_id {
+                continue;
+            }
+            let other = if entry.a == user_id { &entry.b } else { &entry.a };
+            if entry.status == "accepted" {
+                friends.push(other.clone());
+            } else if entry.requested_by == user_id {
+                outgoing.push(json!({ "id": other, "at": entry.at }));
+            } else {
+                incoming.push(json!({ "id": other, "at": entry.at }));
+            }
+        }
+        friends.sort();
+        incoming.sort_by_key(|item| std::cmp::Reverse(item.get("at").and_then(Value::as_u64).unwrap_or(0)));
+        outgoing.sort_by_key(|item| std::cmp::Reverse(item.get("at").and_then(Value::as_u64).unwrap_or(0)));
+        json!({
+            "type": "friends:state",
+            "friends": friends,
+            "incoming": incoming,
+            "outgoing": outgoing,
+        })
+    }
+
+    pub fn send_friend_state(&self, user_id: &str) {
+        if user_id.is_empty() {
+            return;
+        }
+        let conn_id = self.user_conns.lock().get(user_id).copied();
+        if let Some(conn_id) = conn_id {
+            if let Some(conn) = self.conn(conn_id) {
+                conn.send_json(&self.friend_state_payload(user_id));
+            }
+        }
+    }
+
+    pub fn broadcast_friend_state(&self, user_ids: &[String]) {
+        let mut seen = HashSet::new();
+        for user_id in user_ids {
+            if user_id.is_empty() || !seen.insert(user_id.clone()) {
+                continue;
+            }
+            self.send_friend_state(user_id);
+        }
+    }
+
+    pub fn friendship_entry(&self, a: &str, b: &str) -> Option<Friendship> {
+        if a.is_empty() || b.is_empty() || a == b {
+            return None;
+        }
+        self.friendships.read().entries.get(&friendship_key(a, b)).cloned()
+    }
+
+    pub fn are_friends(&self, a: &str, b: &str) -> bool {
+        self.friendship_entry(a, b)
+            .map(|entry| entry.status == "accepted")
+            .unwrap_or(false)
+    }
+
+    pub fn friend_request(&self, from: &str, to: &str) -> Result<(), &'static str> {
+        if from.is_empty() || to.is_empty() || from == to {
+            return Err("Nieprawidłowy użytkownik.");
+        }
+        if self.find_user(to).is_none() {
+            return Err("Nie znaleziono użytkownika.");
+        }
+        let key = friendship_key(from, to);
+        let mut store = self.friendships.write();
+        if let Some(entry) = store.entries.get_mut(&key) {
+            if entry.status == "accepted" {
+                return Ok(());
+            }
+            if entry.requested_by == to {
+                entry.status = "accepted".to_string();
+                entry.accepted_at = now_ms();
+                drop(store);
+                self.save_friendships();
+                self.broadcast_friend_state(&[from.to_string(), to.to_string()]);
+                return Ok(());
+            }
+            return Ok(());
+        }
+        if store.entries.len() >= 2000 {
+            return Err("Lista zaproszeń jest pełna.");
+        }
+        store.entries.insert(
+            key,
+            Friendship {
+                a: from.to_string(),
+                b: to.to_string(),
+                status: "pending".to_string(),
+                requested_by: from.to_string(),
+                at: now_ms(),
+                accepted_at: 0,
+            },
+        );
+        drop(store);
+        self.save_friendships();
+        self.broadcast_friend_state(&[from.to_string(), to.to_string()]);
+        Ok(())
+    }
+
+    pub fn friend_accept(&self, from: &str, to: &str) -> bool {
+        let key = friendship_key(from, to);
+        let mut store = self.friendships.write();
+        let Some(entry) = store.entries.get_mut(&key) else {
+            return false;
+        };
+        if entry.status != "pending" || entry.requested_by != from {
+            return false;
+        }
+        entry.status = "accepted".to_string();
+        entry.accepted_at = now_ms();
+        drop(store);
+        self.save_friendships();
+        self.broadcast_friend_state(&[from.to_string(), to.to_string()]);
+        true
+    }
+
+    pub fn friend_decline(&self, from: &str, to: &str) -> bool {
+        let key = friendship_key(from, to);
+        let mut store = self.friendships.write();
+        let remove = store
+            .entries
+            .get(&key)
+            .map(|entry| entry.status != "accepted" && entry.requested_by == from)
+            .unwrap_or(false);
+        if !remove {
+            return false;
+        }
+        store.entries.remove(&key);
+        drop(store);
+        self.save_friendships();
+        self.broadcast_friend_state(&[from.to_string(), to.to_string()]);
+        true
+    }
+
+    pub fn friend_remove(&self, a: &str, b: &str) -> bool {
+        let key = friendship_key(a, b);
+        let mut store = self.friendships.write();
+        if store.entries.remove(&key).is_none() {
+            return false;
+        }
+        drop(store);
+        self.save_friendships();
+        self.broadcast_friend_state(&[a.to_string(), b.to_string()]);
+        true
+    }
+
+    // ---------- Spotify ----------
+    pub fn spotify_state(&self, server_id: &str, channel_id: &str) -> Value {
+        self.spotify_rooms
+            .lock()
+            .get(server_id)
+            .and_then(|rooms| rooms.get(channel_id))
+            .cloned()
+            .unwrap_or(Value::Null)
+    }
+
+    pub fn set_spotify_state(&self, server_id: &str, channel_id: &str, state: Value) {
+        let mut rooms = self.spotify_rooms.lock();
+        rooms
+            .entry(server_id.to_string())
+            .or_default()
+            .insert(channel_id.to_string(), state);
+    }
+
+    pub fn clear_spotify_state(&self, server_id: &str, channel_id: &str) -> bool {
+        let mut rooms = self.spotify_rooms.lock();
+        let Some(server_rooms) = rooms.get_mut(server_id) else {
+            return false;
+        };
+        let removed = server_rooms.remove(channel_id).is_some();
+        if server_rooms.is_empty() {
+            rooms.remove(server_id);
+        }
+        removed
+    }
+
+    pub fn spotify_rooms_payload(&self, server_id: &str) -> Vec<Value> {
+        self.spotify_rooms
+            .lock()
+            .get(server_id)
+            .map(|rooms| {
+                rooms
+                    .iter()
+                    .map(|(channel_id, state)| json!({ "channelId": channel_id, "state": state }))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn broadcast_spotify(&self, server_id: &str, channel_id: &str) {
+        self.broadcast_server(
+            server_id,
+            json!({
+                "type": "server:spotify",
+                "channelId": channel_id,
+                "state": self.spotify_state(server_id, channel_id),
+            }),
+            None,
+        );
+    }
+
     // ---------- Join rate limit ----------
     pub fn join_rate_limited(&self, ip: &str) -> bool {
         if ip.is_empty() {
@@ -1022,6 +1325,12 @@ fn load_json<T: serde::de::DeserializeOwned + Default>(path: &PathBuf) -> T {
         Ok(raw) => serde_json::from_str(&raw).unwrap_or_default(),
         Err(_) => T::default(),
     }
+}
+
+pub fn friendship_key(a: &str, b: &str) -> String {
+    let mut parts = [a.to_string(), b.to_string()];
+    parts.sort();
+    format!("{}|{}", parts[0], parts[1])
 }
 
 pub fn random_hex(bytes: usize) -> String {

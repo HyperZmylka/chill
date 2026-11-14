@@ -30,6 +30,7 @@ const {
   parseTemplateCode,
 } = require('./discord-import');
 const voiceMessages = require('./voice');
+const attachmentMessages = require('./attachments');
 const { InternetTunnel } = require('./tunnel');
 const { createGameDetector } = require('./game-detect');
 
@@ -79,8 +80,10 @@ function computeWebBuild() {
     'gifs.js',
     'stickers.js',
     'voice.js',
+    'attachments.js',
     'appearance.js',
     'chill-web.js',
+    'tauri-desktop.js',
     'main.js',
   ];
   const hash = crypto.createHash('sha1');
@@ -146,6 +149,9 @@ const languagePath = () => path.join(dataDir(), 'language.json');
 const discordPath = () => path.join(dataDir(), 'discord.json');
 const voiceDir = () => path.join(dataDir(), 'voice');
 const voiceIndexPath = () => path.join(voiceDir(), 'index.json');
+const attachmentsDir = () => path.join(dataDir(), 'attachments');
+const attachmentsIndexPath = () => path.join(attachmentsDir(), 'index.json');
+const friendshipsPath = () => path.join(dataDir(), 'friendships.json');
 const webSessionsPath = () => path.join(dataDir(), 'web-sessions.json');
 
 // ---------- Profil: banery, avatary, odznaki i kolekcja gier ----------
@@ -455,6 +461,201 @@ function activeSession() {
   return publicUser(user);
 }
 
+// ---------- Znajomi ----------
+let friendshipStore = null;
+
+function friendshipKey(a, b) {
+  return [String(a || ''), String(b || '')].sort().join('|');
+}
+
+function loadFriendships() {
+  if (friendshipStore) return friendshipStore;
+  let raw = null;
+  try {
+    raw = JSON.parse(fs.readFileSync(friendshipsPath(), 'utf8'));
+  } catch {
+    raw = null;
+  }
+  const entries = {};
+  const source = raw && typeof raw === 'object' && raw.entries && typeof raw.entries === 'object'
+    ? raw.entries
+    : {};
+  for (const [key, item] of Object.entries(source)) {
+    if (!item || typeof item !== 'object') continue;
+    const a = String(item.a || '').slice(0, 64);
+    const b = String(item.b || '').slice(0, 64);
+    if (!a || !b || a === b || key !== friendshipKey(a, b)) continue;
+    const status = item.status === 'accepted' ? 'accepted' : 'pending';
+    entries[key] = {
+      a,
+      b,
+      status,
+      requestedBy: item.requestedBy === b ? b : a,
+      at: Number(item.at) || Date.now(),
+      acceptedAt: status === 'accepted' ? Number(item.acceptedAt) || Number(item.at) || Date.now() : 0,
+    };
+  }
+  friendshipStore = { entries };
+  return friendshipStore;
+}
+
+function saveFriendships() {
+  if (!friendshipStore) return;
+  try {
+    fs.writeFileSync(friendshipsPath(), JSON.stringify(friendshipStore), 'utf8');
+  } catch (err) {
+    console.error('[friends] Nie udało się zapisać znajomych:', err.message);
+  }
+}
+
+function friendshipEntry(a, b) {
+  if (!a || !b || a === b) return null;
+  return loadFriendships().entries[friendshipKey(a, b)] || null;
+}
+
+function areFriends(a, b) {
+  const entry = friendshipEntry(a, b);
+  return Boolean(entry && entry.status === 'accepted');
+}
+
+function friendStateFor(userId) {
+  const friends = [];
+  const incoming = [];
+  const outgoing = [];
+  if (!userId) return { friends, incoming, outgoing };
+  for (const entry of Object.values(loadFriendships().entries)) {
+    if (entry.a !== userId && entry.b !== userId) continue;
+    const other = entry.a === userId ? entry.b : entry.a;
+    if (entry.status === 'accepted') {
+      friends.push(other);
+    } else if (entry.requestedBy === userId) {
+      outgoing.push({ id: other, at: entry.at });
+    } else {
+      incoming.push({ id: other, at: entry.at });
+    }
+  }
+  friends.sort();
+  incoming.sort((x, y) => y.at - x.at);
+  outgoing.sort((x, y) => y.at - x.at);
+  return { friends, incoming, outgoing };
+}
+
+function friendStatePayload(userId) {
+  const state = friendStateFor(userId);
+  return { type: 'friends:state', ...state };
+}
+
+function sendToUser(userId, payload) {
+  const ws = userSockets.get(userId);
+  if (!ws || ws.readyState !== 1) return false;
+  try {
+    ws.send(JSON.stringify(payload));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function broadcastFriendState(...userIds) {
+  for (const userId of new Set(userIds.filter(Boolean))) {
+    sendToUser(userId, friendStatePayload(userId));
+  }
+}
+
+function friendRequestError(message) {
+  return { type: 'friends:error', code: 'request-failed', message };
+}
+
+function handleFriendRequest(ws, msg, send) {
+  const currentUserId = ws._userId;
+  if (!currentUserId) return;
+  const to = String(msg.to || '').trim().slice(0, 64);
+  if (!to || to === currentUserId) return;
+  if (!findUserById(to)) {
+    send(friendRequestError('Nie znaleziono użytkownika.'));
+    return;
+  }
+  const store = loadFriendships();
+  const key = friendshipKey(currentUserId, to);
+  const existing = store.entries[key];
+  if (existing?.status === 'accepted') {
+    send(friendStatePayload(currentUserId));
+    return;
+  }
+  if (existing) {
+    if (existing.requestedBy === to) {
+      existing.status = 'accepted';
+      existing.acceptedAt = Date.now();
+      saveFriendships();
+      broadcastFriendState(currentUserId, to);
+      return;
+    }
+    send(friendStatePayload(currentUserId));
+    return;
+  }
+  if (Object.keys(store.entries).length >= 2000) {
+    send(friendRequestError('Lista zaproszeń jest pełna.'));
+    return;
+  }
+  store.entries[key] = {
+    a: currentUserId,
+    b: to,
+    status: 'pending',
+    requestedBy: currentUserId,
+    at: Date.now(),
+    acceptedAt: 0,
+  };
+  saveFriendships();
+  broadcastFriendState(currentUserId, to);
+}
+
+function handleFriendAccept(ws, msg, send) {
+  const currentUserId = ws._userId;
+  const from = String(msg.from || msg.id || '').trim().slice(0, 64);
+  if (!currentUserId || !from || from === currentUserId) return;
+  const store = loadFriendships();
+  const entry = store.entries[friendshipKey(currentUserId, from)];
+  if (!entry || entry.status !== 'pending' || entry.requestedBy !== from) {
+    send(friendStatePayload(currentUserId));
+    return;
+  }
+  entry.status = 'accepted';
+  entry.acceptedAt = Date.now();
+  saveFriendships();
+  broadcastFriendState(currentUserId, from);
+}
+
+function handleFriendDecline(ws, msg, send) {
+  const currentUserId = ws._userId;
+  const from = String(msg.from || msg.id || '').trim().slice(0, 64);
+  if (!currentUserId || !from || from === currentUserId) return;
+  const store = loadFriendships();
+  const key = friendshipKey(currentUserId, from);
+  const entry = store.entries[key];
+  if (!entry || entry.status === 'accepted' || entry.requestedBy !== from) {
+    send(friendStatePayload(currentUserId));
+    return;
+  }
+  delete store.entries[key];
+  saveFriendships();
+  broadcastFriendState(currentUserId, from);
+}
+
+function handleFriendRemove(ws, msg, send) {
+  const currentUserId = ws._userId;
+  const other = String(msg.id || msg.from || msg.to || '').trim().slice(0, 64);
+  if (!currentUserId || !other || other === currentUserId) return;
+  const store = loadFriendships();
+  const key = friendshipKey(currentUserId, other);
+  if (!store.entries[key]) {
+    send(friendStatePayload(currentUserId));
+    return;
+  }
+  delete store.entries[key];
+  saveFriendships();
+  broadcastFriendState(currentUserId, other);
+}
+
 // ---------- Sesje przeglądarkowe (publiczna strona) ----------
 const WEB_SESSION_REMEMBER_TTL = 30 * 24 * 60 * 60 * 1000;
 const WEB_SESSION_SHORT_TTL = 12 * 60 * 60 * 1000;
@@ -707,6 +908,7 @@ const users = new Map();
 const userSockets = new Map();
 const serverSessions = new Map();
 const voiceRooms = new Map();
+const spotifyRooms = new Map();
 const joinFailures = new Map();
 const JOIN_FAILURE_LIMIT = 30;
 const JOIN_FAILURE_WINDOW = 60_000;
@@ -968,11 +1170,92 @@ function removeVoiceItem(id, force = false) {
   return true;
 }
 
+let attachmentStore = null;
+
+function loadAttachmentStore() {
+  if (attachmentStore) return attachmentStore;
+  let raw = null;
+  try {
+    raw = JSON.parse(fs.readFileSync(attachmentsIndexPath(), 'utf8'));
+  } catch {
+    raw = null;
+  }
+  const items = {};
+  if (raw && typeof raw === 'object' && raw.items && typeof raw.items === 'object') {
+    for (const [id, item] of Object.entries(raw.items)) {
+      if (!attachmentMessages.isValidId(id) || !item || typeof item !== 'object') continue;
+      const scope = String(item.scope || '');
+      if (scope !== 'local' && !/^server:[a-zA-Z0-9_-]{6,80}$/.test(scope)) continue;
+      const name = attachmentMessages.safeName(item.name);
+      const mime = attachmentMessages.normalizeMime(item.mime);
+      const ext = attachmentMessages.extensionForMime(mime, name);
+      const file = String(item.file || '');
+      if (file !== `${id}.${ext}`) continue;
+      items[id] = {
+        id,
+        scope,
+        ownerId: String(item.ownerId || '').slice(0, 64),
+        name,
+        mime,
+        ext,
+        file,
+        size: Math.max(0, Number(item.size) || 0),
+        at: Number(item.at) || Date.now(),
+      };
+    }
+  }
+  attachmentStore = { items };
+  return attachmentStore;
+}
+
+function saveAttachmentStore() {
+  if (!attachmentStore) return;
+  try {
+    fs.mkdirSync(attachmentsDir(), { recursive: true });
+    fs.writeFileSync(attachmentsIndexPath(), JSON.stringify(attachmentStore), 'utf8');
+  } catch (err) {
+    console.error('[attachments] Nie udało się zapisać indeksu plików:', err.message);
+  }
+}
+
+function attachmentItemReferencedElsewhere(id) {
+  if (!attachmentMessages.isValidId(id)) return false;
+  const collect = (messages) => {
+    for (const message of Array.isArray(messages) ? messages : []) {
+      const parsed = attachmentMessages.parse(message?.text);
+      if (parsed?.id === id) return true;
+    }
+    return false;
+  };
+  for (const server of loadServersStore().hosted) {
+    for (const list of Object.values(server.messages || {})) if (collect(list)) return true;
+    for (const list of Object.values(server.dms || {})) if (collect(list)) return true;
+  }
+  for (const list of Object.values(loadChatStore().dms || {})) if (collect(list)) return true;
+  return false;
+}
+
+function removeAttachmentItem(id, force = false) {
+  if (!attachmentMessages.isValidId(id)) return false;
+  const store = loadAttachmentStore();
+  const item = store.items[id];
+  if (!item) return false;
+  if (!force && attachmentItemReferencedElsewhere(id)) return false;
+  delete store.items[id];
+  try {
+    fs.unlinkSync(path.join(attachmentsDir(), item.file));
+  } catch { /* plik mógł już zniknąć */ }
+  saveAttachmentStore();
+  return true;
+}
+
 function removeVoiceFromMessages(messages) {
   let changed = false;
   for (const message of Array.isArray(messages) ? messages : []) {
     const parsed = voiceMessages.parse(message?.text);
     if (parsed && removeVoiceItem(parsed.id)) changed = true;
+    const attachment = attachmentMessages.parse(message?.text);
+    if (attachment) removeAttachmentItem(attachment.id);
   }
   return changed;
 }
@@ -1254,6 +1537,89 @@ function broadcastVoiceChannel(serverId, channelId) {
   broadcastServer(serverId, { type: 'server:voice', ...voiceChannelPayload(serverId, channelId) });
 }
 
+// ---------- Spotify na kanałach głosowych ----------
+const SPOTIFY_KINDS = new Set(['track', 'album', 'playlist', 'episode', 'show', 'artist']);
+const SPOTIFY_ID_RE = /^[A-Za-z0-9]{16,64}$/;
+
+function normalizeSpotifyLink(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return null;
+  let path = '';
+  let id = '';
+  const uri = /^spotify:(track|album|playlist|episode|show|artist):([A-Za-z0-9]{16,64})$/i.exec(text);
+  if (uri) {
+    path = uri[1].toLowerCase();
+    id = uri[2];
+  } else {
+    let candidate = text;
+    if (!/^https?:\/\//i.test(candidate)) {
+      if (!/^(open\.spotify\.com|embed\.spotify\.com)\//i.test(candidate)) return null;
+      candidate = `https://${candidate}`;
+    }
+    let url;
+    try {
+      url = new URL(candidate);
+    } catch {
+      return null;
+    }
+    const host = url.hostname.toLowerCase();
+    if (host !== 'open.spotify.com' && host !== 'embed.spotify.com' && host !== 'play.spotify.com') return null;
+    const parts = url.pathname.split('/').filter(Boolean);
+    if (parts[0] === 'embed') parts.shift();
+    if (parts[0] === 'intl-pl') parts.shift();
+    if (parts.length >= 2 && SPOTIFY_KINDS.has(parts[0].toLowerCase())) {
+      path = parts[0].toLowerCase();
+      id = parts[1];
+    } else if (parts[0] === 'search') {
+      return null;
+    }
+  }
+  if (!SPOTIFY_KINDS.has(path) || !SPOTIFY_ID_RE.test(id)) return null;
+  return {
+    kind: path,
+    id,
+    url: `https://open.spotify.com/${path}/${id}`,
+    embed: `https://open.spotify.com/embed/${path}/${id}?utm_source=generator&theme=0`,
+  };
+}
+
+function spotifyKindLabel(kind) {
+  return {
+    track: 'Utwór',
+    album: 'Album',
+    playlist: 'Playlista',
+    episode: 'Odcinek',
+    show: 'Podcast',
+    artist: 'Artysta',
+  }[kind] || 'Spotify';
+}
+
+function spotifyStatePayload(serverId, channelId) {
+  const item = spotifyRooms.get(serverId)?.get(channelId) || null;
+  return { channelId, state: item ? { ...item } : null };
+}
+
+function spotifyRoomsPayload(serverId) {
+  const rooms = spotifyRooms.get(serverId);
+  if (!rooms) return [];
+  return [...rooms.entries()]
+    .map(([channelId, item]) => ({ channelId, state: { ...item } }))
+    .filter((entry) => entry.state?.embed);
+}
+
+function broadcastSpotify(serverId, channelId) {
+  if (!channelId) return;
+  broadcastServer(serverId, { type: 'server:spotify', ...spotifyStatePayload(serverId, channelId) });
+}
+
+function clearSpotifyChannel(serverId, channelId) {
+  const rooms = spotifyRooms.get(serverId);
+  if (!rooms?.has(channelId)) return;
+  rooms.delete(channelId);
+  if (!rooms.size) spotifyRooms.delete(serverId);
+  broadcastSpotify(serverId, channelId);
+}
+
 function leaveVoiceRoom(ws) {
   const session = ws._serverSession;
   const channelId = String(ws._voiceChannelId || '');
@@ -1346,6 +1712,7 @@ function closeServerSessions(serverId, payload) {
     if (ws.readyState === 1) ws.send(raw);
   }
   clearVoiceRooms(serverId);
+  spotifyRooms.delete(serverId);
   serverSessions.delete(serverId);
   setTimeout(() => {
     for (const ws of set) {
@@ -1642,6 +2009,7 @@ function handleJoinServer(ws, msg, send) {
     dms: serverDmsPayload(server, memberId),
     you: { memberId, owner },
     voice: voiceRoomsPayload(server.id),
+    spotify: spotifyRoomsPayload(server.id),
     voiceKey,
   });
   broadcastServerMembers(server);
@@ -1837,6 +2205,118 @@ function handleVoiceDelete(req, res, pathname, searchParams) {
   return sendJson(res, 200, { ok: true });
 }
 
+async function handleAttachmentUpload(req, res, searchParams) {
+  const auth = activeVoiceToken(searchParams.get('key'));
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+
+  const name = attachmentMessages.safeName(searchParams.get('n'));
+  const mime = attachmentMessages.normalizeMime(searchParams.get('m') || req.headers['content-type']);
+  const declared = Number(req.headers['content-length']);
+  if (Number.isFinite(declared) && declared > attachmentMessages.MAX_BYTES) {
+    req.resume();
+    return sendJson(res, 413, { ok: false, error: 'too-large' });
+  }
+
+  let body;
+  try {
+    body = await readVoiceBody(req, attachmentMessages.MAX_BYTES);
+  } catch (err) {
+    if (err?.code === 'too-large') return sendJson(res, 413, { ok: false, error: 'too-large' });
+    return sendJson(res, 400, { ok: false, error: 'invalid-body' });
+  }
+  if (!body.length) return sendJson(res, 400, { ok: false, error: 'empty-file' });
+
+  const id = crypto.randomBytes(16).toString('hex');
+  const ext = attachmentMessages.extensionForMime(mime, name);
+  const file = `${id}.${ext}`;
+  try {
+    fs.mkdirSync(attachmentsDir(), { recursive: true });
+    fs.writeFileSync(path.join(attachmentsDir(), file), body);
+  } catch (err) {
+    console.error('[attachments] Nie udało się zapisać pliku:', err.message);
+    return sendJson(res, 500, { ok: false, error: 'save-failed' });
+  }
+
+  const store = loadAttachmentStore();
+  store.items[id] = {
+    id,
+    scope: auth.scope,
+    ownerId: auth.memberId,
+    name,
+    mime,
+    ext,
+    file,
+    size: body.length,
+    at: Date.now(),
+  };
+  saveAttachmentStore();
+  return sendJson(res, 200, { ok: true, id, name, mime, size: body.length });
+}
+
+function handleAttachmentDownload(req, res, pathname, searchParams) {
+  const match = /^\/attachment\/([a-f0-9]{32})$/.exec(pathname);
+  if (!match) return sendJson(res, 404, { ok: false, error: 'not-found' });
+
+  const auth = activeVoiceToken(searchParams.get('key'));
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+
+  const store = loadAttachmentStore();
+  const item = store.items[match[1]];
+  if (!item || item.scope !== auth.scope) return sendJson(res, 404, { ok: false, error: 'not-found' });
+
+  const filePath = path.join(attachmentsDir(), item.file);
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    return sendJson(res, 404, { ok: false, error: 'not-found' });
+  }
+  if (!stat.isFile()) return sendJson(res, 404, { ok: false, error: 'not-found' });
+
+  const inline = attachmentMessages.inlineMime(item.mime);
+  res.setHeader('content-type', inline ? item.mime : 'application/octet-stream');
+  res.setHeader('cache-control', 'private, max-age=86400');
+  res.setHeader('accept-ranges', 'bytes');
+  res.setHeader('x-content-type-options', 'nosniff');
+  const disposition = inline ? 'inline' : 'attachment';
+  const asciiName = item.name.replace(/[^\x20-\x7e]/g, '_').replace(/["\\]/g, '_');
+  res.setHeader('content-disposition', `${disposition}; filename="${asciiName}"; filename*=UTF-8''${encodeURIComponent(item.name)}`);
+
+  if (req.method === 'HEAD') {
+    res.setHeader('content-length', stat.size);
+    res.writeHead(200);
+    return res.end();
+  }
+
+  const range = parseByteRange(req.headers.range, stat.size);
+  if (range) {
+    res.writeHead(206, {
+      'content-length': range.end - range.start + 1,
+      'content-range': `bytes ${range.start}-${range.end}/${stat.size}`,
+    });
+    return fs.createReadStream(filePath, { start: range.start, end: range.end }).pipe(res);
+  }
+
+  res.writeHead(200, { 'content-length': stat.size });
+  return fs.createReadStream(filePath).pipe(res);
+}
+
+function handleAttachmentDelete(req, res, pathname, searchParams) {
+  const match = /^\/attachment\/([a-f0-9]{32})$/.exec(pathname);
+  if (!match) return sendJson(res, 404, { ok: false, error: 'not-found' });
+
+  const auth = activeVoiceToken(searchParams.get('key'));
+  if (!auth) return sendJson(res, 401, { ok: false, error: 'unauthorized' });
+
+  const store = loadAttachmentStore();
+  const item = store.items[match[1]];
+  if (!item || item.scope !== auth.scope) return sendJson(res, 404, { ok: false, error: 'not-found' });
+  if (item.ownerId !== auth.memberId) return sendJson(res, 403, { ok: false, error: 'forbidden' });
+
+  removeAttachmentItem(match[1], true);
+  return sendJson(res, 200, { ok: true });
+}
+
 // ---------- Tryb przeglądarki ----------
 const WEB_ASSETS = new Map([
   ['/index.html', ['index.html', 'text/html; charset=utf-8']],
@@ -1847,8 +2327,10 @@ const WEB_ASSETS = new Map([
   ['/gifs.js', ['gifs.js', 'text/javascript; charset=utf-8']],
   ['/stickers.js', ['stickers.js', 'text/javascript; charset=utf-8']],
   ['/voice.js', ['voice.js', 'text/javascript; charset=utf-8']],
+  ['/attachments.js', ['attachments.js', 'text/javascript; charset=utf-8']],
   ['/appearance.js', ['appearance.js', 'text/javascript; charset=utf-8']],
   ['/chill-web.js', ['chill-web.js', 'text/javascript; charset=utf-8']],
+  ['/tauri-desktop.js', ['tauri-desktop.js', 'text/javascript; charset=utf-8']],
   ['/build/icon.png', ['build/icon.png', 'image/png']],
 ]);
 
@@ -2113,6 +2595,21 @@ function startChatServer(port = CHAT_PORT) {
       return;
     }
 
+    if (pathname === '/attachment' && req.method === 'POST') {
+      void handleAttachmentUpload(req, res, searchParams);
+      return;
+    }
+
+    if (/^\/attachment\/[a-f0-9]{32}$/.test(pathname) && (req.method === 'GET' || req.method === 'HEAD')) {
+      handleAttachmentDownload(req, res, pathname, searchParams);
+      return;
+    }
+
+    if (/^\/attachment\/[a-f0-9]{32}$/.test(pathname) && req.method === 'DELETE') {
+      handleAttachmentDelete(req, res, pathname, searchParams);
+      return;
+    }
+
     res.setHeader('content-type', 'application/json');
 
     if (pathname === '/api/update-check') {
@@ -2177,6 +2674,7 @@ function startChatServer(port = CHAT_PORT) {
             }
 
             currentUserId = account.id;
+            ws._userId = account.id;
             const accountProfile = publicUser(account);
             const activityTitle = typeof msg.playing === 'string' ? msg.playing.trim().slice(0, 40) || null : null;
             const activitySince = activityTitle ? Number(msg.playingSince || msg.since) || Date.now() : null;
@@ -2208,6 +2706,7 @@ function startChatServer(port = CHAT_PORT) {
             }
 
             send({ type: 'joined', userId: currentUserId, users: usersPayload(), dmHistory, voiceKey: issueVoiceToken(ws, 'local', currentUserId) });
+            send(friendStatePayload(currentUserId));
             broadcastGlobal('user:update', { users: usersPayload() });
             break;
           }
@@ -2277,6 +2776,10 @@ function startChatServer(port = CHAT_PORT) {
             const target = server.members.find((member) => member.id === to);
             if (!target) {
               send({ type: 'server:error', code: 'dm-target', message: 'Ta osoba nie jest już członkiem serwera.' });
+              return;
+            }
+            if (PUBLIC_WEB && !areFriends(session.memberId, to)) {
+              send({ type: 'server:error', code: 'not-friends', message: 'Aby wysłać wiadomość, najpierw zaczekaj na akceptację zaproszenia.' });
               return;
             }
 
@@ -2351,6 +2854,21 @@ function startChatServer(port = CHAT_PORT) {
             break;
           }
 
+          case 'voice:refresh': {
+            const scope = String(msg.scope || '');
+            if (scope === 'local') {
+              if (!local || !currentUserId) return;
+              send({ type: 'voice:token', scope, key: issueVoiceToken(ws, 'local', currentUserId) });
+              return;
+            }
+            const session = ws._serverSession;
+            if (!session || scope !== `server:${session.serverId}`) return;
+            const server = findHostedServer(session.serverId);
+            if (!server || !server.members.some((member) => member.id === session.memberId)) return;
+            send({ type: 'voice:token', scope, key: issueVoiceToken(ws, scope, session.memberId) });
+            break;
+          }
+
           case 'voice:join': {
             const session = ws._serverSession;
             if (!session) return;
@@ -2391,6 +2909,7 @@ function startChatServer(port = CHAT_PORT) {
               serverId: server.id,
               channelId,
               participants: voiceRoomParticipants(room),
+              spotify: spotifyStatePayload(server.id, channelId).state,
             });
             broadcastVoiceChannel(server.id, channelId);
             break;
@@ -2401,6 +2920,51 @@ function startChatServer(port = CHAT_PORT) {
             if (!session) return;
             const channelId = leaveVoiceRoom(ws);
             if (channelId) send({ type: 'voice:left', serverId: session.serverId, channelId });
+            break;
+          }
+
+          case 'spotify:set': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const server = findHostedServer(session.serverId);
+            if (!server) return;
+            const channelId = String(msg.channelId || '');
+            const channel = server.channels.find((item) => item.id === channelId);
+            if (!channel || channel.type !== 'voice') {
+              send({ type: 'server:error', code: 'voice-channel', message: 'Ten kanał nie jest kanałem głosowym.' });
+              return;
+            }
+            const link = normalizeSpotifyLink(msg.url);
+            if (!link) {
+              send({ type: 'spotify:error', code: 'invalid-link', message: 'Nieprawidłowy link Spotify.' });
+              return;
+            }
+            const entry = {
+              kind: link.kind,
+              id: link.id,
+              url: link.url,
+              embed: link.embed,
+              title: String(msg.title || spotifyKindLabel(link.kind)).trim().slice(0, 120) || spotifyKindLabel(link.kind),
+              by: session.memberId,
+              byName: session.name,
+              at: Date.now(),
+            };
+            let rooms = spotifyRooms.get(server.id);
+            if (!rooms) {
+              rooms = new Map();
+              spotifyRooms.set(server.id, rooms);
+            }
+            rooms.set(channelId, entry);
+            broadcastSpotify(server.id, channelId);
+            break;
+          }
+
+          case 'spotify:clear': {
+            const session = ws._serverSession;
+            if (!session) return;
+            const channelId = String(msg.channelId || '');
+            if (!channelId) return;
+            clearSpotifyChannel(session.serverId, channelId);
             break;
           }
 
@@ -2601,6 +3165,7 @@ function startChatServer(port = CHAT_PORT) {
             const removedMessages = server.messages[removed.id] || [];
             delete server.messages[removed.id];
             removeVoiceChannel(server.id, removed.id);
+            clearSpotifyChannel(server.id, removed.id);
             const removedVoice = removeVoiceFromMessages(removedMessages);
             if (removedVoice) saveVoiceStore();
             scheduleServersSave();
@@ -2716,6 +3281,10 @@ function startChatServer(port = CHAT_PORT) {
             if (!user) return;
             const target = findUserById(to);
             if (!target) return;
+            if (!areFriends(currentUserId, to)) {
+              send({ type: 'dm:error', code: 'not-friends', message: 'Aby wysłać wiadomość, najpierw zaczekaj na akceptację zaproszenia.' });
+              return;
+            }
 
             const message = {
               id: `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`,
@@ -2809,6 +3378,30 @@ function startChatServer(port = CHAT_PORT) {
             break;
           }
 
+          case 'friends:request': {
+            if (!local) return;
+            handleFriendRequest(ws, msg, send);
+            break;
+          }
+
+          case 'friends:accept': {
+            if (!local) return;
+            handleFriendAccept(ws, msg, send);
+            break;
+          }
+
+          case 'friends:decline': {
+            if (!local) return;
+            handleFriendDecline(ws, msg, send);
+            break;
+          }
+
+          case 'friends:remove': {
+            if (!local) return;
+            handleFriendRemove(ws, msg, send);
+            break;
+          }
+
           case 'users': {
             if (!local) return;
             send({ type: 'users:list', users: usersPayload() });
@@ -2823,6 +3416,7 @@ function startChatServer(port = CHAT_PORT) {
     ws.on('close', () => {
       detachServerSession(ws);
       revokeVoiceTokens(ws);
+      ws._userId = null;
       if (currentUserId) {
         const isCurrentSocket = userSockets.get(currentUserId) === ws;
         if (isCurrentSocket) {

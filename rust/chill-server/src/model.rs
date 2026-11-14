@@ -28,6 +28,8 @@ static HEX_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^#[0-9a-f]{6}$").unwr
 static CHANNEL_CLEAN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"[^\p{L}\p{N}_.-]").unwrap());
 static VOICE_ID_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^chill-voice://([a-f0-9]{32})(?:\?d=\d{1,3}(?:\.\d{1,2})?)?$").unwrap());
+static ATTACHMENT_ID_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^chill-file://([a-f0-9]{32})\?").unwrap());
 static INVITE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^[A-Z0-9]{4,12}$").unwrap());
 static EMAIL_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$").unwrap());
@@ -343,6 +345,12 @@ pub fn voice_id_from_text(text: &str) -> Option<String> {
     captures.get(1).map(|value| value.as_str().to_string())
 }
 
+pub fn attachment_id_from_text(text: &str) -> Option<String> {
+    let first = text.split('\n').next().unwrap_or("").trim();
+    let captures = ATTACHMENT_ID_RE.captures(first)?;
+    captures.get(1).map(|value| value.as_str().to_string())
+}
+
 pub fn user_color_for(name: &str) -> String {
     let mut hash: i32 = 0;
     for unit in name.encode_utf16() {
@@ -573,6 +581,43 @@ pub struct VoiceItem {
     pub size: u64,
     pub duration: f64,
     pub at: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AttachmentStore {
+    pub items: HashMap<String, AttachmentItem>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AttachmentItem {
+    pub id: String,
+    pub scope: String,
+    pub owner_id: String,
+    pub name: String,
+    pub mime: String,
+    pub ext: String,
+    pub file: String,
+    pub size: u64,
+    pub at: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FriendshipStore {
+    pub entries: HashMap<String, Friendship>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Friendship {
+    pub a: String,
+    pub b: String,
+    pub status: String,
+    pub requested_by: String,
+    pub at: u64,
+    pub accepted_at: u64,
 }
 
 #[derive(Clone, Debug, Default)]
