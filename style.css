@@ -2465,6 +2465,265 @@ body.voice-stage .toast { bottom: 96px; }
 .profile-playing-actions button { flex: 1 1 140px; }
 #profileGameFollow.active { border-color: var(--accent); color: var(--accent); }
 
+/* ---------- Wysuwany profil z dolnego lewego rogu ---------- */
+.profile-popout {
+  position: fixed;
+  z-index: 95;
+  display: flex;
+  flex-direction: column;
+  width: 348px;
+  max-height: min(620px, calc(var(--chill-vh, 100vh) - 24px));
+  border: 1px solid var(--line-strong);
+  border-radius: 20px;
+  background: var(--panel-2);
+  box-shadow: 0 26px 64px rgba(0, 0, 0, 0.52), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  opacity: 0;
+  transform: translateY(12px) scale(0.985);
+  transform-origin: bottom left;
+  transition: opacity 0.16s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+  pointer-events: none;
+  scrollbar-width: thin;
+}
+.profile-popout.open { opacity: 1; transform: none; pointer-events: auto; }
+.profile-popout[hidden] { display: none; }
+
+.profile-popout-banner {
+  position: relative;
+  flex: 0 0 auto;
+  height: 96px;
+  background: #000;
+  overflow: hidden;
+  isolation: isolate;
+  box-shadow: inset 0 -1px 0 var(--line-strong);
+}
+.profile-popout-banner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 34%, rgba(8, 13, 11, 0.58));
+}
+.profile-popout-gear {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.46);
+  color: #fff;
+  backdrop-filter: blur(7px);
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+.profile-popout-gear:hover { background: rgba(0, 0, 0, 0.68); border-color: rgba(255, 255, 255, 0.34); }
+.profile-popout-gear:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 1px; }
+.profile-popout-gear svg { width: 15px; height: 15px; }
+
+.profile-popout-body { padding: 0 14px 12px; }
+.profile-popout-head {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-end;
+  gap: 11px;
+  margin-top: -32px;
+  padding: 0 2px;
+}
+.profile-popout-avatar-wrap { position: relative; flex: 0 0 auto; }
+.profile-popout-avatar {
+  width: 68px;
+  height: 68px;
+  border: 4px solid var(--panel-2);
+  border-radius: 22px;
+  font-size: 27px;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.42);
+}
+.profile-popout-avatar-wrap .profile-presence {
+  right: 2px;
+  bottom: 3px;
+  width: 17px;
+  height: 17px;
+  border-width: 3px;
+  border-color: var(--panel-2);
+}
+.profile-presence.away { background: var(--warning); }
+.profile-presence.dnd { background: var(--danger); }
+.profile-presence.invisible { background: var(--faint); }
+.profile-popout-id { min-width: 0; padding-bottom: 1px; }
+.profile-popout-id .profile-name-row { gap: 6px; }
+.profile-popout-id .profile-badges { gap: 4px; }
+.profile-popout-id .profile-badge { padding: 2px 6px; border-radius: 7px; font-size: 8.5px; }
+.profile-popout-name {
+  display: block;
+  font: 750 17px/1.15 var(--font-display);
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.profile-popout-handle { margin: 2px 0 0; color: var(--muted); font-size: 11.5px; }
+.profile-popout-handle:empty { display: none; }
+
+.profile-popout-about {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--panel-3) 62%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.profile-popout-about.empty { color: var(--faint); }
+.profile-popout-playing {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 0;
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 650;
+}
+.profile-popout-playing[hidden] { display: none; }
+
+.profile-popout-collection { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.profile-popout-collection .profile-collection-head { margin-bottom: 8px; }
+.profile-popout-games {
+  flex-wrap: nowrap;
+  gap: 7px;
+  min-height: 0;
+  padding: 0 1px 3px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.profile-popout-games::-webkit-scrollbar { display: none; }
+.profile-popout-games .profile-game-tile {
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  font-size: 18px;
+}
+.profile-popout-games .profile-game-tile img.profile-game-img { width: 26px; height: 26px; }
+
+.profile-popout-menu {
+  display: grid;
+  gap: 2px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.profile-popout-item,
+.profile-popout-choice {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.profile-popout-item > svg,
+.profile-popout-choice > svg { width: 15px; height: 15px; color: var(--muted); flex: 0 0 auto; }
+.profile-popout-item:hover,
+.profile-popout-choice:hover { background: var(--panel-3); }
+.profile-popout-item:focus-visible,
+.profile-popout-choice:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 58%, transparent); outline-offset: 1px; }
+.profile-popout-item[aria-expanded="true"] { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+.profile-popout-count { margin-left: auto; color: var(--faint); font-size: 10.5px; font-weight: 700; }
+.profile-popout-item .popout-chevron {
+  margin-left: auto;
+  width: 13px;
+  height: 13px;
+  color: var(--faint);
+  transition: transform 0.16s ease;
+}
+.profile-popout-item[aria-expanded="true"] .popout-chevron { transform: rotate(90deg); }
+.profile-popout-item[data-popout-action="logout"],
+.profile-popout-choice[data-popout-action="logout"] { color: var(--danger); }
+.profile-popout-item[data-popout-action="logout"] > svg,
+.profile-popout-choice[data-popout-action="logout"] > svg { color: currentColor; }
+.profile-popout-choice:disabled { opacity: 0.55; }
+
+.profile-popout-sub {
+  display: grid;
+  gap: 1px;
+  margin: 0 0 5px 15px;
+  padding: 2px 0 4px 9px;
+  border-left: 1px solid var(--line-strong);
+}
+.profile-popout-sub[hidden] { display: none; }
+.profile-popout-choice { padding: 6px 8px; font-size: 12px; }
+.profile-popout-choice .popout-check {
+  width: 13px;
+  height: 13px;
+  margin-left: auto;
+  color: var(--accent);
+  opacity: 0;
+}
+.profile-popout-choice.selected .popout-check,
+.profile-popout-choice[aria-pressed="true"] .popout-check,
+.popout-check.visible { opacity: 1; }
+.profile-popout-choice[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+
+.popout-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.popout-dot.online { background: var(--success); }
+.popout-dot.away { background: var(--warning); }
+.popout-dot.dnd { background: var(--danger); }
+.popout-dot.invisible { background: var(--faint); }
+
+.profile-popout-hint { margin: 2px 6px 6px; color: var(--faint); font-size: 10.5px; line-height: 1.45; }
+.popout-badge-icon { display: grid; place-items: center; width: 18px; height: 18px; font-size: 13px; }
+
+.profile-popout-account {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: var(--panel-3);
+}
+.profile-popout-account-avatar { width: 26px; height: 26px; border-radius: 8px; font-size: 10.5px; }
+.profile-popout-account-id { flex: 1; min-width: 0; display: grid; gap: 1px; }
+.profile-popout-account-id strong {
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-popout-account-id small {
+  color: var(--faint);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.profile-popout-account .popout-check { width: 14px; height: 14px; color: var(--accent); }
+
+body[data-shape="rounded"] .profile-popout { border-radius: 26px; }
+body[data-shape="square"] .profile-popout { border-radius: 6px; }
+
 /* ---------- Edytor profilu ---------- */
 .profile-editor {
   margin-bottom: 18px;

@@ -231,7 +231,7 @@
         </div>
       </div>
       <div class="me-bar">
-        <button type="button" class="me-card" id="myProfileBtn" title="Edytuj profil" data-i18n-title="Edytuj profil">
+        <button type="button" class="me-card" id="myProfileBtn" title="Twój profil" data-i18n-title="Twój profil" aria-haspopup="dialog" aria-expanded="false" aria-controls="profilePopout">
           <span class="me-avatar">
             <span class="avatar" id="myAvatar">?</span>
             <span class="status-dot online" id="myStatusDot" aria-hidden="true"></span>
@@ -1752,6 +1752,100 @@
       <div class="settings-actions">
         <button type="button" class="btn-secondary" id="cancelDeleteChannel" data-i18n="Anuluj">Anuluj</button>
         <button type="button" class="btn-secondary danger" id="confirmDeleteChannel" data-i18n="Usuń kanał">Usuń kanał</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Wysuwany profil użytkownika (dolny lewy róg) -->
+  <div class="profile-popout" id="profilePopout" hidden role="dialog" aria-label="Twój profil" data-i18n-aria-label="Twój profil">
+    <div class="profile-popout-banner" id="profilePopoutBanner" aria-hidden="true">
+      <span class="banner-pattern"></span>
+      <span class="banner-emoji"></span>
+      <button type="button" class="profile-popout-gear" id="profilePopoutSettings" title="Ustawienia" data-i18n-title="Ustawienia" aria-label="Ustawienia" data-i18n-aria-label="Ustawienia">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+      </button>
+    </div>
+    <div class="profile-popout-body">
+      <div class="profile-popout-head">
+        <div class="profile-popout-avatar-wrap">
+          <span class="avatar profile-popout-avatar" id="profilePopoutAvatar">?</span>
+          <span class="profile-presence online" id="profilePopoutPresence"></span>
+        </div>
+        <div class="profile-popout-id">
+          <div class="profile-name-row">
+            <strong class="profile-popout-name" id="profilePopoutName">Ty</strong>
+            <div class="profile-badges" id="profilePopoutBadges"></div>
+          </div>
+          <p class="profile-popout-handle" id="profilePopoutHandle"></p>
+        </div>
+      </div>
+
+      <p class="profile-popout-about" id="profilePopoutAbout"></p>
+      <p class="profile-popout-playing" id="profilePopoutPlaying" hidden></p>
+
+      <section class="profile-popout-collection">
+        <div class="profile-collection-head">
+          <h3 data-i18n="Kolekcja gier">Kolekcja gier</h3>
+          <span id="profilePopoutGameCount"></span>
+        </div>
+        <div class="profile-game-strip profile-popout-games" id="profilePopoutGames"></div>
+        <p class="profile-empty" id="profilePopoutGamesEmpty" hidden data-i18n="Brak gier w kolekcji.">Brak gier w kolekcji.</p>
+      </section>
+
+      <div class="profile-popout-menu" id="profilePopoutMenu">
+        <button type="button" class="profile-popout-item" data-popout-action="edit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
+          <span data-i18n="Edytuj profil">Edytuj profil</span>
+        </button>
+
+        <button type="button" class="profile-popout-item" data-popout-action="status" aria-expanded="false" aria-controls="profilePopoutStatusMenu">
+          <span class="popout-dot online" id="profilePopoutStatusDot" aria-hidden="true"></span>
+          <span id="profilePopoutStatusLabel">Online</span>
+          <svg class="popout-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+        </button>
+        <div class="profile-popout-sub" id="profilePopoutStatusMenu" hidden>
+          <button type="button" class="profile-popout-choice" data-popout-status="online" aria-pressed="false"><span class="popout-dot online" aria-hidden="true"></span><span data-i18n="Online">Online</span><svg class="popout-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 4 4L19 7"></path></svg></button>
+          <button type="button" class="profile-popout-choice" data-popout-status="away" aria-pressed="false"><span class="popout-dot away" aria-hidden="true"></span><span data-i18n="Zaraz wracam">Zaraz wracam</span><svg class="popout-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 4 4L19 7"></path></svg></button>
+          <button type="button" class="profile-popout-choice" data-popout-status="dnd" aria-pressed="false"><span class="popout-dot dnd" aria-hidden="true"></span><span data-i18n="Nie przeszkadzać">Nie przeszkadzać</span><svg class="popout-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 4 4L19 7"></path></svg></button>
+          <button type="button" class="profile-popout-choice" data-popout-status="invisible" aria-pressed="false"><span class="popout-dot invisible" aria-hidden="true"></span><span data-i18n="Niewidoczny">Niewidoczny</span><svg class="popout-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 4 4L19 7"></path></svg></button>
+        </div>
+
+        <button type="button" class="profile-popout-item" data-popout-action="badges" aria-expanded="false" aria-controls="profilePopoutBadgeMenu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="5"></circle><path d="m8.5 12.5-2 8 5.5-3 5.5 3-2-8"></path></svg>
+          <span data-i18n="Odznaki">Odznaki</span>
+          <span class="profile-popout-count" id="profilePopoutBadgeCount"></span>
+          <svg class="popout-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+        </button>
+        <div class="profile-popout-sub" id="profilePopoutBadgeMenu" hidden></div>
+
+        <button type="button" class="profile-popout-item" data-popout-action="accounts" aria-expanded="false" aria-controls="profilePopoutAccountMenu">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 3.1a4 4 0 0 1 0 7.8"></path><path d="M22 21v-2a4 4 0 0 0-3-3.9"></path><circle cx="9" cy="7" r="4"></circle><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"></path></svg>
+          <span data-i18n="Przełącz konta">Przełącz konta</span>
+          <svg class="popout-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"></path></svg>
+        </button>
+        <div class="profile-popout-sub" id="profilePopoutAccountMenu" hidden>
+          <div class="profile-popout-account">
+            <span class="avatar profile-popout-account-avatar" id="profilePopoutAccountAvatar">?</span>
+            <span class="profile-popout-account-id">
+              <strong id="profilePopoutAccountName">Ty</strong>
+              <small id="profilePopoutAccountHandle"></small>
+            </span>
+            <svg class="popout-check visible" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 4 4L19 7"></path></svg>
+          </div>
+          <button type="button" class="profile-popout-choice" data-popout-action="logout">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><path d="m16 17 5-5-5-5"></path><path d="M21 12H9"></path></svg>
+            <span data-i18n="Wyloguj się">Wyloguj się</span>
+          </button>
+          <button type="button" class="profile-popout-choice" data-popout-action="new-account">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
+            <span data-i18n="Utwórz nowe konto">Utwórz nowe konto</span>
+          </button>
+        </div>
+
+        <button type="button" class="profile-popout-item" data-popout-action="copy-id">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15V5a2 2 0 0 1 2-2h10"></path></svg>
+          <span data-i18n="Kopiuj ID użytkownika">Kopiuj ID użytkownika</span>
+        </button>
       </div>
     </div>
   </div>

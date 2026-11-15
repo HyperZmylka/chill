@@ -6,7 +6,7 @@ on:
       tag:
         description: Release tag to build and upload
         required: true
-        default: v4.16.3
+        default: v4.16.4
 
 permissions:
   contents: write

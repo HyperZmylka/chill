@@ -146,6 +146,8 @@ let profileSelectedGame = '';
 let profileGamesExpanded = false;
 let profileTimer = null;
 let profileGameSince = 0;
+let profilePopoutTimer = null;
+let profilePopoutBadgeBusy = false;
 let playing = null;
 let playingIcon = '';
 let playingPlatform = '';
@@ -529,6 +531,13 @@ const I18N_EN = {
   'Powiadomienia': 'Notifications',
   'Aplikacja': 'App',
   'Twój profil': 'Your profile',
+  'Przełącz konta': 'Switch accounts',
+  'Kopiuj ID użytkownika': 'Copy user ID',
+  'Skopiowano ID użytkownika.': 'User ID copied.',
+  'Nie udało się skopiować ID użytkownika.': 'Could not copy the user ID.',
+  'Utwórz nowe konto': 'Create new account',
+  'Kliknij odznakę, aby dodać ją do profilu (maks. 5).': 'Click a badge to add it to your profile (max 5).',
+  'Zmieniono status na {status}.': 'Status changed to {status}.',
   'Tak widzą Cię inni na serwerach i wiadomościach prywatnych.': 'This is how others see you on servers and in direct messages.',
   'Status': 'Status',
   'Online': 'Online',
@@ -1515,6 +1524,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindAudioControls();
   bindLiveVoice();
   bindUserProfile();
+  bindProfilePopout();
   bindShortcuts();
   bindMiniGames();
   captureInviteFromLocation();
@@ -1824,6 +1834,7 @@ function logout() {
   $('loginError').textContent = '';
   closeEmojiPicker();
   closeGifPicker();
+  closeProfilePopout(true);
   $('settingsOverlay').hidden = true;
   document.title = 'Chill';
   if (CHILL.chat?.setBadge) CHILL.chat.setBadge(0);
@@ -1842,7 +1853,8 @@ function renderIdentity() {
   const statusText = statusLabel(status) + (playing ? ` • ${t('Gra w {game}', { game: playing })}` : '');
   $('myStatusDot').className = `status-dot ${status}`;
   $('myStatusDot').title = statusText;
-  $('myProfileBtn').setAttribute('aria-label', `${t('Edytuj profil')} • ${statusText}`);
+  $('myProfileBtn').setAttribute('aria-label', `${t('Twój profil')} • ${statusText}`);
+  if ($('profilePopout') && !$('profilePopout').hidden) renderProfilePopout();
   applyAvatar($('settingsAvatar'), myName, myColor, myAvatar);
   $('settingsName').textContent = myName;
   renderAudioState();
@@ -3970,19 +3982,7 @@ function handleMessage(msg) {
     }
 
     case 'profile:updated': {
-      if (msg.user) {
-        currentUser = { ...currentUser, ...msg.user };
-        myName = currentUser.displayName;
-        myColor = currentUser.color;
-        myAbout = currentUser.about || '';
-        myProfileHandle = currentUser.handle || myProfileHandle;
-        myAvatar = safeProfileAvatar(currentUser.avatar);
-        myBanner = safeProfileBanner(currentUser.banner);
-        myBadges = safeBadges(currentUser.badges);
-        myGames = Array.isArray(currentUser.games) ? currentUser.games : [];
-        renderIdentity();
-        if (!$('settingsOverlay').hidden) fillProfileForm();
-      }
+      if (msg.user) applyProfileUser(msg.user);
       break;
     }
 
@@ -8384,6 +8384,315 @@ function bindUserProfile() {
   });
 }
 
+// ---------- Wysuwany profil z dolnego lewego rogu ----------
+function profilePopoutScale() {
+  const root = document.documentElement;
+  if (!root.classList.contains('chill-web-scale')) return 1;
+  const value = Number(getComputedStyle(root).getPropertyValue('--chill-ui-scale'));
+  return Number.isFinite(value) && value > 0 ? value : 1;
+}
+
+function positionProfilePopout() {
+  const popout = $('profilePopout');
+  const trigger = $('myProfileBtn');
+  if (!popout || !trigger) return;
+  const scale = profilePopoutScale();
+  const viewportWidth = window.innerWidth / scale;
+  const viewportHeight = window.innerHeight / scale;
+  const rect = trigger.getBoundingClientRect();
+  const width = Math.min(348, Math.max(220, viewportWidth - 24));
+  const left = Math.min(
+    Math.max(12, rect.left / scale),
+    Math.max(12, viewportWidth - width - 12),
+  );
+  const bottom = Math.max(12, viewportHeight - rect.top / scale + 10);
+  const available = Math.max(180, Math.min(620, rect.top / scale - 22));
+  popout.style.width = `${width}px`;
+  popout.style.left = `${left}px`;
+  popout.style.bottom = `${bottom}px`;
+  popout.style.maxHeight = `${available}px`;
+}
+
+function closeProfilePopoutSubmenus() {
+  const submenus = [
+    ['profilePopoutStatusMenu', 'status'],
+    ['profilePopoutBadgeMenu', 'badges'],
+    ['profilePopoutAccountMenu', 'accounts'],
+  ];
+  for (const [menuId, action] of submenus) {
+    const menu = $(menuId);
+    if (menu) menu.hidden = true;
+    const button = document.querySelector(`#profilePopoutMenu [data-popout-action="${action}"]`);
+    if (button) button.setAttribute('aria-expanded', 'false');
+  }
+}
+
+function renderProfilePopoutBadges() {
+  const menu = $('profilePopoutBadgeMenu');
+  if (!menu) return;
+  const selected = safeBadges(myBadges);
+  const active = new Set(selected);
+  const items = Object.entries(PROFILE_BADGES).map(([id, badge]) => {
+    const on = active.has(id);
+    return `<button type="button" class="profile-popout-choice${on ? ' selected' : ''}" data-popout-badge="${esc(id)}" aria-pressed="${on}"${profilePopoutBadgeBusy ? ' disabled' : ''}>
+      <span class="popout-badge-icon" aria-hidden="true">${badge.icon}</span>
+      <span>${esc(badge.label)}</span>
+      <svg class="popout-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 13 4 4L19 7"></path></svg>
+    </button>`;
+  }).join('');
+  menu.innerHTML = `<p class="profile-popout-hint">${esc(t('Kliknij odznakę, aby dodać ją do profilu (maks. 5).'))}</p>${items}`;
+  $('profilePopoutBadgeCount').textContent = `${selected.length}/5`;
+}
+
+function renderProfilePopoutAccount() {
+  if (!currentUser) return;
+  const handle = myProfileHandle || currentUser.handle || currentUser.username || '';
+  applyAvatar($('profilePopoutAccountAvatar'), myName, myColor, myAvatar);
+  $('profilePopoutAccountName').textContent = myName;
+  $('profilePopoutAccountHandle').textContent = handle ? `@${handle}` : '';
+}
+
+function syncProfilePopoutStatus() {
+  const status = prefs.status || 'online';
+  const dot = $('profilePopoutStatusDot');
+  if (dot) dot.className = `popout-dot ${status}`;
+  const label = $('profilePopoutStatusLabel');
+  if (label) label.textContent = statusLabel(status);
+  document.querySelectorAll('#profilePopoutStatusMenu [data-popout-status]').forEach((button) => {
+    const active = button.dataset.popoutStatus === status;
+    button.classList.toggle('selected', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+}
+
+function renderProfilePopout() {
+  if (!currentUser) return;
+  const status = prefs.status || 'online';
+  const handle = myProfileHandle || currentUser.handle || currentUser.username || '';
+  applyBanner($('profilePopoutBanner'), myBanner || DEFAULT_PROFILE_BANNER);
+  applyAvatar($('profilePopoutAvatar'), myName, myColor, myAvatar);
+  const presence = $('profilePopoutPresence');
+  presence.className = `profile-presence ${status}`;
+  presence.title = statusLabel(status);
+  $('profilePopoutName').textContent = myName;
+  const badges = safeBadges(myBadges);
+  $('profilePopoutBadges').innerHTML = profileBadgesHtml(badges);
+  $('profilePopoutBadges').hidden = badges.length === 0;
+  $('profilePopoutHandle').textContent = handle ? `@${handle}` : '';
+
+  const about = String(myAbout || '').trim();
+  const aboutEl = $('profilePopoutAbout');
+  aboutEl.textContent = about || t('Brak opisu profilu.');
+  aboutEl.classList.toggle('empty', !about);
+
+  const playingEl = $('profilePopoutPlaying');
+  if (playing) {
+    playingEl.hidden = false;
+    playingEl.textContent = t('Gra w {game}', { game: playing });
+  } else {
+    playingEl.hidden = true;
+    playingEl.textContent = '';
+  }
+
+  const games = profileGameList({ games: myGames, playing, playingIcon, playingPlatform });
+  $('profilePopoutGameCount').textContent = games.length ? `${games.length}` : '';
+  const strip = $('profilePopoutGames');
+  const empty = $('profilePopoutGamesEmpty');
+  strip.hidden = games.length === 0;
+  empty.hidden = games.length > 0;
+  strip.innerHTML = games.map((game) => renderGameTile(game, true)).join('');
+
+  syncProfilePopoutStatus();
+  renderProfilePopoutBadges();
+  renderProfilePopoutAccount();
+}
+
+function openProfilePopout() {
+  if (!currentUser) return;
+  const popout = $('profilePopout');
+  if (!popout) return;
+  clearTimeout(profilePopoutTimer);
+  profilePopoutTimer = null;
+  closeAudioMenus();
+  closeProfilePopoutSubmenus();
+  popout.hidden = false;
+  renderProfilePopout();
+  positionProfilePopout();
+  requestAnimationFrame(() => popout.classList.add('open'));
+  $('myProfileBtn').setAttribute('aria-expanded', 'true');
+}
+
+function closeProfilePopout(immediate = false) {
+  const popout = $('profilePopout');
+  if (!popout) return;
+  $('myProfileBtn').setAttribute('aria-expanded', 'false');
+  closeProfilePopoutSubmenus();
+  if (popout.hidden) return;
+  clearTimeout(profilePopoutTimer);
+  profilePopoutTimer = null;
+  popout.classList.remove('open');
+  if (immediate) {
+    popout.hidden = true;
+    return;
+  }
+  profilePopoutTimer = setTimeout(() => {
+    popout.hidden = true;
+    profilePopoutTimer = null;
+  }, 180);
+}
+
+function toggleProfilePopoutSubmenu(kind) {
+  const menus = {
+    status: 'profilePopoutStatusMenu',
+    badges: 'profilePopoutBadgeMenu',
+    accounts: 'profilePopoutAccountMenu',
+  };
+  const menu = $(menus[kind]);
+  if (!menu) return;
+  const shouldOpen = menu.hidden;
+  closeProfilePopoutSubmenus();
+  if (!shouldOpen) return;
+  menu.hidden = false;
+  const button = document.querySelector(`#profilePopoutMenu [data-popout-action="${kind}"]`);
+  if (button) button.setAttribute('aria-expanded', 'true');
+}
+
+async function toggleProfilePopoutBadge(id) {
+  if (!currentUser || !PROFILE_BADGES[id] || profilePopoutBadgeBusy) return;
+  const selected = safeBadges(myBadges);
+  const active = selected.includes(id);
+  if (!active && selected.length >= 5) {
+    toast(t('Możesz wybrać maksymalnie 5 odznak.'));
+    return;
+  }
+  const previous = [...selected];
+  profilePopoutBadgeBusy = true;
+  myBadges = active ? selected.filter((item) => item !== id) : [...selected, id];
+  renderProfilePopout();
+  try {
+    const result = await CHILL.auth.updateProfile({
+      displayName: myName,
+      about: myAbout,
+      color: myColor,
+      avatar: myAvatar,
+      banner: myBanner,
+      badges: myBadges,
+      games: myGames,
+    });
+    if (!result || !result.ok) {
+      myBadges = previous;
+      toast(t('Nie udało się zapisać profilu.'));
+      return;
+    }
+    applyProfileUser(result.user);
+    broadcastProfilePatch();
+    toast(t('Profil zaktualizowany'));
+  } catch {
+    myBadges = previous;
+    toast(t('Nie udało się zapisać profilu.'));
+  } finally {
+    profilePopoutBadgeBusy = false;
+    if (!$('profilePopout').hidden) renderProfilePopout();
+  }
+}
+
+function chooseProfilePopoutStatus(status) {
+  if (!['online', 'away', 'dnd', 'invisible'].includes(status)) return;
+  setStatus(status);
+  renderProfilePopout();
+  closeProfilePopoutSubmenus();
+  toast(t('Zmieniono status na {status}.', { status: statusLabel(status) }));
+}
+
+function handleProfilePopoutAction(action) {
+  switch (action) {
+    case 'edit':
+      closeProfilePopout(true);
+      openSettings('profile');
+      break;
+    case 'status':
+      toggleProfilePopoutSubmenu('status');
+      break;
+    case 'badges':
+      toggleProfilePopoutSubmenu('badges');
+      break;
+    case 'accounts':
+      toggleProfilePopoutSubmenu('accounts');
+      break;
+    case 'copy-id':
+      copyText(myId)
+        .then(() => toast(t('Skopiowano ID użytkownika.')))
+        .catch(() => toast(t('Nie udało się skopiować ID użytkownika.')));
+      break;
+    case 'logout':
+      closeProfilePopout(true);
+      logout();
+      break;
+    case 'new-account':
+      closeProfilePopout(true);
+      logout();
+      showAuth('register');
+      break;
+    default:
+      break;
+  }
+}
+
+function bindProfilePopout() {
+  $('myProfileBtn').addEventListener('click', () => {
+    if ($('profilePopout').hidden) openProfilePopout();
+    else closeProfilePopout();
+  });
+  $('profilePopoutSettings').addEventListener('click', () => {
+    closeProfilePopout(true);
+    openSettings('profile');
+  });
+  $('profilePopoutMenu').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-popout-action]');
+    if (button) handleProfilePopoutAction(button.dataset.popoutAction);
+  });
+  $('profilePopoutStatusMenu').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-popout-status]');
+    if (button) chooseProfilePopoutStatus(button.dataset.popoutStatus);
+  });
+  $('profilePopoutBadgeMenu').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-popout-badge]');
+    if (button) void toggleProfilePopoutBadge(button.dataset.popoutBadge);
+  });
+  $('profilePopoutAccountMenu').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-popout-action]');
+    if (button) handleProfilePopoutAction(button.dataset.popoutAction);
+  });
+  $('profilePopoutGames').addEventListener('click', (event) => {
+    if (!event.target.closest('[data-game-title]')) return;
+    closeProfilePopout(true);
+    openSettings('profile');
+  });
+
+  document.addEventListener('pointerdown', (event) => {
+    if ($('profilePopout').hidden || !(event.target instanceof Element)) return;
+    if (event.target.closest('#profilePopout') || event.target.closest('#myProfileBtn')) return;
+    closeProfilePopout();
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || $('profilePopout').hidden) return;
+    event.preventDefault();
+    const openSubmenu = ['profilePopoutStatusMenu', 'profilePopoutBadgeMenu', 'profilePopoutAccountMenu']
+      .some((id) => !$(id).hidden);
+    if (openSubmenu) {
+      closeProfilePopoutSubmenus();
+      return;
+    }
+    closeProfilePopout();
+    $('myProfileBtn').focus({ preventScroll: true });
+  });
+
+  window.addEventListener('resize', () => {
+    if (!$('profilePopout').hidden) positionProfilePopout();
+  });
+}
+
 function renderHeader() {
   $('backBtn').style.display = 'none';
   $('searchBtn').hidden = current.kind === 'minigames';
@@ -11255,7 +11564,6 @@ function foldGifText(value) {
 function bindSettings() {
   const overlay = $('settingsOverlay');
   $('settingsBtn').addEventListener('click', () => openSettings('profile'));
-  $('myProfileBtn').addEventListener('click', () => openSettings('profile'));
   $('closeSettings').addEventListener('click', closeSettings);
   overlay.addEventListener('click', (e) => { if (e.target === overlay) closeSettings(); });
 
@@ -11560,6 +11868,7 @@ function bindSettings() {
 function openSettings(tab = 'profile') {
   if (!currentUser) return;
   closeAudioMenus();
+  closeProfilePopout(true);
   $('settingsOverlay').hidden = false;
   switchSettingsTab(tab);
   fillProfileForm();
@@ -11750,6 +12059,42 @@ async function loadAppInfo() {
   }
 }
 
+function applyProfileUser(user) {
+  if (!user) return;
+  currentUser = { ...currentUser, ...user };
+  myName = currentUser.displayName;
+  myColor = currentUser.color;
+  myAbout = currentUser.about || '';
+  myProfileHandle = currentUser.handle || myProfileHandle;
+  myAvatar = safeProfileAvatar(currentUser.avatar);
+  myBanner = safeProfileBanner(currentUser.banner);
+  myBadges = safeBadges(currentUser.badges);
+  myGames = Array.isArray(currentUser.games) ? currentUser.games : [];
+  renderIdentity();
+  if (!$('settingsOverlay').hidden) fillProfileForm();
+}
+
+function broadcastProfilePatch() {
+  const patch = {
+    displayName: myName,
+    name: myName,
+    color: myColor,
+    about: myAbout,
+    handle: myProfileHandle,
+    avatar: myAvatar,
+    banner: myBanner,
+    badges: myBadges,
+    games: myGames,
+  };
+  if (wsReady()) ws.send(JSON.stringify({ type: 'profile', ...patch }));
+  for (const state of serverStates.values()) {
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      state.ws.send(JSON.stringify({ type: 'server:profile', ...patch }));
+    }
+  }
+  if (!$('userProfileOverlay').hidden) renderUserProfile();
+}
+
 async function saveProfile() {
   const displayName = $('profileDisplayName').value.trim();
   const about = $('profileAbout').value.trim();
@@ -11780,37 +12125,10 @@ async function saveProfile() {
       errorEl.textContent = result?.error ? translateError(result.error) : t('Nie udało się zapisać profilu.');
       return;
     }
-    currentUser = { ...currentUser, ...result.user };
-    myName = currentUser.displayName;
-    myColor = currentUser.color;
-    myAbout = currentUser.about;
-    myProfileHandle = currentUser.handle || myProfileHandle;
-    myAvatar = safeProfileAvatar(currentUser.avatar);
-    myBanner = safeProfileBanner(currentUser.banner);
-    myBadges = safeBadges(currentUser.badges);
-    myGames = Array.isArray(currentUser.games) ? currentUser.games : [];
-    renderIdentity();
-    fillProfileForm();
+    applyProfileUser(result.user);
     $('profileSaved').textContent = t('Zapisano');
     toast(t('Profil zaktualizowany'));
-    const patch = {
-      displayName: myName,
-      name: myName,
-      color: myColor,
-      about: myAbout,
-      handle: myProfileHandle,
-      avatar: myAvatar,
-      banner: myBanner,
-      badges: myBadges,
-      games: myGames,
-    };
-    if (wsReady()) ws.send(JSON.stringify({ type: 'profile', ...patch }));
-    for (const state of serverStates.values()) {
-      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-        state.ws.send(JSON.stringify({ type: 'server:profile', ...patch }));
-      }
-    }
-    if (!$('userProfileOverlay').hidden) renderUserProfile();
+    broadcastProfilePatch();
   } catch {
     errorEl.textContent = t('Wystąpił błąd podczas zapisywania.');
   } finally {

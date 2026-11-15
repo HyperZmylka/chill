@@ -25,7 +25,7 @@ Spokojny komunikator desktopowy (Rust + Tauri) z własną identyfikacją wizualn
 - **Powiadomienia** — systemowe dymki, przyjemny dwudźwięk przy nowej wiadomości i trzytonowy sygnał przy wzmiance, tryb „tylko wzmianki”, odznaki.
 - **Wygląd** — sześć presetów (Chill, Discord, Minimal, Zorza, Zachód słońca, Ocean), motyw Discord, 12 akcentów i własny kolor, kształt interfejsu (miękki, zaokrąglony, kwadratowy), tła (Zorza, Zachód słońca, Ocean, Las, Mono), styl wiadomości (dymki lub płaski jak w Discordzie), skalowanie całego interfejsu (75–150%), rozmiar tekstu, ograniczenie animacji i wysoki kontrast.
 - **Język interfejsu** — polski (domyślnie) albo angielski, przełączany w Ustawieniach → Język. Zmiana działa od razu, również w menu tray.
-- **Profil w rogu** — awatar, nazwa, ustawienia i wylogowanie są przypięte do lewego dolnego rogu.
+- **Profil w rogu** — awatar, nazwa i przyciski są przypięte do lewego dolnego rogu. Kliknięcie własnego profilu wysuwa kartę z banerem, odznakami, opisem, kolekcją gier i menu: edycja profilu, status, odznaki, konta, kopiowanie ID i wylogowanie.
 - **Tray i autostart** — Chill zostaje w zasobniku i może startować z Windows.
 - **Aktualizacje** — sprawdzanie GitHub Releases i automatyczne pobranie oraz uruchomienie instalatora, bez pytania o zgodę.
 
@@ -67,6 +67,7 @@ Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach p
 
 - Kliknięcie nazwy, avatara albo wiadomości członka serwera otwiera kartę profilu: pełnowymiarowy baner, avatar nachodzący na baner, nazwa, `@handle`, odznaki, status, opis, liczba wspólnych znajomych i serwerów oraz kolekcja gier.
 - Kolekcja pokazuje do sześciu kafelków, a pozostałe gry są schowane pod **+N**. Kliknięcie kafelka zmienia kartę gry. Karta pokazuje aktualnie uruchomioną grę (albo pierwszą z kolekcji), czas grania liczony od rozpoczęcia sesji oraz przyciski **Obserwuj na Medal** i **Pobierz Medal**. Obserwowanie zapisuje się lokalnie dla konta.
+- Kliknięcie własnego profilu w dolnym lewym rogu wysuwa kartę z banerem, avatarem, odznakami, opisem i kolekcją gier. Menu karty pozwala edytować profil, zmienić status, włączać odznaki, przełączyć konto, skopiować ID i się wylogować. Karta zamyka się kliknięciem poza nią lub klawiszem **Esc**.
 - W **Ustawieniach → Profil** zmienisz nazwę wyświetlaną i opis, wybierzesz avatar z gotowych emoji (np. kota) albo wgrasz własny obraz PNG/JPEG/WebP. Avatar jest przycinany do kwadratu, a obraz trafia do danych konta.
 - Baner ma domyślnie czarny preset. Możesz wybrać inny gotowy wzór, zbudować własny gradient z dwóch kolorów, wzorem i emoji albo wgrać obraz. Podgląd w edytorze i karta profilu aktualizują się od razu.
 - Odznaki **PIWO** i **CHILL** są przyznawane kontu; nowe konta zaczynają z PIWO. Kolekcja pozwala dodać do 12 gier z nazwą i platformą (Steam, Epic, Medal, Roblox lub inna).
