@@ -51,9 +51,10 @@ let gifPreviewObserver = null;
 let gifPageObserver = null;
 let gifRemoteState = { query: '', next: '', items: [], loading: false, done: false, error: '', requestId: 0 };
 let gifSearchTimer = null;
-const GIF_KLIPY_API_KEY_STORAGE = 'chill:klipy-api-key';
-const GIF_KLIPY_API_KEY_DEFAULT = 'dVJ1dUigwpzYSxwJuOyiXZycOZlwyYqO7XJ3RkYSITJch8SLwr0O47qhSQHiPcXB';
 const GIF_KLIPY_API = 'https://api.klipy.com/v2';
+// Klucz jest wbudowany w klienta — gracze nie mogą zmieniać API GIF-ów.
+const GIF_KLIPY_API_KEY = 'dVJ1dUigwpzYSxwJuOyiXZycOZlwyYqO7XJ3RkYSITJch8SLwr0O47qhSQHiPcXB';
+const GIF_KLIPY_LEGACY_KEY_STORAGE = 'chill:klipy-api-key';
 
 const GIF_BY_ID = new Map();
 const KLIPY_BY_URL = new Map();
@@ -356,10 +357,9 @@ const I18N_EN = {
   'Emoji': 'Emoji',
   'Szukaj emoji…': 'Search emoji…',
   'Szukaj GIF-ów…': 'Search GIFs…',
-  'Wklej klucz API KLIPY z partner.klipy.com. Klucz zapisze się tylko na tym urządzeniu.': 'Paste your KLIPY API key from partner.klipy.com. It will be stored only on this device.',
-  'Wyniki z internetu wymagają klucza KLIPY.': 'Online results need a KLIPY API key.',
-  'Skonfiguruj klucz API': 'Set up API key',
-  'Nie udało się pobrać GIF-ów. Sprawdź klucz API i połączenie.': 'Could not load GIFs. Check the API key and connection.',
+  'Nie udało się pobrać GIF-ów. Spróbuj ponownie.': 'Could not load GIFs. Try again.',
+  'Brak połączenia z KLIPY — pokazujemy lokalne GIF-y.': 'No connection to KLIPY — showing local GIFs.',
+  'Nie udało się pobrać kolejnych GIF-ów.': 'Could not load more GIFs.',
   'Ładowanie GIF-ów…': 'Loading GIFs…',
   'Przewiń, aby załadować więcej': 'Scroll to load more',
   'Naklejki': 'Stickers',
@@ -11091,6 +11091,7 @@ function stickerDataUrl(sticker) {
 // GIF-Y
 // ============================================================
 function bindGif() {
+  try { localStorage.removeItem(GIF_KLIPY_LEGACY_KEY_STORAGE); } catch { /* storage can be unavailable */ }
   const pop = $('gifOverlay');
   const search = $('gifSearch');
   $('gifBtn').addEventListener('click', (e) => {
@@ -11117,7 +11118,10 @@ function bindGif() {
     const isSearching = Boolean(gifState.query.trim());
     if (wasSearching !== isSearching) renderGifCategories();
     clearTimeout(gifSearchTimer);
-    gifSearchTimer = setTimeout(() => loadGifResults(true), 300);
+    gifSearchTimer = setTimeout(() => {
+      if (!gifRemoteState.error && klipyQueryForPicker() === gifRemoteState.query) return;
+      loadGifResults(true);
+    }, 300);
   });
   search.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
@@ -11134,17 +11138,6 @@ function bindGif() {
     renderGifCategories();
     loadGifResults(true);
     search.focus();
-  });
-  $('gifApiBtn')?.addEventListener('click', () => {
-    const currentKey = getKlipyApiKey();
-    const key = window.prompt(t('Wklej klucz API KLIPY z partner.klipy.com. Klucz zapisze się tylko na tym urządzeniu.'), currentKey);
-    if (key === null) return;
-    const trimmed = key.trim();
-    try {
-      if (trimmed) localStorage.setItem(GIF_KLIPY_API_KEY_STORAGE, trimmed);
-      else localStorage.removeItem(GIF_KLIPY_API_KEY_STORAGE);
-    } catch { /* storage can be unavailable in private mode */ }
-    loadGifResults(true);
   });
   $('giphyLink').addEventListener('click', () => {
     CHILL.app?.openExternal?.('https://giphy.com');
@@ -11172,11 +11165,6 @@ function closeGifPicker() {
   if (button) button.setAttribute('aria-expanded', 'false');
 }
 
-function getKlipyApiKey() {
-  try { return String(localStorage.getItem(GIF_KLIPY_API_KEY_STORAGE) || '').trim(); }
-  catch { return ''; }
-}
-
 function klipyQueryForPicker() {
   const typed = gifState.query.trim();
   if (typed) return typed;
@@ -11200,20 +11188,15 @@ function mapKlipyResult(item) {
 }
 
 async function loadGifResults(reset = false) {
-  const key = getKlipyApiKey();
-  if (!key) {
-    gifRemoteState = { query: '', next: '', items: [], loading: false, done: true, error: '', requestId: gifRemoteState.requestId + 1 };
-    renderGifs();
-    return;
-  }
   const query = klipyQueryForPicker();
   if (reset) {
     gifRemoteState = { query, next: '', items: [], loading: false, done: false, error: '', requestId: gifRemoteState.requestId + 1 };
   } else if (gifRemoteState.loading || gifRemoteState.done || gifRemoteState.query !== query) return;
   const requestId = gifRemoteState.requestId;
   gifRemoteState.loading = true;
+  gifRemoteState.error = '';
   renderGifs();
-  const params = new URLSearchParams({ key, q: query, limit: '30', country: 'PL', locale: 'pl_PL', contentfilter: 'high', media_filter: 'gif,tinygif,nanogif' });
+  const params = new URLSearchParams({ key: GIF_KLIPY_API_KEY, q: query, limit: '30', country: 'PL', locale: 'pl_PL', contentfilter: 'high', media_filter: 'gif,tinygif,nanogif' });
   if (gifRemoteState.next) params.set('pos', gifRemoteState.next);
   try {
     const response = await fetch(`${GIF_KLIPY_API}/search?${params}`, { headers: { Accept: 'application/json' } });
@@ -11226,7 +11209,10 @@ async function loadGifResults(reset = false) {
     gifRemoteState.done = !gifRemoteState.next || incoming.length === 0;
     gifRemoteState.error = '';
   } catch (error) {
-    if (requestId === gifRemoteState.requestId) gifRemoteState.error = error?.message || 'error';
+    if (requestId === gifRemoteState.requestId) {
+      gifRemoteState.error = error?.message || 'error';
+      gifRemoteState.done = true;
+    }
   } finally {
     if (requestId === gifRemoteState.requestId) {
       gifRemoteState.loading = false;
@@ -11259,13 +11245,8 @@ function renderGifCategories() {
   }
 }
 
-function renderGifs() {
-  const grid = $('gifGrid');
-  if (!grid) return;
-  const query = foldGifText(gifState.query);
-  const terms = query.split(/\s+/).filter(Boolean);
-  const hasApiKey = Boolean(getKlipyApiKey());
-  const list = hasApiKey ? gifRemoteState.items : GIFS.filter((gif) => {
+function localGifMatches(terms) {
+  return GIFS.filter((gif) => {
     if (!isGifEntry(gif)) return false;
     if (terms.length) {
       const categorySearch = GIF_CATEGORY_QUERY[gif.category] || '';
@@ -11281,6 +11262,15 @@ function renderGifs() {
     if (gifState.category === GIF_TENOR_CATEGORY) return gif.source === 'tenor';
     return gif.category === gifState.category;
   });
+}
+
+function renderGifs() {
+  const grid = $('gifGrid');
+  if (!grid) return;
+  const query = foldGifText(gifState.query);
+  const terms = query.split(/\s+/).filter(Boolean);
+  const useLocal = !gifRemoteState.items.length && !gifRemoteState.loading;
+  const list = useLocal ? localGifMatches(terms) : gifRemoteState.items;
   if (gifPreviewObserver) {
     gifPreviewObserver.disconnect();
     gifPreviewObserver = null;
@@ -11294,20 +11284,12 @@ function renderGifs() {
   if (!list.length) {
     const empty = document.createElement('div');
     empty.className = 'gif-empty';
-    empty.textContent = !hasApiKey && gifState.query.trim()
-      ? t('Wyniki z internetu wymagają klucza KLIPY.')
-      : gifRemoteState.error ? t('Nie udało się pobrać GIF-ów. Sprawdź klucz API i połączenie.')
-        : gifRemoteState.loading ? t('Ładowanie GIF-ów…') : t('Nic nie znaleziono');
+    empty.textContent = gifRemoteState.loading
+      ? t('Ładowanie GIF-ów…')
+      : gifRemoteState.error
+        ? t('Nie udało się pobrać GIF-ów. Spróbuj ponownie.')
+        : t('Nic nie znaleziono');
     grid.appendChild(empty);
-    if (!hasApiKey && gifState.query.trim()) {
-      const setup = document.createElement('button');
-      setup.type = 'button';
-      setup.className = 'gif-inline-setup';
-      setup.textContent = t('Skonfiguruj klucz API');
-      setup.addEventListener('click', () => $('gifApiBtn')?.click());
-      empty.appendChild(document.createElement('br'));
-      empty.appendChild(setup);
-    }
     return;
   }
   const columns = [document.createElement('div'), document.createElement('div')];
@@ -11342,7 +11324,7 @@ function renderGifs() {
       img.width = gif.w;
       img.height = gif.h;
     }
-    img.loading = 'lazy';
+    img.loading = 'eager';
     img.decoding = 'async';
     img.draggable = false;
     img.referrerPolicy = 'no-referrer';
@@ -11369,7 +11351,16 @@ function renderGifs() {
     if (observer) observer.observe(img);
     else img.src = img.dataset.src;
   });
-  if (hasApiKey && (gifRemoteState.loading || !gifRemoteState.done)) {
+  if (useLocal) {
+    if (gifRemoteState.error) {
+      const note = document.createElement('div');
+      note.className = 'gif-load-more';
+      note.textContent = t('Brak połączenia z KLIPY — pokazujemy lokalne GIF-y.');
+      grid.appendChild(note);
+    }
+    return;
+  }
+  if (gifRemoteState.loading || !gifRemoteState.done) {
     const sentinel = document.createElement('div');
     sentinel.className = 'gif-load-more';
     sentinel.textContent = gifRemoteState.loading ? t('Ładowanie GIF-ów…') : t('Przewiń, aby załadować więcej');
@@ -11384,6 +11375,11 @@ function renderGifs() {
       }, { root: grid, rootMargin: '240px 0px' });
       gifPageObserver.observe(sentinel);
     }
+  } else if (gifRemoteState.error) {
+    const note = document.createElement('div');
+    note.className = 'gif-load-more';
+    note.textContent = t('Nie udało się pobrać kolejnych GIF-ów.');
+    grid.appendChild(note);
   }
 }
 
@@ -11391,8 +11387,8 @@ function sendGif(gif) {
   if (!isGifEntry(gif) || $('composer').hidden) return;
   const url = gifMessageUrl(gif);
   if (!url) return;
-  if (gifSource(gif) === 'klipy' && gif.id && getKlipyApiKey()) {
-    const params = new URLSearchParams({ key: getKlipyApiKey(), id: gif.id, q: klipyQueryForPicker(), country: 'PL', locale: 'pl_PL' });
+  if (gifSource(gif) === 'klipy' && gif.id) {
+    const params = new URLSearchParams({ key: GIF_KLIPY_API_KEY, id: gif.id, q: klipyQueryForPicker(), country: 'PL', locale: 'pl_PL' });
     fetch(`${GIF_KLIPY_API}/registershare?${params}`).catch(() => {});
   }
   hideMentionPop();

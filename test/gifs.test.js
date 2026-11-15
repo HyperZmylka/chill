@@ -69,3 +69,25 @@ test('Tenor entries include Polish search terms', () => {
   assert.ok(tenor.some((gif) => gif.tags.includes('pies')), 'missing Polish dog tag');
   assert.ok(tenor.some((gif) => gif.tags.includes('pizza')), 'missing pizza tag');
 });
+
+test('GIF picker uses the built-in KLIPY key without player-facing API controls', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'renderer.js'), 'utf8');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+  assert.match(renderer, /const GIF_KLIPY_API_KEY = '[^']+'/);
+  assert.match(renderer, /key: GIF_KLIPY_API_KEY/);
+  assert.doesNotMatch(renderer, /getKlipyApiKey|gifApiBtn|GIF_KLIPY_API_KEY_STORAGE/);
+  assert.doesNotMatch(html, /gifApiBtn|KLIPY API/);
+});
+
+test('typing in the GIF search schedules an automatic debounced fetch', () => {
+  const renderer = fs.readFileSync(path.join(__dirname, '..', 'renderer.js'), 'utf8');
+  const bindStart = renderer.indexOf('function bindGif()');
+  assert.ok(bindStart >= 0, 'missing bindGif');
+  const bindBlock = renderer.slice(bindStart, bindStart + 5000);
+  const start = bindBlock.indexOf("search.addEventListener('input'");
+  assert.ok(start >= 0, 'missing GIF search input handler');
+  const handler = bindBlock.slice(start, start + 800);
+  assert.match(handler, /clearTimeout\(gifSearchTimer\)/);
+  assert.match(handler, /setTimeout\(/);
+  assert.match(handler, /loadGifResults\(true\)/);
+});
