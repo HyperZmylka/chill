@@ -1421,8 +1421,20 @@ fn normalize_servers(store: &mut ServersStore) {
                 }
             }
             server.members.retain(|member| !member.id.is_empty());
+            let owner_id = server.owner_id.clone();
             for member in &mut server.members {
                 member.id = take_chars(&member.id, 64);
+                member.account_id = take_chars(
+                    &member
+                        .account_id
+                        .chars()
+                        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+                        .collect::<String>(),
+                    64,
+                );
+                if !member.owner && member.account_id == owner_id {
+                    member.account_id.clear();
+                }
                 member.name = take_chars(member.name.trim(), 32);
                 if member.name.is_empty() {
                     member.name = "Gość".to_string();

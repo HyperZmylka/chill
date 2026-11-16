@@ -4119,11 +4119,12 @@ function connectServer(server) {
 
   socket.onopen = () => {
     if (state.ws !== socket) return;
-    const memberId = server.owner ? myId : server.memberId;
+    const memberId = server.owner ? myId : (server.memberId || myId);
     socket.send(JSON.stringify({
       type: 'join-server',
       invite: server.invite,
       memberId,
+      accountId: myId,
       name: myName,
       color: myColor,
       handle: myProfileHandle,
@@ -4201,6 +4202,7 @@ function handleServerFrame(serverId, msg) {
       state.error = '';
       state.attempts = 0;
       state.you = msg.you || null;
+      rememberServerMemberId(state.server, state.you?.memberId);
       state.voiceKey = String(msg.voiceKey || '');
       state.voiceRooms = new Map();
       for (const room of Array.isArray(msg.voice) ? msg.voice : []) {
@@ -4251,6 +4253,7 @@ function handleServerFrame(serverId, msg) {
           owner: state.server.owner,
         });
       }
+      syncServerFriends(serverId);
 
       for (const key of [...history.keys()]) {
         if (key.startsWith(`server:${serverId}:`)) history.delete(key);
@@ -4693,11 +4696,13 @@ function removeServerLocally(serverId) {
   }
 }
 
-async function probeServer(parsed, memberId) {
+async function probeServer(parsed, identity = {}) {
   return new Promise((resolve, reject) => {
     let socket;
     let done = false;
     let timer;
+    const memberId = String(identity.memberId || myId || '').slice(0, 64);
+    const accountId = String(identity.accountId || myId || '').slice(0, 64);
     const finish = (fn, value) => {
       if (done) return;
       done = true;
@@ -4717,8 +4722,15 @@ async function probeServer(parsed, memberId) {
         type: 'join-server',
         invite: parsed.invite,
         memberId,
+        accountId,
         name: myName,
         color: myColor,
+        handle: myProfileHandle,
+        avatar: myAvatar,
+        banner: myBanner,
+        badges: myBadges,
+        games: myGames,
+        about: myAbout,
       }));
     };
     socket.onmessage = (event) => {
@@ -6266,23 +6278,42 @@ async function joinServerInvite(raw) {
       error: t('Wklej link zaproszenia, np. chill://192.168.1.5:47830/AB12CD lub https://chill.example.com/?invite=AB12CD.'),
     };
   }
-  const known = servers.find((server) => server.invite === parsed.invite
-    && ((server.address === parsed.address && Boolean(server.secure) === Boolean(parsed.secure)) || server.owner));
+  const known = servers.find((server) => server.invite === parsed.invite);
   if (known) {
+    const addressChanged = !known.owner
+      && (known.address !== parsed.address || Boolean(known.secure) !== Boolean(parsed.secure));
+    const updated = addressChanged
+      ? { ...known, address: parsed.address, secure: parsed.secure }
+      : known;
+    if (addressChanged) {
+      upsertServer(updated);
+      const state = ensureServerState(updated);
+      if (state.ws) {
+        try { state.ws.close(); } catch { /* ignore */ }
+        state.ws = null;
+      }
+      state.status = 'offline';
+      state.attempts = 0;
+      state.fatal = false;
+      void persistJoinedServer(updated);
+    }
     selectServer(known.id);
-    connectServer(known);
+    connectServer(updated);
     focusInvitedChannel(known.id, parsed.channelId);
-    return { ok: true, known: true, server: known };
+    return { ok: true, known: true, server: updated };
   }
-  const memberId = randomMemberId();
+  const accountId = String(myId || '').slice(0, 64);
+  const memberId = accountId || randomMemberId();
   try {
-    const data = await probeServer(parsed, memberId);
+    const data = await probeServer(parsed, { memberId, accountId });
+    const effectiveMemberId = String(data?.you?.memberId || memberId).slice(0, 64);
     const result = await CHILL.servers.saveJoined({
       address: parsed.address,
       secure: parsed.secure,
       invite: parsed.invite,
       server: data.server,
-      memberId,
+      memberId: effectiveMemberId,
+      accountId,
     });
     if (!result || !result.ok) {
       return {
@@ -7029,6 +7060,55 @@ function upsertServer(server) {
   renderServers();
 }
 
+function joinedServerPayload(server, memberId) {
+  return {
+    address: server.address,
+    secure: Boolean(server.secure),
+    invite: server.invite,
+    memberId: String(memberId || server.memberId || myId || '').slice(0, 64),
+    accountId: String(myId || ''),
+    server: {
+      id: server.id,
+      name: server.name,
+      icon: server.icon,
+      color: server.color,
+      tag: server.tag,
+      banner: server.banner,
+      description: server.description,
+      traits: server.traits,
+      games: server.games,
+    },
+  };
+}
+
+async function persistJoinedServer(server, memberId) {
+  if (!server || server.owner || !CHILL.servers?.saveJoined) return null;
+  const id = String(memberId || server.memberId || '').slice(0, 64);
+  try {
+    const result = await CHILL.servers.saveJoined(joinedServerPayload(server, id));
+    if (result?.ok && result.server) {
+      upsertServer(result.server);
+      const state = serverState(server.id);
+      if (state) state.server = { ...state.server, ...result.server };
+      return result.server;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+function rememberServerMemberId(server, memberId) {
+  const id = String(memberId || '').slice(0, 64);
+  if (!server || server.owner || !id) return;
+  const entry = servers.find((item) => item.id === server.id) || server;
+  const changed = entry.memberId !== id;
+  if (changed) entry.memberId = id;
+  const state = serverState(server.id);
+  if (state && state.server !== entry && state.server.memberId !== id) {
+    state.server.memberId = id;
+  }
+  if (changed) void persistJoinedServer(entry, id);
+}
+
 function unreadCountFor(prefix) {
   let total = 0;
   for (const [key, value] of unread.entries()) if (key.startsWith(prefix)) total += value;
@@ -7482,9 +7562,26 @@ function syncServerFriends(serverId) {
   const state = serverState(serverId);
   if (!state) return;
   let changed = false;
+  const byName = new Map();
+  for (const member of state.members) {
+    const key = String(member.name || '').trim().toLowerCase();
+    if (!key) continue;
+    const list = byName.get(key) || [];
+    list.push(member);
+    byName.set(key, list);
+  }
   for (const friend of friends) {
     if (friend.serverId !== serverId) continue;
-    const member = state.members.find((item) => item.id === friend.memberId);
+    let member = state.members.find((item) => item.id === friend.memberId);
+    if (!member) {
+      const candidates = byName.get(String(friend.name || '').trim().toLowerCase()) || [];
+      if (candidates.length === 1) {
+        member = candidates[0];
+        friend.memberId = member.id;
+        friend.dmId = serverFriendId(serverId, member.id);
+        changed = true;
+      }
+    }
     if (!member) continue;
     const name = String(member.name || friend.name).slice(0, 32);
     const color = safeColor(member.color, friend.color);
@@ -7494,6 +7591,17 @@ function syncServerFriends(serverId) {
       changed = true;
     }
   }
+  const seen = new Set();
+  const deduped = [];
+  for (const friend of friends) {
+    if (!friend?.dmId || seen.has(friend.dmId)) {
+      changed = true;
+      continue;
+    }
+    seen.add(friend.dmId);
+    deduped.push(friend);
+  }
+  if (deduped.length !== friends.length) friends = deduped;
   if (state.server?.name) {
     for (const friend of friends) {
       if (friend.serverId !== serverId || friend.serverName === state.server.name) continue;

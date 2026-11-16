@@ -452,6 +452,7 @@ pub struct WebSessionRecord {
 #[serde(default, rename_all = "camelCase")]
 pub struct ServerMember {
     pub id: String,
+    pub account_id: String,
     pub name: String,
     pub color: String,
     pub owner: bool,

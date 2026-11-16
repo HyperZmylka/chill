@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -124,6 +124,84 @@ fn dm_key(a: &str, b: &str) -> String {
     let mut parts = [a.to_string(), b.to_string()];
     parts.sort();
     format!("{}|{}", parts[0], parts[1])
+}
+
+fn member_identity(value: &str) -> String {
+    value
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .take(64)
+        .collect()
+}
+
+fn same_member_name(a: &str, b: &str) -> bool {
+    !a.trim().is_empty() && a.trim().eq_ignore_ascii_case(b.trim())
+}
+
+fn legacy_member_is_ghost(member: &ServerMember) -> bool {
+    member.account_id.is_empty()
+        && (member.handle.is_empty()
+            || member.handle == handle_for_account(&member.id, &member.name, ""))
+}
+
+fn member_has_history(server: &Server, member_id: &str) -> bool {
+    if member_id.is_empty() {
+        return false;
+    }
+    server
+        .messages
+        .values()
+        .any(|list| list.iter().any(|message| message.author_id == member_id))
+        || server.dms.iter().any(|(key, list)| {
+            !list.is_empty() && key.split('|').any(|part| part == member_id)
+        })
+}
+
+fn remap_member_history(server: &mut Server, from: &str, to: &str) {
+    if from.is_empty() || to.is_empty() || from == to {
+        return;
+    }
+    for list in server.messages.values_mut() {
+        for message in list.iter_mut() {
+            if message.author_id == from {
+                message.author_id = to.to_string();
+            }
+        }
+    }
+    let affected: Vec<(String, Vec<Message>)> = server
+        .dms
+        .iter()
+        .filter(|(key, _)| key.split('|').any(|part| part == from))
+        .map(|(key, list)| (key.clone(), list.clone()))
+        .collect();
+    for (key, list) in affected {
+        server.dms.remove(&key);
+        if list.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = key.split('|').collect();
+        if parts.len() != 2 {
+            continue;
+        }
+        let other = if parts[0] == from { parts[1] } else { parts[0] };
+        if other == to {
+            continue;
+        }
+        let new_key = dm_key(to, other);
+        let target = server.dms.entry(new_key).or_default();
+        let mut seen: HashSet<String> = target.iter().map(|message| message.id.clone()).collect();
+        for mut message in list {
+            if message.author_id == from {
+                message.author_id = to.to_string();
+            }
+            if seen.insert(message.id.clone()) {
+                target.push(message);
+            }
+        }
+        target.sort_by_key(|message| message.at);
+        let start = target.len().saturating_sub(500);
+        *target = target[start..].to_vec();
+    }
 }
 
 fn handle_message(state: &AppState, conn_id: u64, local: bool, ip: &str, msg: &Value) {
@@ -341,26 +419,37 @@ fn handle_join_server(state: &AppState, conn_id: u64, local: bool, ip: &str, msg
         let key = payload_string(msg, "ownerKey");
         !key.is_empty() && key == server.owner_key
     };
-    let mut member_id = if state.cfg.public_web {
-        account.as_ref().map(|account| account.id.clone()).unwrap_or_default()
+    let mut account_id = if state.cfg.public_web {
+        account
+            .as_ref()
+            .map(|account| account.id.clone())
+            .unwrap_or_default()
     } else {
-        take_chars(
-            &payload_string(msg, "memberId")
-                .chars()
-                .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
-                .collect::<String>(),
-            64,
-        )
+        member_identity(&payload_string(msg, "accountId"))
+    };
+    if !owner && !account_id.is_empty() && account_id == server.owner_id {
+        account_id.clear();
+    }
+    let mut member_id = if state.cfg.public_web {
+        account_id.clone()
+    } else {
+        member_identity(&payload_string(msg, "memberId"))
     };
     if member_id.is_empty() {
-        member_id = random_uuid();
+        member_id = account_id.clone();
     }
     if !state.cfg.public_web {
         if owner {
             member_id = server.owner_id.clone();
+            if account_id.is_empty() {
+                account_id = server.owner_id.clone();
+            }
         } else if member_id == server.owner_id {
-            member_id = random_uuid();
+            member_id.clear();
         }
+    }
+    if member_id.is_empty() && !account_id.is_empty() {
+        member_id = account_id.clone();
     }
 
     let name = if state.cfg.public_web {
@@ -406,6 +495,47 @@ fn handle_join_server(state: &AppState, conn_id: u64, local: bool, ip: &str, msg
             patch.insert("about".to_string(), profile["about"].clone());
         }
     }
+
+    let mut server = server;
+    let online: HashSet<String> = state
+        .conns()
+        .into_iter()
+        .filter_map(|conn| conn.server.map(|session| session.member_id))
+        .collect();
+    let mut member_index = if member_id.is_empty() {
+        None
+    } else {
+        server.members.iter().position(|member| {
+            member.id == member_id
+                && (owner || !member.owner)
+                && (account_id.is_empty()
+                    || member.account_id.is_empty()
+                    || member.account_id == account_id)
+        })
+    };
+    if member_index.is_none() && !account_id.is_empty() {
+        member_index = server.members.iter().position(|member| {
+            !member.owner && !member.account_id.is_empty() && member.account_id == account_id
+        });
+    }
+    if member_index.is_none() && !owner && !account_id.is_empty() {
+        member_index = server
+            .members
+            .iter()
+            .enumerate()
+            .filter(|(_, member)| {
+                !member.owner
+                    && member.account_id.is_empty()
+                    && same_member_name(&member.name, &name)
+                    && !online.contains(&member.id)
+                    && legacy_member_is_ghost(member)
+            })
+            .max_by_key(|(_, member)| member.last_seen.max(member.joined_at))
+            .map(|(index, _)| index);
+    }
+    if let Some(index) = member_index {
+        member_id = server.members[index].id.clone();
+    }
     if patch
         .get("handle")
         .and_then(Value::as_str)
@@ -418,18 +548,34 @@ fn handle_join_server(state: &AppState, conn_id: u64, local: bool, ip: &str, msg
         );
     }
 
-    let mut server = server;
-    let member_index = server.members.iter().position(|member| member.id == member_id);
     if let Some(index) = member_index {
         let member = &mut server.members[index];
         member.name = name.clone();
         member.color = color.clone();
         member.owner = owner;
         member.last_seen = now_ms();
+        if !account_id.is_empty() {
+            member.account_id = account_id.clone();
+        }
         apply_member_patch(member, &patch);
     } else {
+        let candidate = if !member_id.is_empty() {
+            member_id.clone()
+        } else if !account_id.is_empty() {
+            account_id.clone()
+        } else {
+            random_uuid()
+        };
+        member_id = if candidate.is_empty()
+            || server.members.iter().any(|member| member.id == candidate)
+        {
+            random_uuid()
+        } else {
+            candidate
+        };
         let mut member = ServerMember {
             id: member_id.clone(),
+            account_id: account_id.clone(),
             name: name.clone(),
             color: color.clone(),
             owner,
@@ -484,6 +630,58 @@ fn handle_join_server(state: &AppState, conn_id: u64, local: bool, ip: &str, msg
             member.badges = vec!["piwo".to_string()];
         }
         server.members.push(member);
+    }
+
+    // Merge duplicates left behind by older clients and drop empty legacy ghosts.
+    let account_dupes: Vec<String> = if account_id.is_empty() {
+        Vec::new()
+    } else {
+        server
+            .members
+            .iter()
+            .filter(|member| {
+                member.id != member_id
+                    && !member.owner
+                    && !online.contains(&member.id)
+                    && !member.account_id.is_empty()
+                    && member.account_id == account_id
+            })
+            .map(|member| member.id.clone())
+            .collect()
+    };
+    for id in &account_dupes {
+        remap_member_history(&mut server, id, &member_id);
+    }
+    let legacy_ghosts: Vec<String> = if account_id.is_empty() || owner {
+        Vec::new()
+    } else {
+        server
+            .members
+            .iter()
+            .filter(|member| {
+                member.id != member_id
+                    && !member.owner
+                    && !online.contains(&member.id)
+                    && member.account_id.is_empty()
+                    && same_member_name(&member.name, &name)
+                    && legacy_member_is_ghost(member)
+                    && !member_has_history(&server, &member.id)
+            })
+            .map(|member| member.id.clone())
+            .collect()
+    };
+    let mut removed_ids = account_dupes;
+    removed_ids.extend(legacy_ghosts);
+    if !removed_ids.is_empty() {
+        server
+            .members
+            .retain(|member| !removed_ids.iter().any(|id| id == &member.id));
+        server.dms.retain(|key, list| {
+            let references = key
+                .split('|')
+                .any(|part| removed_ids.iter().any(|id| id == part));
+            !(references && list.is_empty())
+        });
     }
 
     state.set_conn_server(
@@ -2026,5 +2224,201 @@ fn relay_voice_frame(state: &AppState, conn_id: u64, raw: &[u8]) {
             continue;
         }
         target.send_binary(packet.clone());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn message(id: &str, author: &str, at: u64) -> Message {
+        Message {
+            id: id.to_string(),
+            author_id: author.to_string(),
+            at,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn member_identity_keeps_safe_characters_only() {
+        assert_eq!(
+            member_identity(" 1ce12131-a151-46a6-82b9-27d790096651 "),
+            "1ce12131-a151-46a6-82b9-27d790096651"
+        );
+        assert_eq!(member_identity("../zły<id>"), "zyid");
+        assert_eq!(member_identity(&"a".repeat(80)).len(), 64);
+    }
+
+    #[test]
+    fn legacy_ghost_detection_accepts_only_default_handles() {
+        let mut member = ServerMember {
+            id: "e7a520bc-1308-44d5-9d05-dc114b031183".to_string(),
+            name: "mikrozul".to_string(),
+            ..Default::default()
+        };
+        assert!(legacy_member_is_ghost(&member));
+        member.handle = "mikrozul_31183".to_string();
+        assert!(legacy_member_is_ghost(&member));
+        member.handle = "mikrozul".to_string();
+        assert!(!legacy_member_is_ghost(&member));
+        member.handle.clear();
+        member.account_id = "account-1".to_string();
+        assert!(!legacy_member_is_ghost(&member));
+    }
+
+    #[test]
+    fn remap_member_history_moves_authored_messages_and_dms() {
+        let mut server = Server::default();
+        server.messages.insert(
+            "general".to_string(),
+            vec![message("m1", "old", 1), message("m2", "other", 2)],
+        );
+        server.dms.insert(
+            "old|other".to_string(),
+            vec![message("d1", "old", 3), message("d2", "other", 4)],
+        );
+        server.dms.insert(
+            "new|other".to_string(),
+            vec![message("d2", "other", 4)],
+        );
+        remap_member_history(&mut server, "old", "new");
+        assert_eq!(server.messages["general"][0].author_id, "new");
+        assert_eq!(server.messages["general"][1].author_id, "other");
+        let list = &server.dms["new|other"];
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].id, "d1");
+        assert_eq!(list[1].id, "d2");
+        assert!(!server.dms.contains_key("old|other"));
+    }
+
+    #[test]
+    fn history_check_ignores_empty_dm_keys() {
+        let mut server = Server::default();
+        server.dms.insert("old|other".to_string(), Vec::new());
+        assert!(!member_has_history(&server, "old"));
+        server.dms.insert("old|other".to_string(), vec![message("d1", "old", 1)]);
+        assert!(member_has_history(&server, "old"));
+    }
+
+    #[test]
+    fn join_server_reuses_identity_and_cleans_legacy_duplicates() {
+        use crate::config::Config;
+
+        let data_dir = std::env::temp_dir().join(format!("chill-identity-{}", random_uuid()));
+        let state = AppState::new(Config {
+            port: 0,
+            host: "127.0.0.1".to_string(),
+            public_web: false,
+            public_origin: None,
+            data_dir: data_dir.clone(),
+            web_root: std::path::PathBuf::new(),
+            build: "test".to_string(),
+            version: "test".to_string(),
+        });
+        let server = Server {
+            id: "server-1".to_string(),
+            owner_id: "host-account".to_string(),
+            name: "Games".to_string(),
+            invite: "TUZS4Q".to_string(),
+            owner_key: "owner-key-123456789012345678901234".to_string(),
+            members: vec![ServerMember {
+                id: "host-account".to_string(),
+                account_id: "host-account".to_string(),
+                name: "Host".to_string(),
+                owner: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        {
+            let mut store = state.servers.write();
+            store.hosted.push(server);
+        }
+
+        let (tx, _rx) = unbounded_channel();
+        let conn_id = state.register_conn(tx, String::new(), None);
+        let join = |member_id: &str, account_id: &str| {
+            json!({
+                "type": "join-server",
+                "invite": "TUZS4Q",
+                "memberId": member_id,
+                "accountId": account_id,
+                "name": "mikrozul",
+                "color": "#ffd166",
+                "handle": "",
+            })
+        };
+
+        handle_join_server(&state, conn_id, true, "127.0.0.1", &join("93738fe4-7274-4586-9415-dc46cd1b1b9d", ""));
+        handle_join_server(&state, conn_id, true, "127.0.0.1", &join("e7a520bc-1308-44d5-9d05-dc114b031183", ""));
+        {
+            let mut store = state.servers.write();
+            let hosted = &mut store.hosted[0];
+            assert_eq!(
+                hosted
+                    .members
+                    .iter()
+                    .filter(|member| member.name == "mikrozul")
+                    .count(),
+                2
+            );
+            hosted
+                .dms
+                .insert("host-account|93738fe4-7274-4586-9415-dc46cd1b1b9d".to_string(), Vec::new());
+        }
+
+        handle_join_server(
+            &state,
+            conn_id,
+            true,
+            "127.0.0.1",
+            &join("e7a520bc-1308-44d5-9d05-dc114b031183", "friend-account"),
+        );
+        let hosted = state.find_hosted("server-1").unwrap();
+        let friends: Vec<&ServerMember> = hosted
+            .members
+            .iter()
+            .filter(|member| member.name == "mikrozul")
+            .collect();
+        assert_eq!(friends.len(), 1);
+        assert_eq!(friends[0].id, "e7a520bc-1308-44d5-9d05-dc114b031183");
+        assert_eq!(friends[0].account_id, "friend-account");
+        assert!(!hosted.dms.contains_key("host-account|93738fe4-7274-4586-9415-dc46cd1b1b9d"));
+
+        handle_join_server(
+            &state,
+            conn_id,
+            true,
+            "127.0.0.1",
+            &join("another-member-id", "friend-account"),
+        );
+        let hosted = state.find_hosted("server-1").unwrap();
+        assert_eq!(
+            hosted
+                .members
+                .iter()
+                .filter(|member| member.name == "mikrozul")
+                .count(),
+            1
+        );
+
+        handle_join_server(
+            &state,
+            conn_id,
+            true,
+            "127.0.0.1",
+            &join("host-account", "attacker-account"),
+        );
+        let hosted = state.find_hosted("server-1").unwrap();
+        let owner = hosted
+            .members
+            .iter()
+            .find(|member| member.id == "host-account")
+            .unwrap();
+        assert!(owner.owner);
+        assert_eq!(owner.account_id, "host-account");
+
+        let _ = std::fs::remove_dir_all(data_dir);
     }
 }
