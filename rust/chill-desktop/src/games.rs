@@ -159,8 +159,25 @@ pub fn start(app: AppHandle) {
     });
 }
 
+#[cfg(windows)]
+fn tasklist_command() -> Command {
+    use std::os::windows::process::CommandExt;
+
+    // CREATE_NO_WINDOW: the polling must never flash a console window.
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut command = Command::new("tasklist");
+    command.creation_flags(CREATE_NO_WINDOW);
+    command
+}
+
+#[cfg(not(windows))]
+fn tasklist_command() -> Command {
+    Command::new("tasklist")
+}
+
 fn detect() -> Option<(String, String)> {
-    let output = Command::new("tasklist")
+    let mut command = tasklist_command();
+    let output = command
         .args(["/FO", "CSV", "/NH"])
         .output()
         .ok()?;
