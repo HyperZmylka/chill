@@ -70,10 +70,15 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 }
 
 fn main() {
-    tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+    let mut builder = tauri::Builder::default();
+    // Test dymny działa obok zainstalowanej aplikacji, więc może wyłączyć blokadę
+    // pojedynczej instancji. W normalnym uruchomieniu zmienna nie jest ustawiana.
+    if std::env::var_os("CHILL_DISABLE_SINGLE_INSTANCE").is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             show_main(app);
-        }))
+        }));
+    }
+    builder
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,

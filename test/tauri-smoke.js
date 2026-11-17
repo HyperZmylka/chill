@@ -230,6 +230,7 @@ const appProcess = spawn(BIN, [], {
   env: {
     ...process.env,
     CHILL_DATA_DIR: DATA,
+    CHILL_DISABLE_SINGLE_INSTANCE: '1',
     CHILL_PORT: String(PORT),
     CHILL_WEB_ROOT: WEB_ROOT,
     WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${DEBUG_PORT} --disable-features=msWebOOUI,msPdfOOUI`,
@@ -313,6 +314,22 @@ let cdp = null;
     await waitEval("typeof myId === 'string' && myId.length > 0 && ws && ws.readyState === 1", 20_000, 'socket');
     check('rejestracja w aplikacji Tauri działa', await evaluate("typeof myId === 'string' && myId.length > 0"));
     check('aplikacja łączy WebSocket', await evaluate("ws.readyState === 1"));
+    const mePanel = await evaluate(`(() => {
+      const el = document.querySelector('.me-panel');
+      if (!el) return null;
+      const rect = el.getBoundingClientRect();
+      return {
+        left: Math.round(rect.left),
+        bottom: Math.round(rect.bottom),
+        viewport: Math.round(innerHeight),
+        width: Math.round(rect.width),
+      };
+    })()`);
+    check(
+      'panel profilu zajmuje lewy dolny róg',
+      Boolean(mePanel && mePanel.left === 0 && Math.abs(mePanel.bottom - mePanel.viewport) <= 1),
+      JSON.stringify(mePanel),
+    );
     const bobId = await evaluate('myId');
 
     // Create the server while Bob is the only/local desktop session, so he owns it

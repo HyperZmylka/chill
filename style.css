@@ -416,7 +416,7 @@ body[data-theme="gradient"] .server-rail {
   align-items: center;
   gap: 10px;
   min-height: 0;
-  padding: 14px 0;
+  padding: 14px 0 124px;
   background: color-mix(in srgb, var(--bg-2) 82%, #000 18%);
   border-right: 1px solid var(--line);
   overflow-y: auto;
@@ -780,9 +780,12 @@ body[data-theme="gradient"] .server-rail {
 
 .sidebar-spacer { flex: 0 0 8px; }
 .me-panel {
-  margin-top: auto;
+  position: relative;
+  z-index: 4;
+  margin: auto -14px -14px calc(-74px - 14px);
   border-top: 1px solid var(--line);
-  padding: 8px 0 2px;
+  padding: 8px 12px 10px;
+  background: var(--panel);
 }
 .me-bar { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .me-card {
@@ -3875,11 +3878,16 @@ body[data-shape="square"] .profile-popout { border-radius: 6px; }
   .brand-name, .brand-tag, .conversation-search, .group-label, .me-text, .me-actions, .nav-label, .nav-sub, .nav-badge, .owner-pill, .server-banner-name { display: none; }
   .brand-row { justify-content: center; padding-bottom: 10px; }
   .server-banner { justify-content: center; padding: 8px; margin-bottom: 8px; }
-  .server-rail { padding: 10px 0; gap: 8px; }
+  .server-rail { padding: 10px 0 88px; gap: 8px; }
   .rail-home, .rail-home-logo, .server-btn, .server-avatar, .rail-add { width: 42px; height: 42px; }
   .rail-home.active::before, .server-btn.active::before, .server-btn.unread::before { left: -11px; }
   .nav-item { justify-content: center; padding: 8px; }
   .me-card { justify-content: center; padding: 8px; }
+  .me-panel {
+    margin-right: -8px;
+    margin-bottom: -14px;
+    margin-left: calc(-64px - 8px);
+  }
   .sidebar { padding: 14px 8px; }
   .dm-group { flex: 0 0 auto; }
   .messages { padding: 16px 14px 8px; }
@@ -4436,7 +4444,7 @@ html.chill-web-scale[data-web-layout="760"] .server-banner {
   margin-bottom: 8px;
 }
 html.chill-web-scale[data-web-layout="760"] .server-rail {
-  padding: 10px 0;
+  padding: 10px 0 88px;
   gap: 8px;
 }
 html.chill-web-scale[data-web-layout="760"] .rail-home,
@@ -4459,6 +4467,11 @@ html.chill-web-scale[data-web-layout="760"] .nav-item {
 html.chill-web-scale[data-web-layout="760"] .me-card {
   justify-content: center;
   padding: 8px;
+}
+html.chill-web-scale[data-web-layout="760"] .me-panel {
+  margin-right: -8px;
+  margin-bottom: -14px;
+  margin-left: calc(-64px - 8px);
 }
 html.chill-web-scale[data-web-layout="760"] .sidebar {
   padding: 14px 8px;
