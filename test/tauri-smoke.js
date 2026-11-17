@@ -330,6 +330,34 @@ let cdp = null;
       Boolean(mePanel && mePanel.left === 0 && Math.abs(mePanel.bottom - mePanel.viewport) <= 1),
       JSON.stringify(mePanel),
     );
+    const meRow = await evaluate(`(() => {
+      const card = document.querySelector('.me-card');
+      const actions = document.querySelector('.me-actions');
+      const gear = document.getElementById('settingsBtn');
+      const panel = document.querySelector('.me-panel');
+      if (!card || !actions || !gear || !panel) return null;
+      const c = card.getBoundingClientRect();
+      const a = actions.getBoundingClientRect();
+      const g = gear.getBoundingClientRect();
+      const p = panel.getBoundingClientRect();
+      return {
+        cardCenter: Math.round(c.top + c.height / 2),
+        actionsCenter: Math.round(a.top + a.height / 2),
+        actionsRight: Math.round(a.right),
+        gearRight: Math.round(g.right),
+        panelRight: Math.round(p.right),
+      };
+    })()`);
+    check(
+      'profil i przyciski są w jednym rzędzie',
+      Boolean(
+        meRow
+          && Math.abs(meRow.cardCenter - meRow.actionsCenter) <= 4
+          && meRow.actionsRight <= meRow.panelRight
+          && meRow.gearRight <= meRow.panelRight,
+      ),
+      JSON.stringify(meRow),
+    );
     const bobId = await evaluate('myId');
 
     // Create the server while Bob is the only/local desktop session, so he owns it

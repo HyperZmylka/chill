@@ -22,6 +22,21 @@ test('panel profilu jest dokowany do lewego dolnego rogu okna', () => {
   assert.doesNotMatch(panel, /margin-top:\s*auto;\s*border-top/);
 });
 
+test('profil i przyciski tworzą jeden poziomy pasek', () => {
+  const [bar] = blocks('.me-bar');
+  assert.ok(bar, 'brak reguły .me-bar');
+  assert.match(bar, /display:\s*flex/);
+  assert.match(bar, /flex-direction:\s*row/);
+
+  const [card] = blocks('.me-card');
+  assert.match(card, /flex:\s*1 1 auto/);
+  assert.match(card, /width:\s*auto/);
+
+  const [actions] = blocks('.me-actions');
+  assert.match(actions, /justify-content:\s*flex-end/);
+  assert.match(actions, /margin-left:\s*auto/);
+});
+
 test('pas serwerów rezerwuje miejsce na dokowany panel', () => {
   const [rail] = blocks('.server-rail');
   assert.ok(rail, 'brak reguły .server-rail');
