@@ -189,6 +189,7 @@ let currentUpdateInfo = null;
 let audioCtx = null;
 let micTest = null;
 let mentionState = { start: 0, end: 0, items: [], index: 0 };
+let inboxTab = 'foryou';
 let channelType = 'text';
 let editingChannelId = null;
 let menuChannelId = null;
@@ -231,6 +232,7 @@ let discordEditingConfig = false;
 
 const history = new Map();
 const unread = new Map();
+const mentionUnread = new Map();
 const typingUsers = new Map();
 
 const DEFAULT_PREFS = {
@@ -638,6 +640,18 @@ const I18N_EN = {
   'Wersja Chill': 'Chill version',
   'Sprawdź aktualizacje': 'Check for updates',
   'Konta i historia są przechowywane lokalnie w folderze danych aplikacji. Odinstalowanie Chill usuwa także te dane.': 'Accounts and history are stored locally in the app data folder. Uninstalling Chill also removes this data.',
+
+  // Odebrane (inbox)
+  'Odebrane': 'Inbox',
+  'Odebrane ({count})': 'Inbox ({count})',
+  'Dla Ciebie': 'For you',
+  'Wzmianki': 'Mentions',
+  'Nieprzeczytane': 'Unreads',
+  'Oznacz wszystko jako przeczytane': 'Mark all read',
+  'Wszystko przeczytane': "You're all caught up",
+  'Znajdź znajomych': 'Find friends',
+  'Otwórz profil osoby na serwerze, aby wysłać zaproszenie do znajomych.': 'Open a person’s profile on a server to send a friend request.',
+  'Wszystko oznaczone jako przeczytane.': 'Everything marked as read.',
 
   // Serwery / zaproszenia / kanały
   'Utwórz własną przestrzeń albo dołącz kodem zaproszenia od znajomych.': 'Create your own space or join with an invite code from friends.',
@@ -1521,6 +1535,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindGif();
   bindVoice();
   bindSettings();
+  bindInbox();
   bindAudioControls();
   bindLiveVoice();
   bindUserProfile();
@@ -1745,6 +1760,7 @@ function enterApp(user) {
   profileTarget = null;
   history.clear();
   unread.clear();
+  mentionUnread.clear();
   typingUsers.clear();
   searchQuery = '';
 
@@ -1819,6 +1835,7 @@ function logout() {
   profileTarget = null;
   history.clear();
   unread.clear();
+  mentionUnread.clear();
   typingUsers.clear();
   playing = null;
   playingIcon = '';
@@ -1836,6 +1853,7 @@ function logout() {
   closeGifPicker();
   closeProfilePopout(true);
   $('settingsOverlay').hidden = true;
+  if ($('inboxOverlay')) $('inboxOverlay').hidden = true;
   document.title = 'Chill';
   if (CHILL.chat?.setBadge) CHILL.chat.setBadge(0);
 
@@ -3911,7 +3929,7 @@ function handleMessage(msg) {
         if (!searchQuery) renderMessages(false);
         scrollBottom();
       } else {
-        bumpUnread(`dm:${other}`);
+        bumpUnread(`dm:${other}`, isMention(m.text));
         renderDmList();
         renderServers();
         updateBadges();
@@ -4511,6 +4529,7 @@ function handleServerFrame(serverId, msg) {
       if (msg.actorId === state.you?.memberId) {
         toast(t('Kanał „{name}” został usunięty.', { name: msg.name || '' }));
       }
+      clearUnread(`server:${serverId}:${msg.channelId}`);
       if (deleteChannelId === msg.channelId) {
         pendingChannelDelete = false;
         deleteChannelId = null;
@@ -4537,7 +4556,7 @@ function handleServerFrame(serverId, msg) {
         if (!searchQuery) renderMessages(false);
         if (nearBottom || !searchQuery) scrollBottom();
       } else if (!own) {
-        bumpUnread(key);
+        bumpUnread(key, isMention(message.text));
         renderSidebar();
         updateBadges();
       }
@@ -4574,7 +4593,7 @@ function handleServerFrame(serverId, msg) {
         renderHeader();
         updateBadges();
       } else {
-        bumpUnread(key);
+        bumpUnread(key, isMention(message.text));
         renderSidebar();
         updateBadges();
       }
@@ -4685,7 +4704,7 @@ function removeServerLocally(serverId) {
   serverStates.delete(serverId);
   servers = servers.filter((server) => server.id !== serverId);
   for (const key of [...unread.keys()]) {
-    if (key.startsWith(`server:${serverId}:`)) unread.delete(key);
+    if (key.startsWith(`server:${serverId}:`)) clearUnread(key);
   }
   if (activeServerId === serverId) selectHome();
   else {
@@ -6968,8 +6987,14 @@ function isValidConversation() {
   return current.kind === 'home' || current.kind === 'minigames';
 }
 
-function bumpUnread(key) {
+function bumpUnread(key, mention = false) {
   unread.set(key, (unread.get(key) || 0) + 1);
+  if (mention) mentionUnread.set(key, (mentionUnread.get(key) || 0) + 1);
+}
+
+function clearUnread(key) {
+  unread.delete(key);
+  mentionUnread.delete(key);
 }
 
 function pushHistory(key, message) {
@@ -6986,7 +7011,7 @@ function selectConversation(kind, id) {
   activeServerId = null;
   current = { kind, id };
   hideMentionPop();
-  unread.delete(kind === 'dm' ? `dm:${id}` : conversationKey());
+  clearUnread(kind === 'dm' ? `dm:${id}` : conversationKey());
   searchQuery = '';
   $('messageSearch').value = '';
   $('searchBar').hidden = true;
@@ -7156,7 +7181,7 @@ function selectMiniGames() {
   $('messages').scrollTop = 0;
 }
 
-function selectServer(id) {
+function selectServer(id, preferredChannelId = '') {
   const server = servers.find((item) => item.id === id);
   if (!server) return;
   closeServerMenu();
@@ -7165,11 +7190,12 @@ function selectServer(id) {
   const state = ensureServerState(server);
   activeServerId = id;
   if (!state.ws && !state.fatal) connectServer(state.server);
-  let channelId = state.lastChannelId;
+  let channelId = preferredChannelId;
+  if (!state.channels.some((channel) => channel.id === channelId)) channelId = state.lastChannelId;
   if (!state.channels.some((channel) => channel.id === channelId)) channelId = state.channels[0]?.id || '';
   state.lastChannelId = channelId;
   current = { kind: 'server', serverId: id, id: channelId };
-  if (channelId) unread.delete(`server:${id}:${channelId}`);
+  if (channelId) clearUnread(`server:${id}:${channelId}`);
   searchQuery = '';
   $('conversationSearch').value = '';
   $('messageSearch').value = '';
@@ -7193,7 +7219,7 @@ function selectChannel(channelId) {
   hideMentionPop();
   state.lastChannelId = channelId;
   current = { kind: 'server', serverId: activeServerId, id: channelId };
-  unread.delete(`server:${activeServerId}:${channelId}`);
+  clearUnread(`server:${activeServerId}:${channelId}`);
   searchQuery = '';
   $('messageSearch').value = '';
   $('searchBar').hidden = true;
@@ -10430,6 +10456,245 @@ function updateBadges() {
     homeBadge.hidden = dmTotal === 0;
     homeBadge.textContent = dmTotal > 99 ? '99+' : String(dmTotal);
   }
+  updateInboxUi();
+}
+
+// ---------- Odebrane (inbox) ----------
+function inboxCountLabel(count) {
+  return count > 99 ? '99+' : String(count);
+}
+
+function inboxTotalCount() {
+  let total = 0;
+  for (const value of unread.values()) total += value;
+  return total;
+}
+
+function inboxMentionTotal() {
+  let total = 0;
+  for (const value of mentionUnread.values()) total += value;
+  return total;
+}
+
+function inboxEntryFor(key) {
+  if (key.startsWith('server:')) {
+    const rest = key.slice('server:'.length);
+    const split = rest.indexOf(':');
+    if (split < 0) return null;
+    const serverId = rest.slice(0, split);
+    const channelId = rest.slice(split + 1);
+    const server = servers.find((item) => item.id === serverId);
+    const state = serverStates.get(serverId);
+    const channel = state?.channels.find((item) => item.id === channelId);
+    if (!server || !channel) return null;
+    return {
+      key,
+      kind: 'server',
+      serverId,
+      channelId,
+      label: `${server.name} • #${channel.name}`,
+    };
+  }
+  if (key.startsWith('dm:')) {
+    const dmId = key.slice('dm:'.length);
+    const entry = dmEntry(dmId);
+    if (!entry) return null;
+    return {
+      key,
+      kind: 'dm',
+      dmId,
+      label: entry.serverName
+        ? `${entry.serverName} • ${entry.name}`
+        : `${t('Wiadomości prywatne')} • ${entry.name}`,
+    };
+  }
+  return null;
+}
+
+function inboxEntries() {
+  const entries = [];
+  for (const [key, count] of unread.entries()) {
+    if (!count) continue;
+    const entry = inboxEntryFor(key);
+    if (!entry) continue;
+    entries.push({ ...entry, count, mentions: mentionUnread.get(key) || 0 });
+  }
+  return entries.sort((a, b) => (b.mentions - a.mentions)
+    || (b.count - a.count)
+    || a.label.localeCompare(b.label, prefs.lang === 'en' ? 'en' : 'pl'));
+}
+
+function inboxVisibleEntries(entries) {
+  if (inboxTab === 'mentions') return entries.filter((entry) => entry.mentions > 0);
+  if (inboxTab === 'unreads') return entries;
+  return entries.filter((entry) => entry.mentions > 0 || entry.kind === 'dm');
+}
+
+function inboxEmptyMarkup() {
+  return `<div class="inbox-empty">
+    <div class="inbox-empty-art" aria-hidden="true">
+      <svg viewBox="0 0 96 96" class="inbox-mascot">
+        <ellipse cx="48" cy="83" rx="24" ry="4" fill="rgba(0,0,0,0.24)"></ellipse>
+        <rect x="19" y="20" width="58" height="58" rx="29" fill="#ff6a3d"></rect>
+        <circle cx="37" cy="46" r="4.2" fill="#fff"></circle>
+        <circle cx="59" cy="46" r="4.2" fill="#fff"></circle>
+        <path d="M38 59c3 4 6.5 6 10 6s7-2 10-6" fill="none" stroke="#2a140d" stroke-width="3" stroke-linecap="round"></path>
+        <path d="M29 30c0-3.3 2.7-6 6-6" fill="none" stroke="rgba(255,255,255,0.38)" stroke-width="3" stroke-linecap="round"></path>
+      </svg>
+      <span class="inbox-empty-check">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#3ee0a3"></circle><path d="m7 12.2 3.4 3.3L17 8.8" fill="none" stroke="#05271c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+      </span>
+    </div>
+    <strong>${esc(t('Wszystko przeczytane'))}</strong>
+    <button type="button" class="inbox-find" id="inboxFindFriends">${esc(t('Znajdź znajomych'))}</button>
+  </div>`;
+}
+
+function renderInboxRows() {
+  const body = $('inboxBody');
+  if (!body) return;
+  const entries = inboxVisibleEntries(inboxEntries());
+  if (!entries.length) {
+    body.innerHTML = inboxEmptyMarkup();
+    body.classList.add('empty');
+    return;
+  }
+  body.classList.remove('empty');
+  body.innerHTML = entries.map((entry) => `
+    <button type="button" class="inbox-row" data-inbox-key="${esc(entry.key)}" title="${esc(entry.label)}">
+      <span class="inbox-row-label">${esc(entry.label)}</span>
+      <span class="inbox-row-badges">
+        ${entry.mentions ? `<span class="inbox-mention">@${inboxCountLabel(entry.mentions)}</span>` : ''}
+        <span class="inbox-unread">${inboxCountLabel(entry.count)}</span>
+      </span>
+    </button>
+  `).join('');
+}
+
+function updateInboxUi() {
+  const button = $('inboxBtn');
+  const badge = $('inboxCount');
+  if (button && badge) {
+    const total = inboxTotalCount();
+    badge.textContent = inboxCountLabel(total);
+    badge.hidden = total === 0;
+    button.classList.toggle('has-unread', total > 0);
+    const label = total ? t('Odebrane ({count})', { count: inboxCountLabel(total) }) : t('Odebrane');
+    button.setAttribute('aria-label', label);
+    button.title = label;
+  }
+  const mentionTotal = inboxMentionTotal();
+  const mentionCount = $('inboxMentionsCount');
+  if (mentionCount) {
+    mentionCount.textContent = inboxCountLabel(mentionTotal);
+    mentionCount.hidden = mentionTotal === 0;
+  }
+  const unreadTotal = inboxTotalCount();
+  const unreadCount = $('inboxUnreadsCount');
+  if (unreadCount) {
+    unreadCount.textContent = inboxCountLabel(unreadTotal);
+    unreadCount.hidden = unreadTotal === 0;
+  }
+  const markAll = $('inboxMarkAll');
+  if (markAll) markAll.disabled = unreadTotal === 0 && mentionTotal === 0;
+  const overlay = $('inboxOverlay');
+  if (overlay && !overlay.hidden) renderInboxRows();
+}
+
+function renderInbox() {
+  const overlay = $('inboxOverlay');
+  if (!overlay || overlay.hidden) return;
+  document.querySelectorAll('[data-inbox-tab]').forEach((tab) => {
+    const active = tab.dataset.inboxTab === inboxTab;
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+  updateInboxUi();
+}
+
+function openInbox() {
+  const overlay = $('inboxOverlay');
+  if (!overlay || !currentUser) return;
+  inboxTab = 'foryou';
+  overlay.hidden = false;
+  renderInbox();
+  const close = $('closeInbox');
+  if (close) close.focus({ preventScroll: true });
+}
+
+function closeInbox() {
+  const overlay = $('inboxOverlay');
+  if (!overlay || overlay.hidden) return;
+  overlay.hidden = true;
+  const button = $('inboxBtn');
+  if (button) button.focus({ preventScroll: true });
+}
+
+function switchInboxTab(tab) {
+  if (!['foryou', 'mentions', 'unreads'].includes(tab)) return;
+  inboxTab = tab;
+  renderInbox();
+}
+
+function markInboxRead() {
+  if (!unread.size && !mentionUnread.size) return;
+  unread.clear();
+  mentionUnread.clear();
+  renderSidebar();
+  updateBadges();
+  toast(t('Wszystko oznaczone jako przeczytane.'));
+}
+
+function openInboxEntry(key) {
+  const entry = inboxEntryFor(key);
+  if (!entry) {
+    clearUnread(key);
+    updateBadges();
+    return;
+  }
+  closeInbox();
+  if (entry.kind === 'server') selectServer(entry.serverId, entry.channelId);
+  else selectConversation('dm', entry.dmId);
+}
+
+function findFriendsFromInbox() {
+  closeInbox();
+  selectHome();
+  const search = $('conversationSearch');
+  if (search) search.focus();
+  toast(t('Otwórz profil osoby na serwerze, aby wysłać zaproszenie do znajomych.'));
+}
+
+function bindInbox() {
+  const overlay = $('inboxOverlay');
+  if (!overlay) return;
+  const button = $('inboxBtn');
+  if (button) button.addEventListener('click', openInbox);
+  const close = $('closeInbox');
+  if (close) close.addEventListener('click', closeInbox);
+  const markAll = $('inboxMarkAll');
+  if (markAll) markAll.addEventListener('click', markInboxRead);
+  overlay.addEventListener('click', (event) => {
+    if (event.target === overlay) closeInbox();
+  });
+  document.querySelectorAll('[data-inbox-tab]').forEach((tab) => {
+    tab.addEventListener('click', () => switchInboxTab(tab.dataset.inboxTab));
+  });
+  const body = $('inboxBody');
+  if (body) {
+    body.addEventListener('click', (event) => {
+      if (event.target.closest('#inboxFindFriends')) {
+        findFriendsFromInbox();
+        return;
+      }
+      const row = event.target.closest('[data-inbox-key]');
+      if (row) openInboxEntry(row.dataset.inboxKey);
+    });
+  }
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || overlay.hidden) return;
+    closeInbox();
+  });
 }
 
 // ---------- Mini Gierki ----------

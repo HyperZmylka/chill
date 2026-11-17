@@ -499,6 +499,56 @@ let cdp = null;
     })()`);
     check('avatar członka serwera w aplikacji', Boolean(memberAvatar.found && memberAvatar.photo && memberAvatar.image.includes('data:image/png')), JSON.stringify(memberAvatar));
 
+    const inboxChannel = await evaluate(`(() => ({
+      serverId: current.kind === 'server' ? current.serverId : '',
+      channelId: current.kind === 'server' ? current.id : '',
+    }))()`);
+    await evaluate('selectHome(); true');
+    alice.send({ type: 'server:message', serverId: server.id, channelId: inboxChannel.channelId, text: '@tauri_bob sprawdź skrzynkę' });
+    await waitEval("!document.getElementById('inboxCount').hidden", 12_000, 'inbox badge');
+    const inboxBadge = await evaluate(`(() => ({
+      text: document.getElementById('inboxCount').textContent,
+      hidden: document.getElementById('inboxCount').hidden,
+      hasUnread: document.getElementById('inboxBtn').classList.contains('has-unread'),
+    }))()`);
+    check('licznik Odebrane pokazuje nowe powiadomienie', inboxBadge.text === '1' && !inboxBadge.hidden && inboxBadge.hasUnread, JSON.stringify(inboxBadge));
+    await evaluate("document.getElementById('inboxBtn').click()");
+    await waitEval("!document.getElementById('inboxOverlay').hidden", 8000, 'inbox open');
+    const inboxLayout = await evaluate(`(() => {
+      const card = document.querySelector('.inbox-card').getBoundingClientRect();
+      return {
+        x: Math.abs(card.left + card.width / 2 - innerWidth / 2),
+        y: Math.abs(card.top + card.height / 2 - innerHeight / 2),
+        mentions: document.getElementById('inboxMentionsCount').textContent,
+        unreads: document.getElementById('inboxUnreadsCount').textContent,
+        activeTab: document.querySelector('.inbox-tab.active')?.dataset.inboxTab || '',
+        rows: document.querySelectorAll('#inboxBody .inbox-row').length,
+        mentionBadge: document.querySelector('#inboxBody .inbox-mention')?.textContent || '',
+        label: document.querySelector('#inboxBody .inbox-row-label')?.textContent || '',
+      };
+    })()`);
+    check('okno Odebrane jest wyśrodkowane', inboxLayout.x <= 2 && inboxLayout.y <= 2, JSON.stringify(inboxLayout));
+    check('Odebrane pokazuje wzmianki i wiersz kanału', inboxLayout.mentions === '1' && inboxLayout.unreads === '1' && inboxLayout.activeTab === 'foryou' && inboxLayout.rows === 1 && inboxLayout.mentionBadge === '@1' && inboxLayout.label.includes('#'), JSON.stringify(inboxLayout));
+    await evaluate("document.querySelector('[data-inbox-tab=\"unreads\"]').click()");
+    const unreadTab = await evaluate(`(() => ({
+      active: document.querySelector('.inbox-tab.active')?.dataset.inboxTab || '',
+      rows: document.querySelectorAll('#inboxBody .inbox-row').length,
+    }))()`);
+    check('zakładka Nieprzeczytane pokazuje kanał', unreadTab.active === 'unreads' && unreadTab.rows === 1, JSON.stringify(unreadTab));
+    await evaluate("document.getElementById('inboxMarkAll').click()");
+    await waitEval("document.getElementById('inboxCount').hidden", 8000, 'inbox cleared');
+    const inboxCleared = await evaluate(`(() => ({
+      rows: document.querySelectorAll('#inboxBody .inbox-row').length,
+      empty: Boolean(document.querySelector('#inboxBody .inbox-empty')),
+      mentionHidden: document.getElementById('inboxMentionsCount').hidden,
+      unreadHidden: document.getElementById('inboxUnreadsCount').hidden,
+    }))()`);
+    check('oznacz wszystko jako przeczytane czyści Odebrane', inboxCleared.rows === 0 && inboxCleared.empty && inboxCleared.mentionHidden && inboxCleared.unreadHidden, JSON.stringify(inboxCleared));
+    await evaluate("document.getElementById('closeInbox').click()");
+    await waitEval("document.getElementById('inboxOverlay').hidden", 8000, 'inbox closed');
+    await evaluate("document.querySelector('#serverList .server-btn').click()");
+    await waitEval("!!document.querySelector('#channelList .nav-item')", 12_000, 'server again');
+
     const channelCreated = await evaluate(`(() => {
       const state = serverState('${server.id}');
       if (!state?.ws) return false;

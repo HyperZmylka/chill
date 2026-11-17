@@ -271,6 +271,13 @@
               </svg>
             </button>
           </div>
+          <button type="button" class="me-action inbox-action" id="inboxBtn" title="Odebrane" data-i18n-title="Odebrane" aria-label="Odebrane" data-i18n-aria-label="Odebrane" aria-haspopup="dialog" aria-controls="inboxOverlay">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="4" y="4" width="16" height="16" rx="3"></rect>
+              <path d="M4 13.5h4.1l1.6 2.1h4.6l1.6-2.1H20"></path>
+            </svg>
+            <span class="inbox-count" id="inboxCount" hidden>0</span>
+          </button>
           <button type="button" class="me-action" id="settingsBtn" title="Ustawienia" data-i18n-title="Ustawienia" aria-label="Ustawienia" data-i18n-aria-label="Ustawienia">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
@@ -608,6 +615,42 @@
           <button type="button" class="btn-primary" id="dmFriendBtn" data-i18n="Napisz wiadomość">Napisz wiadomość</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Odebrane (inbox) -->
+  <div class="modal inbox-modal" id="inboxOverlay" hidden>
+    <div class="modal-card inbox-card" role="dialog" aria-modal="true" aria-labelledby="inboxTitle">
+      <header class="inbox-head">
+        <span class="inbox-head-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="4" width="16" height="16" rx="3"></rect>
+            <path d="M4 13.5h4.1l1.6 2.1h4.6l1.6-2.1H20"></path>
+          </svg>
+        </span>
+        <h2 id="inboxTitle" data-i18n="Odebrane">Odebrane</h2>
+        <button type="button" class="icon-btn modal-close" id="closeInbox" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      </header>
+      <div class="inbox-tabs" role="tablist" aria-label="Odebrane" data-i18n-aria-label="Odebrane">
+        <button type="button" class="inbox-tab active" data-inbox-tab="foryou" role="tab" aria-selected="true" aria-controls="inboxBody">
+          <span data-i18n="Dla Ciebie">Dla Ciebie</span>
+        </button>
+        <button type="button" class="inbox-tab" data-inbox-tab="mentions" role="tab" aria-selected="false" aria-controls="inboxBody">
+          <span data-i18n="Wzmianki">Wzmianki</span>
+          <span class="inbox-tab-count" id="inboxMentionsCount" hidden>0</span>
+        </button>
+        <button type="button" class="inbox-tab" data-inbox-tab="unreads" role="tab" aria-selected="false" aria-controls="inboxBody">
+          <span data-i18n="Nieprzeczytane">Nieprzeczytane</span>
+          <span class="inbox-tab-count" id="inboxUnreadsCount" hidden>0</span>
+        </button>
+      </div>
+      <button type="button" class="inbox-mark-all" id="inboxMarkAll" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m4 12 4.5 4.5L20 6"></path>
+        </svg>
+        <span data-i18n="Oznacz wszystko jako przeczytane">Oznacz wszystko jako przeczytane</span>
+      </button>
+      <div class="inbox-body" id="inboxBody" role="tabpanel"></div>
     </div>
   </div>
 
