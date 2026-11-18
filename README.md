@@ -22,6 +22,7 @@ Spokojny komunikator desktopowy (Rust + Tauri) z własną identyfikacją wizualn
 - **Wzmianki `@`** — podpowiedzi członków serwera i znajomych, wstawianie nicku z klawiatury i wyróżnienie w wiadomości.
 - **Statusy** — online, zaraz wracam, nie przeszkadzać, niewidoczny.
 - **Wykrywanie gier** — automatyczne rozpoznawanie uruchomionej gry i jej prawdziwej ikony z pliku EXE; „Gra w …” na profilu i liście członków.
+- **Mini** — zakładka z wyborem **Mini Gierek** (Ostatni Krąg, Pojedynek 1v1) i **Aplikacji** (TikTok, YouTube, Twitch, Instagram, Spotify). Aplikacje otwierają się w osobnym oknie Chill i pamiętają logowanie na własne konto.
 - **Powiadomienia** — systemowe dymki, przyjemny dwudźwięk przy nowej wiadomości i trzytonowy sygnał przy wzmiance, tryb „tylko wzmianki”, odznaki.
 - **Wygląd** — sześć presetów (Chill, Discord, Minimal, Zorza, Zachód słońca, Ocean), motyw Discord, 12 akcentów i własny kolor, kształt interfejsu (miękki, zaokrąglony, kwadratowy), tła (Zorza, Zachód słońca, Ocean, Las, Mono), styl wiadomości (dymki lub płaski jak w Discordzie), skalowanie całego interfejsu (75–150%), rozmiar tekstu, ograniczenie animacji i wysoki kontrast.
 - **Język interfejsu** — polski (domyślnie) albo angielski, przełączany w Ustawieniach → Język. Zmiana działa od razu, również w menu tray.
@@ -73,6 +74,13 @@ Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach p
 - Odznaki **PIWO** i **CHILL** są przyznawane kontu; nowe konta zaczynają z PIWO. Kolekcja pozwala dodać do 12 gier z nazwą i platformą (Steam, Epic, Medal, Roblox lub inna).
 - Profil konta jest zapisywany w `accounts.json`. Kopia pól profilu członka (handle, avatar, baner, odznaki, gry) trafia do `servers.json` hosta i jest rozsyłana do wszystkich połączonych osób, więc zmiany widać także po ponownym połączeniu.
 - Wykrywanie gier działa lokalnie na każdym komputerze. Chill rozpoznaje setki znanych tytułów, przeszukuje biblioteki Steam, Epic, GOG, Xbox, EA, Ubisoft, Battle.net, Riot, Minecraft, Roblox i itch.io, a dla pozostałych gier stosuje heurystykę metadanych i ścieżki pliku. Ikona jest pobierana z EXE i skalowana do 64×64, a gdy jej brak — zastępuje ją emoji. Aktywność **Gra w …** jest przekazywana do serwera jako stan członka i nie nadpisuje lokalnego stanu innych kont.
+
+## Mini: gry i aplikacje
+
+- Zakładka **Mini** ma dwa widoki do wyboru: **Mini Gierki** i **Aplikacje**. Wybór jest zapamiętywany w pamięci aplikacji do końca sesji.
+- **Mini Gierki** zawierają oryginalne produkcje Chill: **Ostatni Krąg** (battle royale 3D w trzeciej osobie) i **Pojedynek 1v1**. Instalacja i zapis stanu są lokalne; nie wymagają konta ani internetu.
+- **Aplikacje** to skróty do TikTok, YouTube, Twitch, Instagram i Spotify. Aplikacja desktopowa otwiera je w osobnym oknie Tauri z tym samym profilem WebView2, więc logowanie na własne konto zostaje zapamiętane. Chill nie przechowuje haseł ani nie pośredniczy w logowaniu.
+- Jeśli serwis blokuje logowanie w oknie WebView2, użyj **W przeglądarce** — strona otworzy się w domyślnej przeglądarce. W trybie publicznym (przeglądarka) karty aplikacji otwierają nową kartę.
 
 ## GIF-y
 

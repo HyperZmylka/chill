@@ -90,6 +90,7 @@ fn main() {
             commands::chill_autostart_get,
             commands::chill_autostart_set,
             commands::chill_open_external,
+            commands::chill_open_app,
             commands::chill_screen_sources,
             commands::chill_notify,
             commands::chill_set_badge,
@@ -120,6 +121,11 @@ fn main() {
         })
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                // Okna aplikacji z zakładki Mini zamykają się normalnie —
+                // sesja logowania w WebView2 zostaje w profilu powłoki.
+                if window.label().starts_with("app-") {
+                    return;
+                }
                 if !QUITTING.load(Ordering::SeqCst) {
                     api.prevent_close();
                     let _ = window.hide();

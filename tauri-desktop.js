@@ -34,6 +34,7 @@
   app.app.autostartGet = () => call('chill_autostart_get');
   app.app.autostartSet = (enabled) => call('chill_autostart_set', { enabled: Boolean(enabled) });
   app.app.openExternal = (url) => call('chill_open_external', { url: String(url) });
+  app.app.openApp = (id) => call('chill_open_app', { id: String(id) });
   app.app.screenSources = () => call('chill_screen_sources');
   // WebView2 nie pozwala aplikacji wybrać źródła przechwytywania za
   // użytkownika — systemowy wybór ekranu/okna jest jedyną poprawną drogą.

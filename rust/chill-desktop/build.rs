@@ -4,6 +4,7 @@ fn main() {
         "chill_autostart_get",
         "chill_autostart_set",
         "chill_open_external",
+        "chill_open_app",
         "chill_screen_sources",
         "chill_notify",
         "chill_set_badge",

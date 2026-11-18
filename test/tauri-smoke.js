@@ -716,6 +716,63 @@ let cdp = null;
     })()`);
     check('udostępnianie ekranu zatrzymuje się czysto', !stoppedShare.sharing && !stoppedShare.hasStream, JSON.stringify(stoppedShare));
 
+    await evaluate("document.getElementById('miniGamesBtn').click()");
+    await waitEval("!!document.querySelector('.mini-hub-tabs')", 8_000, 'mini hub');
+    const miniHub = await evaluate(`(() => {
+      const nav = document.getElementById('miniGamesBtn');
+      return {
+        navLabel: nav.querySelector('.nav-label')?.textContent.trim(),
+        navTitle: nav.title,
+        header: document.getElementById('chatName')?.textContent,
+        tabs: [...document.querySelectorAll('.mini-hub-tab')].map((btn) => ({
+          tab: btn.dataset.miniTab,
+          active: btn.classList.contains('active'),
+        })),
+        gameCards: document.querySelectorAll('.minigame-card').length,
+        appCards: document.querySelectorAll('.mini-app-card').length,
+      };
+    })()`);
+    check('zakładka Mini ma wybór gier i aplikacji', miniHub.navLabel === 'Mini' && miniHub.navTitle === 'Mini' && miniHub.header === 'Mini' && miniHub.tabs.length === 2 && miniHub.tabs[0].tab === 'games' && miniHub.tabs[1].tab === 'apps', JSON.stringify(miniHub));
+    check('Mini domyślnie pokazuje gry', miniHub.tabs[0].active && miniHub.gameCards === 2 && miniHub.appCards === 0, JSON.stringify(miniHub));
+
+    await evaluate("document.querySelector('.mini-hub-tab[data-mini-tab=\"apps\"]').click()");
+    await waitEval("!!document.querySelector('.mini-app-card')", 8_000, 'apps tab');
+    const miniApps = await evaluate(`(() => {
+      const cards = [...document.querySelectorAll('.mini-app-card')];
+      return {
+        ids: cards.map((card) => card.dataset.appId),
+        names: cards.map((card) => card.querySelector('h3')?.textContent),
+        logins: cards.map((card) => card.querySelector('.mini-app-login')?.textContent),
+        openLabel: document.querySelector('.mini-app-card[data-app-id="tiktok"] .mini-app-open')?.textContent,
+        browserLabel: document.querySelector('.mini-app-card[data-app-id="tiktok"] .mini-app-browser')?.textContent,
+        hero: document.querySelector('.mini-apps-hero h2')?.textContent,
+      };
+    })()`);
+    check('Aplikacje pokazują TikTok, YouTube, Twitch, Instagram i Spotify', miniApps.ids.join(',') === 'tiktok,youtube,twitch,instagram,spotify' && miniApps.hero === 'Aplikacje', JSON.stringify(miniApps));
+    check('karta aplikacji informuje o logowaniu na swoje konto', miniApps.logins.every((text) => text === 'Zaloguj się na swoje konto') && miniApps.openLabel === 'Otwórz w Chill' && miniApps.browserLabel === 'W przeglądarce', JSON.stringify(miniApps));
+
+    const miniAppClicks = await evaluate(`(async () => {
+      const calls = [];
+      const external = [];
+      const originalApp = CHILL.app.openApp;
+      const originalExternal = CHILL.app.openExternal;
+      CHILL.app.openApp = (id) => { calls.push(String(id)); return Promise.resolve(null); };
+      CHILL.app.openExternal = (url) => { external.push(String(url)); };
+      const card = document.querySelector('.mini-app-card[data-app-id="tiktok"]');
+      card.querySelector('.mini-app-open').click();
+      card.querySelector('.mini-app-browser').click();
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      CHILL.app.openApp = originalApp;
+      CHILL.app.openExternal = originalExternal;
+      return { calls, external };
+    })()`);
+    check('TikTok otwiera się w oknie aplikacji', miniAppClicks.calls[0] === 'tiktok', JSON.stringify(miniAppClicks));
+    check('aplikację można też otworzyć w przeglądarce', miniAppClicks.external[0] === 'https://www.tiktok.com/', JSON.stringify(miniAppClicks));
+
+    await evaluate("document.querySelector('.mini-hub-tab[data-mini-tab=\"games\"]').click()");
+    await waitEval("!!document.querySelector('.minigame-card')", 8_000, 'games tab again');
+    check('powrót do Mini Gierek zachowuje katalog gier', await evaluate("document.querySelectorAll('.minigame-card').length === 2"));
+
     await sleep(400);
     check('brak wyjątków JavaScript w aplikacji', exceptions.length === 0, exceptions.slice(0, 3).join(' | '));
     const seriousConsole = consoleErrors.filter((text) => !/Failed to load resource|net::ERR/i.test(text));

@@ -14,6 +14,7 @@
     "allow-chill-autostart-get",
     "allow-chill-autostart-set",
     "allow-chill-open-external",
+    "allow-chill-open-app",
     "allow-chill-screen-sources",
     "allow-chill-notify",
     "allow-chill-set-badge",

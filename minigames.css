@@ -318,6 +318,170 @@
   line-height: 1.55;
 }
 
+/* ---------- Mini: wybór gier i aplikacji ---------- */
+.mini-hub-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin: 4px 0 20px;
+}
+.mini-hub-copy h2 {
+  margin: 8px 0 4px;
+  font-size: 30px;
+  font-weight: 850;
+  letter-spacing: -0.025em;
+}
+.mini-hub-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.mini-hub-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel-2) 88%, transparent);
+}
+.mini-hub-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 15px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 750;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.mini-hub-tab:hover { color: var(--text); }
+.mini-hub-tab.active {
+  background: color-mix(in srgb, var(--accent) 17%, transparent);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent);
+}
+.mini-hub-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.mini-apps-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
+  margin-top: 22px;
+}
+.mini-app-card {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 2px 14px;
+  align-items: start;
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: linear-gradient(165deg, color-mix(in srgb, var(--panel) 94%, transparent), color-mix(in srgb, var(--panel-2) 82%, transparent));
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.16);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.mini-app-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.24);
+}
+.mini-app-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  border-radius: 15px;
+  color: #fff;
+  background: var(--panel-3);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+}
+.mini-app-icon svg { width: 28px; height: 28px; }
+.mini-app-icon-tiktok { background: linear-gradient(140deg, #25f4ee, #101014 48%, #fe2c55); }
+.mini-app-icon-youtube { background: #ff0033; }
+.mini-app-icon-twitch { background: #9146ff; }
+.mini-app-icon-instagram { background: linear-gradient(140deg, #feda75, #d62976 48%, #4f5bd5); }
+.mini-app-icon-spotify { background: #1db954; color: #072313; }
+.mini-app-body { min-width: 0; }
+.mini-app-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.mini-app-title h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+.mini-app-login {
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: color-mix(in srgb, var(--accent) 84%, var(--text));
+  font-size: 8.5px;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mini-app-body p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12.2px;
+  line-height: 1.5;
+}
+.mini-app-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+.mini-app-tag {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--faint);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.mini-app-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+}
+.mini-app-open { min-width: 128px; }
+.mini-app-browser {
+  border: 0;
+  background: transparent;
+  padding: 8px 4px;
+  color: var(--faint);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.mini-app-browser:hover { color: var(--text); }
+.mini-app-browser:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+
 /* ---------- Ekran gry ---------- */
 .minigame-overlay {
   position: fixed;
@@ -749,11 +913,20 @@ body[data-motion="reduced"] .mg-storm.danger {
   .minigames-hero { padding: 24px; }
   .minigames-hero h2 { font-size: 26px; }
   .minigames-grid { grid-template-columns: 1fr; }
+  .mini-hub-head { align-items: flex-start; }
+  .mini-apps-grid { grid-template-columns: 1fr; }
   .mg-hud-left, .mg-hud-right { min-width: 138px; }
   .mg-bar { width: 165px; }
 }
 @media (max-width: 760px) {
   .mini-games-count { display: none; }
+  .mini-hub-tabs { width: 100%; justify-content: space-between; }
+  .mini-hub-tab { flex: 1; justify-content: center; padding: 8px 10px; }
+  .mini-app-card { grid-template-columns: 50px minmax(0, 1fr); padding: 15px; }
+  .mini-app-icon { width: 50px; height: 50px; border-radius: 13px; }
+  .mini-app-icon svg { width: 24px; height: 24px; }
+  .mini-app-actions { gap: 8px; }
+  .mini-app-open { flex: 1; }
   .minigame-overlay { padding: 0; }
   .minigame-shell { border: 0; border-radius: 0; }
   .minigame-bar { min-height: 54px; gap: 8px; padding: 0 10px; }

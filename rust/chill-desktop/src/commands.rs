@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_notification::NotificationExt;
 
@@ -63,6 +63,39 @@ pub fn chill_open_external(url: String) -> Result<(), String> {
         let _ = open::that(url);
     });
     Ok(())
+}
+
+// Aplikacje dostępne w zakładce Mini. Adresy są stałe, więc interfejs nie
+// może otworzyć dowolnej strony w uprzywilejowanym oknie powłoki.
+fn mini_app_target(id: &str) -> Option<(&'static str, &'static str)> {
+    match id {
+        "tiktok" => Some(("TikTok", "https://www.tiktok.com/")),
+        "youtube" => Some(("YouTube", "https://www.youtube.com/")),
+        "twitch" => Some(("Twitch", "https://www.twitch.tv/")),
+        "instagram" => Some(("Instagram", "https://www.instagram.com/")),
+        "spotify" => Some(("Spotify", "https://open.spotify.com/")),
+        _ => None,
+    }
+}
+
+#[tauri::command]
+pub async fn chill_open_app(app: AppHandle, id: String) -> Result<(), String> {
+    let (title, url) = mini_app_target(&id).ok_or_else(|| "Nieznana aplikacja.".to_string())?;
+    let label = format!("app-{id}");
+    if let Some(window) = app.get_webview_window(&label) {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+    let parsed = url::Url::parse(url).map_err(|_| "Nieprawidłowy adres aplikacji.".to_string())?;
+    WebviewWindowBuilder::new(&app, label, WebviewUrl::External(parsed))
+        .title(format!("{title} — Chill"))
+        .inner_size(1120.0, 780.0)
+        .min_inner_size(460.0, 360.0)
+        .build()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -317,8 +350,24 @@ fn version_parts(value: &str) -> Vec<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::update_asset_url;
+    use super::{mini_app_target, update_asset_url};
     use serde_json::json;
+
+    #[test]
+    fn mini_apps_use_fixed_https_targets() {
+        for id in ["tiktok", "youtube", "twitch", "instagram", "spotify"] {
+            let (title, url) = mini_app_target(id).expect(id);
+            assert!(!title.is_empty());
+            assert!(url.starts_with("https://"));
+        }
+        assert_eq!(mini_app_target("tiktok").unwrap().1, "https://www.tiktok.com/");
+    }
+
+    #[test]
+    fn unknown_mini_app_is_rejected() {
+        assert!(mini_app_target("file").is_none());
+        assert!(mini_app_target("https://example.com").is_none());
+    }
 
     #[test]
     fn prefers_tauri_installer_when_release_has_both() {

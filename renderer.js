@@ -1065,7 +1065,23 @@ const I18N_EN = {
   'Wyciszone kanały są ukryte.': 'Muted channels are hidden.',
 
   // Mini Gierki
+  'Mini': 'Mini',
   'Mini Gierki': 'Mini Games',
+  'Gry i aplikacje': 'Games and apps',
+  'Gry i aplikacje w Chillu': 'Games and apps in Chill',
+  'Gry i aplikacje w Chillu. Wybierz, co chcesz otworzyć.': 'Games and apps in Chill. Choose what to open.',
+  'aplikacje': 'apps',
+  'Otwórz TikTok, YouTube, Twitch, Instagram i Spotify. Zaloguj się na swoje konto — sesja zostaje zapamiętana na tym urządzeniu.': 'Open TikTok, YouTube, Twitch, Instagram, and Spotify. Sign in to your account — the session is remembered on this device.',
+  'Twoje konto': 'Your account',
+  'Osobne okno Chill': 'Separate Chill window',
+  'Nowa karta': 'New tab',
+  'Zaloguj się na swoje konto': 'Sign in to your account',
+  'Otwórz w Chill': 'Open in Chill',
+  'Otwórz': 'Open',
+  'W przeglądarce': 'In browser',
+  'Aplikacje otwierają się w osobnym oknie Chill. Logujesz się na swoje konto w serwisie — Chill nie przechowuje haseł. Jeśli logowanie nie działa w oknie aplikacji, użyj „W przeglądarce”.': 'Apps open in a separate Chill window. You sign in to your account on the service — Chill does not store passwords. If signing in does not work in the app window, use “In browser”.',
+  'Aplikacje otwierają się w nowej karcie. Logujesz się na swoje konto w serwisie — Chill nie przechowuje haseł.': 'Apps open in a new tab. You sign in to your account on the service — Chill does not store passwords.',
+  'Nie udało się otworzyć aplikacji w Chillu. Otwieram w przeglądarce.': 'Could not open the app in Chill. Opening it in your browser.',
   'Gry wbudowane': 'Built-in games',
   'Krótkie gry w Chillu. Pobierz jednym kliknięciem i zagraj bez wychodzenia z aplikacji.': 'Short games inside Chill. Download in one click and play without leaving the app.',
   'gry w katalogu': 'games in the catalog',
@@ -9024,11 +9040,11 @@ function renderHeader() {
       ? `${state.server.name} • ${isVoice ? t('Kanał głosowy') : state.status === 'online' ? `${online} ${t('Online').toLowerCase()}` : state.status === 'connecting' ? t('łączenie…') : state.status === 'reconnecting' ? t('łączę ponownie…') : t('Offline').toLowerCase()}`
       : '';
   } else if (current.kind === 'minigames') {
-    $('chatEmoji').textContent = '🎮';
+    $('chatEmoji').textContent = '🧩';
     $('chatEmoji').style.background = 'linear-gradient(140deg, var(--accent), var(--accent-2))';
     $('chatEmoji').style.color = '#05231a';
-    $('chatName').textContent = t('Mini Gierki');
-    $('chatSub').textContent = t('Pobieraj i graj lokalnie — bez instalowania dużych klientów');
+    $('chatName').textContent = t('Mini');
+    $('chatSub').textContent = t('Gry i aplikacje w Chillu');
   } else {
     $('chatEmoji').textContent = 'C';
     $('chatEmoji').style.background = 'linear-gradient(140deg, var(--accent), var(--accent-2))';
@@ -10888,7 +10904,192 @@ function bindInbox() {
   });
 }
 
-// ---------- Mini Gierki ----------
+// ---------- Mini Gierki i aplikacje ----------
+const MINI_APP_CATALOG = [
+  {
+    id: 'tiktok',
+    name: 'TikTok',
+    url: 'https://www.tiktok.com/',
+    tone: 'tiktok',
+    descPl: 'Krótkie filmy, twórcy i transmisje na żywo.',
+    descEn: 'Short videos, creators, and live streams.',
+    tagsPl: ['Wideo', 'Na żywo'],
+    tagsEn: ['Video', 'Live'],
+  },
+  {
+    id: 'youtube',
+    name: 'YouTube',
+    url: 'https://www.youtube.com/',
+    tone: 'youtube',
+    descPl: 'Filmy, muzyka, podcasty i transmisje.',
+    descEn: 'Videos, music, podcasts, and live streams.',
+    tagsPl: ['Wideo', 'Muzyka'],
+    tagsEn: ['Video', 'Music'],
+  },
+  {
+    id: 'twitch',
+    name: 'Twitch',
+    url: 'https://www.twitch.tv/',
+    tone: 'twitch',
+    descPl: 'Transmisje na żywo, gry i społeczności.',
+    descEn: 'Live streams, games, and communities.',
+    tagsPl: ['Na żywo', 'Gry'],
+    tagsEn: ['Live', 'Gaming'],
+  },
+  {
+    id: 'instagram',
+    name: 'Instagram',
+    url: 'https://www.instagram.com/',
+    tone: 'instagram',
+    descPl: 'Zdjęcia, rolki, relacje i wiadomości.',
+    descEn: 'Photos, reels, stories, and messages.',
+    tagsPl: ['Zdjęcia', 'Rolki'],
+    tagsEn: ['Photos', 'Reels'],
+  },
+  {
+    id: 'spotify',
+    name: 'Spotify',
+    url: 'https://open.spotify.com/',
+    tone: 'spotify',
+    descPl: 'Muzyka, albumy, playlisty i podcasty.',
+    descEn: 'Music, albums, playlists, and podcasts.',
+    tagsPl: ['Muzyka', 'Podcasty'],
+    tagsEn: ['Music', 'Podcasts'],
+  },
+];
+
+const MINI_APP_ICONS = {
+  tiktok: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4v9.4a3.6 3.6 0 1 1-3-3.54"/><path d="M14 4c.55 2.3 2.1 3.55 4.1 3.8"/></svg>',
+  youtube: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21.6 7.2a2.8 2.8 0 0 0-1.97-1.98C17.9 4.75 12 4.75 12 4.75s-5.9 0-7.63.47A2.8 2.8 0 0 0 2.4 7.2 29 29 0 0 0 2 12a29 29 0 0 0 .4 4.8 2.8 2.8 0 0 0 1.97 1.98c1.73.47 7.63.47 7.63.47s5.9 0 7.63-.47a2.8 2.8 0 0 0 1.97-1.98A29 29 0 0 0 22 12a29 29 0 0 0-.4-4.8ZM10 15.2V8.8l5.2 3.2-5.2 3.2Z"/></svg>',
+  twitch: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 3 3 6v13h4v2h3l2-2h3l5-5V3H4Zm14 10-3 3h-4l-2 2v-2H6V5h12v8ZM9 8v6h2V8H9Zm5 0v6h2V8h-2Z"/></svg>',
+  instagram: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="3.5" width="17" height="17" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.2" cy="6.8" r="1" fill="currentColor" stroke="none"/></svg>',
+  spotify: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm4.6 14.4a.8.8 0 0 1-1.1.26c-3-1.84-6.8-2.26-11.27-1.24a.8.8 0 0 1-.36-1.56c4.9-1.12 9.1-.64 12.47 1.43.38.23.5.72.26 1.1Zm1.23-2.74a1 1 0 0 1-1.37.33c-3.44-2.11-8.68-2.72-12.74-1.5a1 1 0 1 1-.58-1.91c4.64-1.4 10.41-.72 14.36 1.71.47.29.62.9.33 1.37Zm.11-2.85C14.03 8.37 7.8 8.17 4.15 9.28a1.2 1.2 0 1 1-.7-2.3c4.2-1.27 11.07-1.03 15.43 1.56a1.2 1.2 0 0 1-1.22 2.07Z"/></svg>',
+};
+
+let miniHubTab = 'games';
+
+function miniAppCatalog() {
+  return MINI_APP_CATALOG;
+}
+
+function miniAppDescription(app) {
+  return prefs.lang === 'en' ? (app.descEn || app.descPl) : (app.descPl || app.descEn);
+}
+
+function miniAppTags(app) {
+  const tags = prefs.lang === 'en' ? app.tagsEn : app.tagsPl;
+  return Array.isArray(tags) ? tags : [];
+}
+
+function miniAppsOpenInWindow() {
+  return typeof CHILL.app?.openApp === 'function';
+}
+
+function openMiniAppExternal(app) {
+  if (CHILL.app?.openExternal) CHILL.app.openExternal(app.url);
+  else window.open(app.url, '_blank', 'noopener');
+}
+
+function openMiniApp(app, preferBrowser = false) {
+  if (!app) return;
+  if (!preferBrowser && miniAppsOpenInWindow()) {
+    try {
+      Promise.resolve(CHILL.app.openApp(app.id)).catch(() => {
+        toast(t('Nie udało się otworzyć aplikacji w Chillu. Otwieram w przeglądarce.'));
+        openMiniAppExternal(app);
+      });
+      return;
+    } catch {
+      openMiniAppExternal(app);
+      return;
+    }
+  }
+  openMiniAppExternal(app);
+}
+
+function buildMiniAppCard(app) {
+  const card = document.createElement('article');
+  card.className = 'mini-app-card';
+  card.dataset.appId = app.id;
+  const tags = miniAppTags(app).map((tag) => `<span class="mini-app-tag">${esc(tag)}</span>`).join('');
+  const canWindow = miniAppsOpenInWindow();
+  card.innerHTML = `
+    <span class="mini-app-icon mini-app-icon-${esc(app.tone)}" aria-hidden="true">${MINI_APP_ICONS[app.id] || ''}</span>
+    <div class="mini-app-body">
+      <div class="mini-app-title">
+        <h3>${esc(app.name)}</h3>
+        <span class="mini-app-login">${esc(t('Zaloguj się na swoje konto'))}</span>
+      </div>
+      <p>${esc(miniAppDescription(app))}</p>
+      <div class="mini-app-tags">${tags}</div>
+    </div>
+    <div class="mini-app-actions">
+      <button type="button" class="btn-primary mini-app-open">${esc(t(canWindow ? 'Otwórz w Chill' : 'Otwórz'))}</button>
+      ${canWindow ? `<button type="button" class="mini-app-browser">${esc(t('W przeglądarce'))}</button>` : ''}
+    </div>
+  `;
+  card.querySelector('.mini-app-open')?.addEventListener('click', () => openMiniApp(app));
+  card.querySelector('.mini-app-browser')?.addEventListener('click', () => openMiniApp(app, true));
+  return card;
+}
+
+function renderMiniAppsSection(hub) {
+  const canWindow = miniAppsOpenInWindow();
+  const hero = document.createElement('section');
+  hero.className = 'minigames-hero mini-apps-hero';
+  hero.innerHTML = `
+    <span class="minigames-kicker">${esc(t('Aplikacje'))}</span>
+    <h2>${esc(t('Aplikacje'))}</h2>
+    <p>${esc(t('Otwórz TikTok, YouTube, Twitch, Instagram i Spotify. Zaloguj się na swoje konto — sesja zostaje zapamiętana na tym urządzeniu.'))}</p>
+    <div class="minigames-hero-meta">
+      <span class="minigames-hero-chip"><strong>${miniAppCatalog().length}</strong> ${esc(t('aplikacje'))}</span>
+      <span class="minigames-hero-chip">${esc(t('Twoje konto'))}</span>
+      <span class="minigames-hero-chip">${esc(t(canWindow ? 'Osobne okno Chill' : 'Nowa karta'))}</span>
+    </div>
+  `;
+  hub.appendChild(hero);
+
+  const grid = document.createElement('div');
+  grid.className = 'mini-apps-grid';
+  for (const app of miniAppCatalog()) grid.appendChild(buildMiniAppCard(app));
+  hub.appendChild(grid);
+
+  const note = document.createElement('p');
+  note.className = 'minigames-footnote';
+  note.textContent = canWindow
+    ? t('Aplikacje otwierają się w osobnym oknie Chill. Logujesz się na swoje konto w serwisie — Chill nie przechowuje haseł. Jeśli logowanie nie działa w oknie aplikacji, użyj „W przeglądarce”.')
+    : t('Aplikacje otwierają się w nowej karcie. Logujesz się na swoje konto w serwisie — Chill nie przechowuje haseł.');
+  hub.appendChild(note);
+}
+
+function renderMiniGamesSection(hub) {
+  const games = miniGameCatalog();
+  const installedCount = miniGamesInstalled.filter((id) => games.some((game) => game.id === id)).length;
+  const hero = document.createElement('section');
+  hero.className = 'minigames-hero';
+  hero.innerHTML = `
+    <span class="minigames-kicker">${esc(t('Gry wbudowane'))}</span>
+    <h2>${esc(t('Mini Gierki'))}</h2>
+    <p>${esc(t('Krótkie gry w Chillu. Pobierz jednym kliknięciem i zagraj bez wychodzenia z aplikacji.'))}</p>
+    <div class="minigames-hero-meta">
+      <span class="minigames-hero-chip"><strong>${games.length}</strong> ${esc(t('gry w katalogu'))}</span>
+      <span class="minigames-hero-chip"><strong>${installedCount}</strong> ${esc(t('zainstalowane'))}</span>
+      <span class="minigames-hero-chip">${esc(t('Działa lokalnie'))}</span>
+    </div>
+  `;
+  hub.appendChild(hero);
+
+  const grid = document.createElement('div');
+  grid.className = 'minigames-grid';
+  for (const game of games) grid.appendChild(buildMiniGameCard(game));
+  hub.appendChild(grid);
+
+  const note = document.createElement('p');
+  note.className = 'minigames-footnote';
+  note.textContent = t('Każda gra jest oryginalną mini-produkcją Chill. Pobieranie jest lokalne — pliki zostają na tym komputerze.');
+  hub.appendChild(note);
+}
+
 function miniGameCatalog() {
   return Array.isArray(CHILL_MINIGAMES?.catalog) ? CHILL_MINIGAMES.catalog : [];
 }
@@ -10932,8 +11133,8 @@ function saveMiniGamesInstalled() {
 function updateMiniGamesBadge() {
   const badge = $('miniGamesCount');
   if (!badge) return;
-  badge.textContent = String(miniGameCatalog().length);
-  badge.title = t('Katalog gier');
+  badge.textContent = String(miniGameCatalog().length + miniAppCatalog().length);
+  badge.title = t('Gry i aplikacje');
 }
 
 function isMiniGameInstalled(gameId) {
@@ -10998,34 +11199,34 @@ function renderMiniGamesHub(container) {
   if (!container) return;
   container.classList.remove('searching');
   container.innerHTML = '';
-  const games = miniGameCatalog();
-  const installedCount = miniGamesInstalled.filter((id) => games.some((game) => game.id === id)).length;
   const hub = document.createElement('div');
   hub.className = 'minigames-hub';
 
-  const hero = document.createElement('section');
-  hero.className = 'minigames-hero';
-  hero.innerHTML = `
-    <span class="minigames-kicker">${esc(t('Gry wbudowane'))}</span>
-    <h2>${esc(t('Mini Gierki'))}</h2>
-    <p>${esc(t('Krótkie gry w Chillu. Pobierz jednym kliknięciem i zagraj bez wychodzenia z aplikacji.'))}</p>
-    <div class="minigames-hero-meta">
-      <span class="minigames-hero-chip"><strong>${games.length}</strong> ${esc(t('gry w katalogu'))}</span>
-      <span class="minigames-hero-chip"><strong>${installedCount}</strong> ${esc(t('zainstalowane'))}</span>
-      <span class="minigames-hero-chip">${esc(t('Działa lokalnie'))}</span>
+  const head = document.createElement('section');
+  head.className = 'mini-hub-head';
+  head.innerHTML = `
+    <div class="mini-hub-copy">
+      <span class="minigames-kicker">${esc(t('Mini'))}</span>
+      <h2>${esc(t('Mini'))}</h2>
+      <p>${esc(t('Gry i aplikacje w Chillu. Wybierz, co chcesz otworzyć.'))}</p>
+    </div>
+    <div class="mini-hub-tabs" role="tablist" aria-label="${esc(t('Gry i aplikacje'))}">
+      <button type="button" class="mini-hub-tab${miniHubTab === 'games' ? ' active' : ''}" data-mini-tab="games" role="tab" aria-selected="${miniHubTab === 'games' ? 'true' : 'false'}"><span aria-hidden="true">🎮</span> ${esc(t('Mini Gierki'))}</button>
+      <button type="button" class="mini-hub-tab${miniHubTab === 'apps' ? ' active' : ''}" data-mini-tab="apps" role="tab" aria-selected="${miniHubTab === 'apps' ? 'true' : 'false'}"><span aria-hidden="true">▦</span> ${esc(t('Aplikacje'))}</button>
     </div>
   `;
-  hub.appendChild(hero);
+  head.querySelectorAll('[data-mini-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const next = btn.dataset.miniTab === 'apps' ? 'apps' : 'games';
+      if (next === miniHubTab) return;
+      miniHubTab = next;
+      renderMiniGamesHub(container);
+    });
+  });
+  hub.appendChild(head);
 
-  const grid = document.createElement('div');
-  grid.className = 'minigames-grid';
-  for (const game of games) grid.appendChild(buildMiniGameCard(game));
-  hub.appendChild(grid);
-
-  const note = document.createElement('p');
-  note.className = 'minigames-footnote';
-  note.textContent = t('Każda gra jest oryginalną mini-produkcją Chill. Pobieranie jest lokalne — pliki zostają na tym komputerze.');
-  hub.appendChild(note);
+  if (miniHubTab === 'apps') renderMiniAppsSection(hub);
+  else renderMiniGamesSection(hub);
 
   container.appendChild(hub);
 }
