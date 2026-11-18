@@ -549,6 +549,51 @@ let cdp = null;
     await evaluate("document.querySelector('#serverList .server-btn').click()");
     await waitEval("!!document.querySelector('#channelList .nav-item')", 12_000, 'server again');
 
+    alice.send({ type: 'ping' });
+    const pong = await alice.waitFor((m) => m.type === 'pong', 5_000, 'pong');
+    check('serwer odpowiada na heartbeat aplikacji', Boolean(pong && pong.type === 'pong'), JSON.stringify(pong));
+
+    const reconnectTarget = await evaluate(`(() => {
+      const state = serverState(activeServerId);
+      const channel = current.kind === 'server' ? state?.channels.find((item) => item.id === current.id) : null;
+      return {
+        serverId: activeServerId,
+        channelId: channel?.id || '',
+        name: channel?.name || '',
+        status: state?.status || '',
+      };
+    })()`);
+    check('kanał gotowy do testu ponownego połączenia', Boolean(reconnectTarget.serverId && reconnectTarget.channelId), JSON.stringify(reconnectTarget));
+
+    await evaluate(`(() => {
+      const state = serverState(activeServerId);
+      state.ws.close();
+      return true;
+    })()`);
+    await waitEval("serverState(activeServerId)?.status === 'reconnecting'", 8_000, 'reconnecting');
+
+    const queuedText = 'Wiadomość po ponownym połączeniu 4.16.11';
+    const queued = await evaluate(`(() => {
+      const input = document.getElementById('messageInput');
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+      setter.call(input, ${JSON.stringify(queuedText)});
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      const send = document.getElementById('sendBtn');
+      const disabled = send.disabled;
+      send.click();
+      return {
+        status: serverState(activeServerId)?.status || '',
+        composerHidden: document.getElementById('composer').hidden,
+        disabled,
+        input: input.value,
+      };
+    })()`);
+    check('kompozytor działa podczas ponownego łączenia', !queued.composerHidden && !queued.disabled && queued.status === 'reconnecting' && queued.input === '', JSON.stringify(queued));
+    const queuedEcho = await alice.waitFor((m) => m.type === 'server:message' && m.message?.text === queuedText, 15_000, 'queued message');
+    check('wiadomość z kolejki dociera po ponownym połączeniu', queuedEcho.message?.text === queuedText, JSON.stringify(queuedEcho.message));
+    await waitEval(`document.getElementById('messages').innerText.includes(${JSON.stringify(queuedText)})`, 15_000, 'queued message in view');
+    check('wiadomość z kolejki widać na kanale', true);
+
     const channelCreated = await evaluate(`(() => {
       const state = serverState('${server.id}');
       if (!state?.ws) return false;

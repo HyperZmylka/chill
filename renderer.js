@@ -235,6 +235,15 @@ const unread = new Map();
 const mentionUnread = new Map();
 const typingUsers = new Map();
 
+// Kolejka wiadomości wysłanych w trakcie krótkiego rozłączenia. Gniazda
+// serwerów i główne gniazdo są zamykane przez proxy po około 60 s bezczynności,
+// więc wysyłamy heartbeat i wysyłamy zaległe wiadomości po ponownym połączeniu.
+const mainOutbox = [];
+const serverOutboxes = new Map();
+const SOCKET_HEARTBEAT_MS = 25_000;
+const OUTBOX_TTL_MS = 60_000;
+const OUTBOX_LIMIT = 25;
+
 const DEFAULT_PREFS = {
   theme: 'system',
   accent: '#3ee0a3',
@@ -805,6 +814,8 @@ const I18N_EN = {
   'Utwórz lub dołącz do serwera': 'Create or join a server',
   'Wybierz rozmowę lub kanał, aby napisać.': 'Choose a conversation or channel to write.',
   'Łączę z serwerem — spróbuj za chwilę.': 'Connecting to the server — try again in a moment.',
+  'Łączę ponownie — wiadomość wyślę automatycznie.': 'Reconnecting — your message will be sent automatically.',
+  'łączę ponownie…': 'reconnecting…',
   'Ta rozmowa nie jest już dostępna.': 'This conversation is no longer available.',
   'Serwer jest offline — spróbuj, gdy połączenie wróci.': 'The server is offline — try again when the connection returns.',
   'Serwer jest offline — wiadomości wrócą po połączeniu': 'The server is offline — messages will return when connected',
@@ -1809,13 +1820,17 @@ function logout() {
   closeAudioMenus();
   if (reconnectTimer) clearTimeout(reconnectTimer);
   if (ws) {
+    stopSocketHeartbeat(ws);
     ws.onclose = null;
     try { ws.close(); } catch { /* ignore */ }
     ws = null;
   }
+  mainOutbox.length = 0;
+  serverOutboxes.clear();
   for (const state of serverStates.values()) {
     clearTimeout(state.reconnectTimer);
     if (state.ws) {
+      stopSocketHeartbeat(state.ws);
       state.ws.onclose = null;
       try { state.ws.close(); } catch { /* ignore */ }
     }
@@ -3714,6 +3729,11 @@ function moveMention(step) {
 // CZAT
 // ============================================================
 function bindChat() {
+  window.addEventListener('online', reconnectStaleSockets);
+  window.addEventListener('focus', reconnectStaleSockets);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) reconnectStaleSockets();
+  });
   $('composer').addEventListener('submit', sendCurrentMessage);
   const input = $('messageInput');
   $('attachBtn')?.addEventListener('click', () => $('attachmentInput')?.click());
@@ -3824,6 +3844,81 @@ function wsReady() {
   return ws && ws.readyState === WebSocket.OPEN;
 }
 
+function stopSocketHeartbeat(socket) {
+  if (!socket || !socket.__chillHeartbeat) return;
+  clearInterval(socket.__chillHeartbeat);
+  socket.__chillHeartbeat = null;
+}
+
+function startSocketHeartbeat(socket) {
+  stopSocketHeartbeat(socket);
+  socket.__chillHeartbeat = setInterval(() => {
+    if (socket.readyState === WebSocket.CLOSED) {
+      stopSocketHeartbeat(socket);
+      return;
+    }
+    if (socket.readyState !== WebSocket.OPEN) return;
+    try { socket.send('{"type":"ping"}'); } catch { /* ignore */ }
+  }, SOCKET_HEARTBEAT_MS);
+}
+
+function pushOutbox(list, payload) {
+  const now = Date.now();
+  const fresh = list.filter((item) => now - item.at < OUTBOX_TTL_MS);
+  fresh.push({ payload, at: now });
+  while (fresh.length > OUTBOX_LIMIT) fresh.shift();
+  list.length = 0;
+  list.push(...fresh);
+}
+
+function flushOutbox(list, socket) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return list;
+  const now = Date.now();
+  let index = 0;
+  for (; index < list.length; index += 1) {
+    const item = list[index];
+    if (now - item.at > OUTBOX_TTL_MS) continue;
+    try {
+      socket.send(JSON.stringify(item.payload));
+    } catch {
+      break;
+    }
+  }
+  return list.slice(index).filter((item) => now - item.at <= OUTBOX_TTL_MS);
+}
+
+function queueServerMessage(serverId, payload) {
+  if (!serverId) return;
+  const list = serverOutboxes.get(serverId) || [];
+  pushOutbox(list, payload);
+  serverOutboxes.set(serverId, list);
+}
+
+function reconnectServerNow(server) {
+  const state = serverState(server?.id);
+  if (!state || state.fatal) return;
+  if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
+  clearTimeout(state.reconnectTimer);
+  state.reconnectTimer = null;
+  connectServer(state.server);
+}
+
+function reconnectStaleSockets() {
+  if (!currentUser) return;
+  const now = Date.now();
+  if (now - reconnectStaleSockets.lastAt < 2500) return;
+  reconnectStaleSockets.lastAt = now;
+  if (!wsReady() && (!ws || ws.readyState !== WebSocket.CONNECTING)) connect();
+  for (const state of serverStates.values()) {
+    if (state.fatal) continue;
+    if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) continue;
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+    connectServer(state.server);
+  }
+}
+reconnectStaleSockets.lastAt = 0;
+
 function currentActivityState() {
   const active = prefs.gameDetect ? playing : null;
   return {
@@ -3847,6 +3942,7 @@ function broadcastActivity() {
 function connect() {
   if (reconnectTimer) clearTimeout(reconnectTimer);
   if (ws) {
+    stopSocketHeartbeat(ws);
     ws.onclose = null;
     try { ws.close(); } catch { /* ignore */ }
     ws = null;
@@ -3855,6 +3951,7 @@ function connect() {
 
   const socket = new WebSocket(WS_URL);
   ws = socket;
+  startSocketHeartbeat(socket);
 
   socket.onopen = () => {
     if (ws !== socket) return;
@@ -3880,6 +3977,7 @@ function connect() {
 
   socket.onclose = () => {
     if (ws !== socket) return;
+    stopSocketHeartbeat(socket);
     ws = null;
     localVoiceKey = '';
     if (current.kind === 'dm' && !String(current.id).startsWith('srv:')) {
@@ -3915,6 +4013,9 @@ function handleMessage(msg) {
       if (wsReady()) {
         ws.send(JSON.stringify({ type: 'status', status: prefs.status }));
         if (prefs.gameDetect && playing) ws.send(JSON.stringify({ type: 'activity', ...currentActivityState() }));
+        const pending = flushOutbox(mainOutbox, ws);
+        mainOutbox.length = 0;
+        mainOutbox.push(...pending);
       }
       if (!$('userProfileOverlay').hidden) renderUserProfile();
       break;
@@ -4114,8 +4215,10 @@ function connectServer(server) {
   if (state.fatal) return;
   if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) return;
   clearTimeout(state.reconnectTimer);
+  if (state.ws) stopSocketHeartbeat(state.ws);
+  const wasReconnecting = state.status === 'reconnecting';
   state.attempts += 1;
-  state.status = 'connecting';
+  state.status = wasReconnecting || state.attempts > 1 ? 'reconnecting' : 'connecting';
   state.error = '';
   renderServers();
   if (activeServerId === server.id) {
@@ -4133,6 +4236,7 @@ function connectServer(server) {
     return;
   }
   state.ws = socket;
+  startSocketHeartbeat(socket);
   socket.binaryType = 'arraybuffer';
 
   socket.onopen = () => {
@@ -4173,6 +4277,7 @@ function connectServer(server) {
 
   socket.onclose = () => {
     if (state.ws !== socket) return;
+    stopSocketHeartbeat(socket);
     state.ws = null;
     state.voiceKey = '';
     if (liveVoice?.serverId === server.id) stopLiveVoice({ silent: true, localOnly: true });
@@ -4180,7 +4285,7 @@ function connectServer(server) {
       || (current.kind === 'dm' && String(current.id).startsWith(`srv:${server.id}:`))) {
       resetVoicePlayback();
     }
-    if (state.status === 'online' || state.status === 'connecting') state.status = 'offline';
+    state.status = !state.fatal && state.attempts <= 5 ? 'reconnecting' : 'offline';
     state.you = null;
     state.members = state.members.map((member) => ({ ...member, online: false }));
     renderServers();
@@ -4316,6 +4421,12 @@ function handleServerFrame(serverId, msg) {
       }
       renderServers();
       updateBadges();
+      const outbox = serverOutboxes.get(serverId);
+      if (outbox && outbox.length) {
+        const pending = flushOutbox(outbox, state.ws);
+        if (pending.length) serverOutboxes.set(serverId, pending);
+        else serverOutboxes.delete(serverId);
+      }
       break;
     }
 
@@ -4693,6 +4804,7 @@ function removeServerLocally(serverId) {
   if (state) {
     clearTimeout(state.reconnectTimer);
     if (state.ws) {
+      stopSocketHeartbeat(state.ws);
       state.ws.onclose = null;
       try { state.ws.close(); } catch { /* ignore */ }
     }
@@ -4702,6 +4814,7 @@ function removeServerLocally(serverId) {
     resetVoiceSession();
   }
   serverStates.delete(serverId);
+  serverOutboxes.delete(serverId);
   servers = servers.filter((server) => server.id !== serverId);
   for (const key of [...unread.keys()]) {
     if (key.startsWith(`server:${serverId}:`)) clearUnread(key);
@@ -7274,14 +7387,15 @@ function renderServers() {
     const state = serverState(server.id);
     const count = unreadCountFor(`server:${server.id}:`);
     const color = safeColor(server.color, '#3ee0a3');
+    const status = state?.status || 'offline';
     const button = document.createElement('button');
     button.type = 'button';
-    button.className = `server-btn${activeServerId === server.id ? ' active' : ''}${count ? ' unread' : ''}${state?.status === 'online' ? '' : ' offline'}`;
-    button.title = `${server.name}${state?.status === 'online' ? '' : state?.status === 'connecting' ? ` — ${t('łączenie…')}` : ` — ${t('Offline').toLowerCase()}`}`;
+    button.className = `server-btn${activeServerId === server.id ? ' active' : ''}${count ? ' unread' : ''}${status === 'offline' ? ' offline' : ''}`;
+    button.title = `${server.name}${status === 'online' ? '' : status === 'connecting' ? ` — ${t('łączenie…')}` : status === 'reconnecting' ? ` — ${t('łączę ponownie…')}` : ` — ${t('Offline').toLowerCase()}`}`;
     button.innerHTML = `
       <span class="server-avatar" style="background:linear-gradient(145deg, ${esc(color)}, color-mix(in srgb, ${esc(color)} 55%, #7cc8ff))">${esc(server.icon || initial(server.name))}</span>
       ${count ? `<span class="server-badge">${count > 99 ? '99+' : count}</span>` : ''}
-      ${state?.status === 'online' ? '' : '<span class="server-status-dot"></span>'}
+      ${status === 'online' ? '' : '<span class="server-status-dot"></span>'}
     `;
     button.addEventListener('click', () => selectServer(server.id));
     container.appendChild(button);
@@ -8858,7 +8972,7 @@ function renderHeader() {
     $('chatEmoji').style.color = '#06251b';
     $('chatName').textContent = channel?.name || state?.server.name || t('Serwer');
     $('chatSub').textContent = state
-      ? `${state.server.name} • ${isVoice ? t('Kanał głosowy') : state.status === 'online' ? `${online} ${t('Online').toLowerCase()}` : state.status === 'connecting' ? t('łączenie…') : t('Offline').toLowerCase()}`
+      ? `${state.server.name} • ${isVoice ? t('Kanał głosowy') : state.status === 'online' ? `${online} ${t('Online').toLowerCase()}` : state.status === 'connecting' ? t('łączenie…') : state.status === 'reconnecting' ? t('łączę ponownie…') : t('Offline').toLowerCase()}`
       : '';
   } else if (current.kind === 'minigames') {
     $('chatEmoji').textContent = '🎮';
@@ -8881,11 +8995,11 @@ function updateComposer() {
   const state = current.kind === 'server' ? serverState(current.serverId) : null;
   const channel = state?.channels.find((item) => item.id === current.id);
   const entry = current.kind === 'dm' ? dmEntry(current.id) : null;
-  const dmServerOnline = entry?.kind === 'server' ? serverState(entry.serverId)?.status === 'online' : true;
+  const dmServerOnline = entry?.kind === 'server' ? ['online', 'reconnecting'].includes(serverState(entry.serverId)?.status) : true;
   const isVoice = channel?.type === 'voice';
   const enabled = current.kind === 'dm'
     ? Boolean(entry) && dmServerOnline
-    : current.kind === 'server' && state?.status === 'online' && Boolean(channel) && !isVoice;
+    : current.kind === 'server' && (state?.status === 'online' || state?.status === 'reconnecting') && Boolean(channel) && !isVoice;
   const recording = Boolean(voiceSession);
   if (!enabled && voiceSession) cancelVoiceRecording(true);
   $('composer').hidden = !enabled;
@@ -8975,7 +9089,7 @@ function renderMessages(scroll = true) {
 
   if (current.kind === 'server') {
     const state = serverState(current.serverId);
-    if (!state || state.status !== 'online') {
+    if (!state || (state.status !== 'online' && state.status !== 'reconnecting')) {
       const wrap = document.createElement('div');
       wrap.className = 'empty-chat';
       if (state?.status === 'connecting') {
@@ -10306,7 +10420,7 @@ function deliverMessage(text) {
   if (current.kind === 'server') {
     const state = serverState(current.serverId);
     const channel = state?.channels.find((item) => item.id === current.id);
-    if (!state || !state.ws || state.ws.readyState !== WebSocket.OPEN || !channel) {
+    if (!state || !channel) {
       toast(t('Łączę z serwerem — spróbuj za chwilę.'));
       return false;
     }
@@ -10314,7 +10428,20 @@ function deliverMessage(text) {
       toast(t('Kanały głosowe nie obsługują wiadomości tekstowych.'));
       return false;
     }
-    state.ws.send(JSON.stringify({ type: 'server:message', channelId: channel.id, text }));
+    const payload = { type: 'server:message', channelId: channel.id, text };
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      try {
+        state.ws.send(JSON.stringify(payload));
+      } catch {
+        queueServerMessage(state.server.id, payload);
+        reconnectServerNow(state.server);
+        toast(t('Łączę ponownie — wiadomość wyślę automatycznie.'));
+      }
+    } else {
+      queueServerMessage(state.server.id, payload);
+      reconnectServerNow(state.server);
+      toast(t('Łączę ponownie — wiadomość wyślę automatycznie.'));
+    }
   } else {
     const entry = dmEntry(current.id);
     if (!entry) {
@@ -10324,7 +10451,7 @@ function deliverMessage(text) {
 
     if (entry.kind === 'server') {
       const state = serverState(entry.serverId);
-      if (!state || state.status !== 'online' || !state.ws || state.ws.readyState !== WebSocket.OPEN || !state.you) {
+      if (!state || !state.you) {
         toast(t('Serwer jest offline — spróbuj, gdy połączenie wróci.'));
         return false;
       }
@@ -10341,16 +10468,24 @@ function deliverMessage(text) {
         text,
         at: Date.now(),
       };
-      state.ws.send(JSON.stringify({ type: 'server:dm', to: entry.memberId, text }));
+      const payload = { type: 'server:dm', to: entry.memberId, text };
+      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+        try {
+          state.ws.send(JSON.stringify(payload));
+        } catch {
+          queueServerMessage(state.server.id, payload);
+          reconnectServerNow(state.server);
+          toast(t('Łączę ponownie — wiadomość wyślę automatycznie.'));
+        }
+      } else {
+        queueServerMessage(state.server.id, payload);
+        reconnectServerNow(state.server);
+        toast(t('Łączę ponownie — wiadomość wyślę automatycznie.'));
+      }
       pushHistory(conversationKey(), message);
     } else {
       if (!isAccountFriend(current.id)) {
         toast(t('Aby wysłać wiadomość, najpierw zaczekaj na akceptację zaproszenia.'));
-        return false;
-      }
-      if (!wsReady()) {
-        toast(t('Łączę z serwerem — spróbuj za chwilę.'));
-        connect();
         return false;
       }
       const message = {
@@ -10362,7 +10497,14 @@ function deliverMessage(text) {
         text,
         at: Date.now(),
       };
-      ws.send(JSON.stringify({ type: 'dm', to: current.id, text }));
+      const payload = { type: 'dm', to: current.id, text };
+      if (wsReady()) {
+        ws.send(JSON.stringify(payload));
+      } else {
+        pushOutbox(mainOutbox, payload);
+        connect();
+        toast(t('Łączę ponownie — wiadomość wyślę automatycznie.'));
+      }
       pushHistory(conversationKey(), message);
     }
   }

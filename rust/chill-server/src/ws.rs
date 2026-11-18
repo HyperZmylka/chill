@@ -238,6 +238,9 @@ fn handle_message(state: &AppState, conn_id: u64, local: bool, ip: &str, msg: &V
         "activity" => handle_activity(state, conn_id, local, msg),
         "status" => handle_status(state, conn_id, local, msg),
         "profile" => handle_profile(state, conn_id, local, msg),
+        // Klient wysyła lekki heartbeat, żeby proxy nie zamykało bezczynnego
+        // gniazda po ~60 s. Odpowiedź utrzymuje ruch w obie strony.
+        "ping" => send(state, conn_id, &json!({ "type": "pong" })),
         "users" => {
             if local {
                 send(

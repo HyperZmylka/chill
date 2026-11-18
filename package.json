@@ -1,8 +1,8 @@
 {
   "name": "chill",
   "productName": "Chill",
-  "version": "4.16.10",
-  "description": "Chill — spokojny komunikator desktopowy: serwery, kanały tekstowe i głosowe, rozmowy na żywo, udostępnianie ekranu, wiadomości prywatne, wiadomości głosowe, emoji, naklejki, GIF-y i aktualizacje.",
+  "version": "4.16.11",
+  "description": "Chill â€” spokojny komunikator desktopowy: serwery, kanaĹ‚y tekstowe i gĹ‚osowe, rozmowy na ĹĽywo, udostÄ™pnianie ekranu, wiadomoĹ›ci prywatne, wiadomoĹ›ci gĹ‚osowe, emoji, naklejki, GIF-y i aktualizacje.",
   "main": "main.js",
   "private": true,
   "author": "HyperZmylka",
