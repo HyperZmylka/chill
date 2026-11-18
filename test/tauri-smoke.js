@@ -492,6 +492,43 @@ let cdp = null;
     check('drugi klient dołącza do serwera w aplikacji', joined.you?.memberId === aliceAccount.id, JSON.stringify(joined.you));
     await evaluate("document.querySelector('#serverList .server-btn').click()");
     await waitEval("!!document.querySelector('#channelList .nav-item')", 12_000, 'channels');
+
+    await waitEval("!document.getElementById('legalNotice').hidden", 8_000, 'legal notice');
+    const legal = await evaluate(`(() => {
+      const card = document.getElementById('legalNotice');
+      const rect = card.getBoundingClientRect();
+      const opened = [];
+      const original = CHILL.app.openExternal;
+      CHILL.app.openExternal = (url) => { opened.push(String(url)); };
+      document.getElementById('legalReadTerms').click();
+      document.getElementById('legalPrivacy').click();
+      CHILL.app.openExternal = original;
+      return {
+        visible: !card.hidden,
+        version: card.dataset.legalVersion || '',
+        right: Math.round(innerWidth - rect.right),
+        bottom: Math.round(innerHeight - rect.bottom),
+        buttons: card.querySelectorAll('button').length,
+        opened,
+      };
+    })()`);
+    check('karta Regulaminu i prywatności pojawia się po logowaniu', legal.visible && legal.version === '2026-11-18' && legal.buttons === 3, JSON.stringify(legal));
+    check('karta dokumentów jest w prawym dolnym rogu', legal.right >= 0 && legal.right <= 40 && legal.bottom >= 0 && legal.bottom <= 240, `right=${legal.right} bottom=${legal.bottom}`);
+    check('Read Terms i Privacy otwierają dokumenty', legal.opened.some((url) => /\/terms\.html\?/.test(url)) && legal.opened.some((url) => /\/privacy\.html\?/.test(url)), JSON.stringify(legal.opened));
+
+    const dismissedLegal = await evaluate(`(async () => {
+      document.getElementById('legalGotIt').click();
+      await new Promise((resolve) => setTimeout(resolve, 420));
+      let stored = null;
+      try { stored = JSON.parse(localStorage.getItem('chill.prefs.' + (myId || 'guest')) || 'null'); } catch { /* ignore */ }
+      return {
+        hidden: document.getElementById('legalNotice').hidden,
+        version: prefs.legalVersion,
+        stored: stored?.legalVersion || '',
+      };
+    })()`);
+    check('Got it zamyka kartę i zapamiętuje wersję dokumentów', dismissedLegal.hidden && dismissedLegal.version === '2026-11-18' && dismissedLegal.stored === '2026-11-18', JSON.stringify(dismissedLegal));
+
     const memberAvatar = await evaluate(`(() => {
       const member = Array.from(document.querySelectorAll('#userList .member')).find(b => b.textContent.includes('Alicja Tauri'));
       const avatar = member?.querySelector('.member-avatar');

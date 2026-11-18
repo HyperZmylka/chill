@@ -560,6 +560,17 @@
     <button type="button" class="btn-primary small" id="updateBtn" hidden data-i18n="Pobierz ręcznie">Pobierz ręcznie</button>
   </div>
 
+  <!-- Informacja o Regulaminie i Polityce prywatności -->
+  <aside class="legal-card" id="legalNotice" data-legal-version="2026-11-18" role="region" aria-labelledby="legalTitle" hidden>
+    <strong class="legal-title" id="legalTitle" data-i18n="Zaktualizowaliśmy Regulamin i Politykę prywatności">Zaktualizowaliśmy Regulamin i Politykę prywatności</strong>
+    <p class="legal-copy" data-i18n="Dodaliśmy Regulamin i Politykę prywatności. Opisują konta, wiadomości, załączniki, kanały głosowe i udostępnianie ekranu oraz to, jakie dane zostają na urządzeniu, a jakie na serwerach. Nie zmienia to działania Twojego konta.">Dodaliśmy Regulamin i Politykę prywatności. Opisują konta, wiadomości, załączniki, kanały głosowe i udostępnianie ekranu oraz to, jakie dane zostają na urządzeniu, a jakie na serwerach. Nie zmienia to działania Twojego konta.</p>
+    <div class="legal-actions">
+      <button type="button" class="btn-primary small" id="legalReadTerms" data-i18n="Przeczytaj regulamin">Przeczytaj regulamin</button>
+      <button type="button" class="legal-link" id="legalPrivacy" data-i18n="Prywatność">Prywatność</button>
+      <button type="button" class="legal-link" id="legalGotIt" data-i18n="Rozumiem">Rozumiem</button>
+    </div>
+  </aside>
+
   <!-- Profil innej osoby -->
   <div class="modal" id="userProfileOverlay" hidden>
     <div class="modal-card user-card profile-card">
@@ -1215,6 +1226,18 @@
 
           <div class="divider"></div>
           <p class="settings-note" data-i18n="Konta i historia są przechowywane lokalnie w folderze danych aplikacji. Odinstalowanie Chill usuwa także te dane.">Konta i historia są przechowywane lokalnie w folderze danych aplikacji. Odinstalowanie Chill usuwa także te dane.</p>
+
+          <div class="divider"></div>
+          <div class="setting-block legal-block">
+            <div>
+              <span class="setting-label" data-i18n="Dokumenty">Dokumenty</span>
+              <p class="settings-note" data-i18n="Regulamin i polityka prywatności Chill.">Regulamin i polityka prywatności Chill.</p>
+            </div>
+            <div class="legal-links">
+              <button type="button" class="btn-secondary small" id="openTermsBtn" data-i18n="Regulamin">Regulamin</button>
+              <button type="button" class="btn-secondary small" id="openPrivacyBtn" data-i18n="Prywatność">Prywatność</button>
+            </div>
+          </div>
 
           <div class="divider"></div>
           <div class="account-block">

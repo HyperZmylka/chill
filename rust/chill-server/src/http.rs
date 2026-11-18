@@ -268,6 +268,8 @@ async fn asset(
     let normalized = path.trim_start_matches('/');
     let (file, content_type) = match normalized {
         "index.html" => ("index.html", "text/html; charset=utf-8"),
+        "terms.html" => ("terms.html", "text/html; charset=utf-8"),
+        "privacy.html" => ("privacy.html", "text/html; charset=utf-8"),
         "style.css" => ("style.css", "text/css; charset=utf-8"),
         "minigames.css" => ("minigames.css", "text/css; charset=utf-8"),
         "renderer.js" => ("renderer.js", "text/javascript; charset=utf-8"),

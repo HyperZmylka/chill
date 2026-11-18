@@ -1,0 +1,410 @@
+<!doctype html>
+<html lang="pl" data-lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08110e">
+  <title>Regulamin Chill</title>
+  <style>
+    :root {
+      --bg: #08110e;
+      --panel: #0f1b17;
+      --panel-2: #12231d;
+      --line: #22362e;
+      --text: #e8f4ef;
+      --muted: #9db4ab;
+      --faint: #728a80;
+      --accent: #3ee0a3;
+      --accent-2: #7cc8ff;
+    }
+    * { box-sizing: border-box; }
+    html { color-scheme: dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(900px 500px at 12% -10%, rgba(62, 224, 163, 0.16), transparent 60%),
+        radial-gradient(800px 460px at 100% 0%, rgba(124, 200, 255, 0.1), transparent 55%),
+        var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 13px clamp(16px, 4vw, 40px);
+      background: rgba(8, 17, 14, 0.86);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(16px);
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      color: var(--text);
+      font-weight: 800;
+      letter-spacing: 0.01em;
+    }
+    .brand:hover { text-decoration: none; }
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 11px;
+      background: linear-gradient(145deg, var(--accent), #149e6d);
+      color: #05241a;
+      font-weight: 900;
+      font-size: 17px;
+      box-shadow: 0 8px 22px rgba(62, 224, 163, 0.25);
+    }
+    .lang-switch {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(18, 35, 29, 0.7);
+    }
+    .lang-switch button {
+      border: 0;
+      border-radius: 999px;
+      padding: 7px 14px;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .lang-switch button:hover { color: var(--text); }
+    .lang-switch button.active {
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+      color: var(--accent);
+    }
+    .doc {
+      width: min(920px, 100%);
+      margin: 0 auto;
+      padding: clamp(26px, 5vw, 58px) clamp(16px, 4vw, 40px) 72px;
+    }
+    .doc-card {
+      padding: clamp(22px, 4vw, 46px);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(18, 35, 29, 0.82), rgba(15, 27, 23, 0.94));
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
+    }
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 10px;
+      color: var(--accent);
+      font-size: 11.5px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .kicker::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(28px, 4.5vw, 42px);
+      line-height: 1.12;
+      letter-spacing: -0.03em;
+    }
+    .meta {
+      margin: 0 0 26px;
+      color: var(--faint);
+      font-size: 12.5px;
+    }
+    .lead {
+      margin: 0 0 30px;
+      padding: 16px 18px;
+      border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--accent) 7%, transparent);
+      color: var(--text);
+      font-size: 14.5px;
+    }
+    h2 {
+      margin: 34px 0 10px;
+      font-size: 18px;
+      line-height: 1.3;
+      letter-spacing: -0.01em;
+    }
+    h2:first-of-type { margin-top: 0; }
+    p { margin: 0 0 12px; color: var(--muted); }
+    ul { margin: 0 0 16px; padding-left: 22px; color: var(--muted); }
+    li { margin: 5px 0; }
+    li::marker { color: color-mix(in srgb, var(--accent) 70%, var(--muted)); }
+    strong { color: var(--text); font-weight: 700; }
+    .doc-foot {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 20px;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 26px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      color: var(--faint);
+      font-size: 12px;
+    }
+    .doc-foot a { font-weight: 700; }
+    .page-foot {
+      width: min(920px, 100%);
+      margin: 0 auto;
+      padding: 0 clamp(16px, 4vw, 40px) 40px;
+      color: var(--faint);
+      font-size: 11.5px;
+      text-align: center;
+    }
+    html[data-lang="pl"] [data-doc-lang="en"],
+    html[data-lang="en"] [data-doc-lang="pl"] { display: none; }
+    @media (max-width: 640px) {
+      .topbar { padding: 11px 14px; }
+      .doc { padding-top: 20px; }
+      .doc-card { border-radius: 17px; }
+      .lang-switch button { padding: 6px 10px; }
+      .lead { padding: 13px 14px; }
+      .doc-foot { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="mark">C</span><span>Chill</span></a>
+    <div class="lang-switch" role="group" aria-label="Język / Language">
+      <button type="button" data-set-lang="pl">Polski</button>
+      <button type="button" data-set-lang="en">English</button>
+    </div>
+  </header>
+
+  <main class="doc">
+    <article class="doc-card">
+      <section data-doc-lang="pl">
+        <p class="kicker">Dokumenty Chill</p>
+        <h1>Regulamin Chill</h1>
+        <p class="meta">Wersja 2026-11-18 · Ostatnia aktualizacja: 18 listopada 2026</p>
+        <p class="lead">Ten regulamin opisuje zasady korzystania z aplikacji Chill i strony chill-pl.alwaysdata.net. Korzystając z Chill, akceptujesz ten regulamin. Jeśli się nie zgadzasz, nie korzystaj z aplikacji.</p>
+
+        <h2>1. Czym jest Chill</h2>
+        <ul>
+          <li>Chill to komunikator z serwerami, kanałami tekstowymi i głosowymi, wiadomościami prywatnymi, załącznikami oraz udostępnianiem ekranu.</li>
+          <li>Aplikacja działa lokalnie na Twoim urządzeniu. Możesz dołączać do serwerów prowadzonych przez innych użytkowników.</li>
+          <li>Projekt prowadzi HyperZmylka. Kontakt: <a href="https://github.com/HyperZmylka/chill" rel="noopener">github.com/HyperZmylka/chill</a>.</li>
+        </ul>
+
+        <h2>2. Konto i bezpieczeństwo</h2>
+        <ul>
+          <li>Konto w aplikacji tworzysz lokalnie. Dane logowania są przechowywane na Twoim urządzeniu.</li>
+          <li>Podajesz nazwę użytkownika, opcjonalnie adres e-mail oraz hasło. Hasło jest przechowywane w formie skrótu, nie jawnym tekście.</li>
+          <li>Odpowiadasz za swoje urządzenie i dostęp do konta. Nie udostępniaj hasła innym osobom.</li>
+          <li>Konto na serwerze jest powiązane z tożsamością nadaną przez właściciela tego serwera.</li>
+        </ul>
+
+        <h2>3. Zasady korzystania</h2>
+        <p>Nie wolno publikować ani wysyłać treści niezgodnych z prawem, gróźb, nękania, mowy nienawiści, treści seksualnych z udziałem nieletnich, danych osobowych innych osób bez zgody, spamu, złośliwego oprogramowania ani treści naruszających prawa autorskie.</p>
+        <ul>
+          <li>Nie podszywaj się pod inne osoby ani nie próbuj uzyskać nieautoryzowanego dostępu do kont, serwerów lub danych.</li>
+          <li>Nie zakłócaj działania serwerów, nie przeciążaj ich i nie zbieraj masowo danych innych użytkowników.</li>
+          <li>Przestrzegaj zasad serwerów, do których dołączasz. Właściciel serwera może wymagać dodatkowych reguł.</li>
+          <li>Naruszenia zgłaszaj właścicielowi serwera lub przez profil projektu na GitHubie.</li>
+        </ul>
+
+        <h2>4. Twoje treści</h2>
+        <ul>
+          <li>Zachowujesz prawa do wiadomości, zdjęć, plików i innych treści, które publikujesz.</li>
+          <li>Udzielasz operatorowi i właścicielom serwerów ograniczonej licencji na przechowywanie, przesyłanie i wyświetlanie treści wyłącznie w zakresie potrzebnym do działania usługi.</li>
+          <li>Odpowiadasz za treści oraz za to, że masz prawa do ich udostępnienia.</li>
+          <li>Załączniki nie służą jako miejsce trwałego przechowywania danych. Rób własne kopie ważnych plików.</li>
+        </ul>
+
+        <h2>5. Kanały głosowe i udostępnianie ekranu</h2>
+        <ul>
+          <li>Podczas rozmowy głosowej lub udostępniania ekranu inni uczestnicy mogą usłyszeć i zobaczyć to, co udostępniasz. Udostępniaj tylko treści, na których ujawnienie masz zgodę.</li>
+          <li>Nagrywanie rozmów wymaga zgody uczestników i może być ograniczone przepisami prawa.</li>
+          <li>Nie udostępniaj cudzych danych, wizerunku ani poufnych informacji bez odpowiedniego uprawnienia.</li>
+        </ul>
+
+        <h2>6. Serwery prowadzone przez innych</h2>
+        <ul>
+          <li>Serwery mogą być prowadzone przez osoby trzecie. Ich właściciele ustalają zasady, przechowują dane i mogą usuwać treści lub członków.</li>
+          <li>Operator nie kontroluje takich serwerów i nie odpowiada za ich działania w zakresie dozwolonym przez prawo.</li>
+        </ul>
+
+        <h2>7. Aktualizacje i dostępność</h2>
+        <ul>
+          <li>Aplikacja może aktualizować się automatycznie. Niektóre funkcje mogą się zmienić, zostać dodane lub wyłączone.</li>
+          <li>Usługa jest świadczona „tak jak jest”. Możemy ją czasowo wstrzymać z powodu prac technicznych, awarii lub zagrożenia bezpieczeństwa.</li>
+          <li>Nie gwarantujemy nieprzerwanego działania ani braku utraty danych. Regularnie rób kopie ważnych treści.</li>
+        </ul>
+
+        <h2>8. Odpowiedzialność</h2>
+        <ul>
+          <li>W zakresie dozwolonym przez prawo operator nie odpowiada za szkody pośrednie, utratę danych, działania użytkowników ani serwerów prowadzonych przez osoby trzecie.</li>
+          <li>Nic w tym regulaminie nie ogranicza praw konsumenta ani odpowiedzialności, której nie można wyłączyć na podstawie przepisów.</li>
+        </ul>
+
+        <h2>9. Zawieszenie i zakończenie korzystania</h2>
+        <ul>
+          <li>Możesz przestać korzystać z Chill w każdej chwili i usunąć lokalne dane aplikacji.</li>
+          <li>Możemy ograniczyć lub zablokować dostęp w przypadku naruszenia regulaminu, zagrożenia bezpieczeństwa lub obowiązku prawnego.</li>
+          <li>Właściciel serwera może usunąć członka lub treści zgodnie z zasadami swojego serwera.</li>
+        </ul>
+
+        <h2>10. Zmiany regulaminu</h2>
+        <p>Nowa wersja regulaminu jest publikowana na tej stronie i sygnalizowana w aplikacji. Przy istotnych zmianach pokażemy powiadomienie. Dalsze korzystanie z Chill po zmianie oznacza akceptację nowej wersji, jeśli pozwala na to prawo.</p>
+
+        <h2>11. Prawo i spory</h2>
+        <p>Regulamin podlega prawu polskiemu. Spory staramy się rozwiązywać polubownie, a jeśli to niemożliwe — rozstrzyga sąd właściwy zgodnie z przepisami. Konsument zachowuje prawa przysługujące mu w jego kraju.</p>
+
+        <h2>12. Kontakt</h2>
+        <p>Pytania, zgłoszenia naruszeń i wnioski dotyczące danych: <a href="https://github.com/HyperZmylka/chill" rel="noopener">github.com/HyperZmylka/chill</a>.</p>
+
+        <div class="doc-foot">
+          <span>Chill · Regulamin w wersji 2026-11-18</span>
+          <a href="/privacy.html">Polityka prywatności →</a>
+        </div>
+      </section>
+
+      <section data-doc-lang="en">
+        <p class="kicker">Chill documents</p>
+        <h1>Chill Terms of Service</h1>
+        <p class="meta">Version 2026-11-18 · Last updated: November 18, 2026</p>
+        <p class="lead">These terms explain the rules for using the Chill app and the chill-pl.alwaysdata.net website. By using Chill, you accept these terms. If you do not agree, do not use the app.</p>
+
+        <h2>1. What Chill is</h2>
+        <ul>
+          <li>Chill is a messenger with servers, text and voice channels, direct messages, attachments, and screen sharing.</li>
+          <li>The app runs locally on your device. You can join servers operated by other users.</li>
+          <li>The project is maintained by HyperZmylka. Contact: <a href="https://github.com/HyperZmylka/chill" rel="noopener">github.com/HyperZmylka/chill</a>.</li>
+        </ul>
+
+        <h2>2. Account and security</h2>
+        <ul>
+          <li>Your app account is created locally. Login data is stored on your device.</li>
+          <li>You provide a username, an optional email address, and a password. Passwords are stored as hashes, not as plain text.</li>
+          <li>You are responsible for your device and account access. Do not share your password.</li>
+          <li>A server account is tied to the identity assigned by that server's owner.</li>
+        </ul>
+
+        <h2>3. Acceptable use</h2>
+        <p>Do not publish or send unlawful content, threats, harassment, hate speech, sexual content involving minors, other people's personal data without consent, spam, malware, or content that infringes copyright.</p>
+        <ul>
+          <li>Do not impersonate others or attempt to gain unauthorized access to accounts, servers, or data.</li>
+          <li>Do not disrupt servers, overload them, or mass-collect other users' data.</li>
+          <li>Follow the rules of every server you join. Server owners may set additional requirements.</li>
+          <li>Report abuse to the server owner or through the project's GitHub profile.</li>
+        </ul>
+
+        <h2>4. Your content</h2>
+        <ul>
+          <li>You keep the rights to messages, images, files, and other content you publish.</li>
+          <li>You grant the operator and server owners a limited license to store, transmit, and display your content only as needed to run the service.</li>
+          <li>You are responsible for your content and for having the rights to share it.</li>
+          <li>Attachments are not permanent file storage. Keep your own copies of important files.</li>
+        </ul>
+
+        <h2>5. Voice channels and screen sharing</h2>
+        <ul>
+          <li>During a voice call or screen share, other participants may hear and see what you share. Share only content you are allowed to disclose.</li>
+          <li>Recording conversations requires the participants' consent and may be restricted by law.</li>
+          <li>Do not share other people's data, likeness, or confidential information without proper permission.</li>
+        </ul>
+
+        <h2>6. Servers run by others</h2>
+        <ul>
+          <li>Servers may be operated by third parties. Their owners set the rules, store data, and may remove content or members.</li>
+          <li>The operator does not control such servers and is not responsible for their actions to the extent permitted by law.</li>
+        </ul>
+
+        <h2>7. Updates and availability</h2>
+        <ul>
+          <li>The app may update automatically. Some features may change, be added, or be removed.</li>
+          <li>The service is provided “as is”. We may pause it temporarily for maintenance, failures, or security reasons.</li>
+          <li>We do not guarantee uninterrupted operation or that no data will be lost. Back up important content regularly.</li>
+        </ul>
+
+        <h2>8. Liability</h2>
+        <ul>
+          <li>To the extent permitted by law, the operator is not liable for indirect damages, data loss, or the actions of users or third-party servers.</li>
+          <li>Nothing in these terms limits consumer rights or liability that cannot be excluded by law.</li>
+        </ul>
+
+        <h2>9. Suspension and termination</h2>
+        <ul>
+          <li>You may stop using Chill at any time and delete local app data.</li>
+          <li>We may restrict or block access for violations of these terms, security risks, or legal obligations.</li>
+          <li>A server owner may remove a member or content under that server's rules.</li>
+        </ul>
+
+        <h2>10. Changes to these terms</h2>
+        <p>A new version is published on this page and announced in the app. For significant changes, we will show a notice. Continued use of Chill after a change means acceptance of the new version where the law allows it.</p>
+
+        <h2>11. Governing law and disputes</h2>
+        <p>These terms are governed by Polish law. We try to resolve disputes amicably; if that is not possible, the competent court will decide under applicable law. Consumers keep the rights granted to them in their country.</p>
+
+        <h2>12. Contact</h2>
+        <p>Questions, abuse reports, and data requests: <a href="https://github.com/HyperZmylka/chill" rel="noopener">github.com/HyperZmylka/chill</a>.</p>
+
+        <div class="doc-foot">
+          <span>Chill · Terms version 2026-11-18</span>
+          <a href="/privacy.html">Privacy Policy →</a>
+        </div>
+      </section>
+    </article>
+  </main>
+
+  <footer class="page-foot">Chill · <a href="/terms.html">Regulamin</a> · <a href="/privacy.html">Polityka prywatności</a></footer>
+
+  <script>
+    (function () {
+      var params = new URLSearchParams(location.search);
+      var lang = params.get('lang');
+      if (lang !== 'pl' && lang !== 'en') {
+        try { lang = localStorage.getItem('chill.lang'); } catch (error) { lang = ''; }
+      }
+      if (lang !== 'pl' && lang !== 'en') {
+        lang = String(navigator.language || '').toLowerCase().indexOf('pl') === 0 ? 'pl' : 'en';
+      }
+      function apply(next) {
+        document.documentElement.dataset.lang = next;
+        document.documentElement.lang = next;
+        document.title = next === 'pl' ? 'Regulamin Chill' : 'Chill Terms of Service';
+        var buttons = document.querySelectorAll('[data-set-lang]');
+        for (var i = 0; i < buttons.length; i += 1) {
+          var active = buttons[i].getAttribute('data-set-lang') === next;
+          buttons[i].classList.toggle('active', active);
+          buttons[i].setAttribute('aria-pressed', active ? 'true' : 'false');
+        }
+      }
+      apply(lang);
+      var buttons = document.querySelectorAll('[data-set-lang]');
+      for (var i = 0; i < buttons.length; i += 1) {
+        buttons[i].addEventListener('click', function () {
+          var next = this.getAttribute('data-set-lang');
+          apply(next);
+          try { localStorage.setItem('chill.lang', next); } catch (error) { /* ignore */ }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>

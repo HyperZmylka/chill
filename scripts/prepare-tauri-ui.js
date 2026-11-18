@@ -8,6 +8,8 @@ const root = path.resolve(__dirname, '..');
 const target = path.join(root, 'rust', 'chill-desktop', 'assets');
 const files = [
   'index.html',
+  'terms.html',
+  'privacy.html',
   'style.css',
   'minigames.css',
   'renderer.js',

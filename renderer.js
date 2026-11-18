@@ -244,6 +244,11 @@ const SOCKET_HEARTBEAT_MS = 25_000;
 const OUTBOX_TTL_MS = 60_000;
 const OUTBOX_LIMIT = 25;
 
+// Wersja dokumentów prawnych. Zmiana tej wartości ponownie pokaże kartę
+// z informacją o Regulaminie i Polityce prywatności.
+const LEGAL_VERSION = '2026-11-18';
+const LEGAL_SITE = 'https://chill-pl.alwaysdata.net';
+
 const DEFAULT_PREFS = {
   theme: 'system',
   accent: '#3ee0a3',
@@ -271,6 +276,7 @@ const DEFAULT_PREFS = {
   noiseSuppression: true,
   autoGainControl: true,
   echoCancellation: false,
+  legalVersion: '',
 };
 let prefs = { ...DEFAULT_PREFS };
 let authMode = 'login';
@@ -816,6 +822,14 @@ const I18N_EN = {
   'Łączę z serwerem — spróbuj za chwilę.': 'Connecting to the server — try again in a moment.',
   'Łączę ponownie — wiadomość wyślę automatycznie.': 'Reconnecting — your message will be sent automatically.',
   'łączę ponownie…': 'reconnecting…',
+  'Zaktualizowaliśmy Regulamin i Politykę prywatności': 'We updated our Terms and Privacy Policy',
+  'Dodaliśmy Regulamin i Politykę prywatności. Opisują konta, wiadomości, załączniki, kanały głosowe i udostępnianie ekranu oraz to, jakie dane zostają na urządzeniu, a jakie na serwerach. Nie zmienia to działania Twojego konta.': 'We added Terms of Service and a Privacy Policy. They explain accounts, messages, attachments, voice channels, and screen sharing, and what data stays on your device and what is stored on servers. Nothing changes about your account.',
+  'Przeczytaj regulamin': 'Read Terms',
+  'Prywatność': 'Privacy',
+  'Rozumiem': 'Got it',
+  'Dokumenty': 'Documents',
+  'Regulamin': 'Terms of Service',
+  'Regulamin i polityka prywatności Chill.': 'Chill Terms of Service and Privacy Policy.',
   'Ta rozmowa nie jest już dostępna.': 'This conversation is no longer available.',
   'Serwer jest offline — spróbuj, gdy połączenie wróci.': 'The server is offline — try again when the connection returns.',
   'Serwer jest offline — wiadomości wrócą po połączeniu': 'The server is offline — messages will return when connected',
@@ -1521,6 +1535,40 @@ function toast(text, ms = 2600) {
   }, ms);
 }
 
+function legalDocUrl(doc) {
+  const lang = prefs.lang === 'en' ? 'en' : 'pl';
+  return `${LEGAL_SITE}/${doc}.html?lang=${lang}&v=${LEGAL_VERSION}`;
+}
+
+function openLegalDocument(doc) {
+  const url = legalDocUrl(doc);
+  if (CHILL.app?.openExternal) CHILL.app.openExternal(url);
+  else window.open(url, '_blank', 'noopener');
+  return url;
+}
+
+function dismissLegalNotice() {
+  prefs.legalVersion = LEGAL_VERSION;
+  savePrefs();
+  const card = $('legalNotice');
+  if (!card || card.hidden) return;
+  card.classList.remove('show');
+  clearTimeout(card._timer);
+  card._timer = setTimeout(() => { card.hidden = true; }, 220);
+}
+
+function showLegalNoticeIfNeeded() {
+  const card = $('legalNotice');
+  if (!card || !currentUser) return false;
+  if (String(prefs.legalVersion || '') === LEGAL_VERSION) {
+    card.hidden = true;
+    return false;
+  }
+  card.hidden = false;
+  requestAnimationFrame(() => card.classList.add('show'));
+  return true;
+}
+
 function markColorSelection(container, color) {
   if (!container) return;
   const target = String(color || '').toLowerCase();
@@ -1805,6 +1853,7 @@ function enterApp(user) {
   updateBadges();
   loadAppInfo();
   if (CHILL.chat?.askActivity) CHILL.chat.askActivity();
+  setTimeout(showLegalNoticeIfNeeded, 700);
   setTimeout(() => $('messageInput').focus(), 120);
 }
 
@@ -12374,6 +12423,12 @@ function bindSettings() {
     if (!btn) return;
     setStatus(btn.dataset.status);
   });
+
+  $('legalReadTerms')?.addEventListener('click', () => openLegalDocument('terms'));
+  $('legalPrivacy')?.addEventListener('click', () => openLegalDocument('privacy'));
+  $('legalGotIt')?.addEventListener('click', dismissLegalNotice);
+  $('openTermsBtn')?.addEventListener('click', () => openLegalDocument('terms'));
+  $('openPrivacyBtn')?.addEventListener('click', () => openLegalDocument('privacy'));
 }
 
 function openSettings(tab = 'profile') {

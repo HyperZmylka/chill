@@ -1,0 +1,402 @@
+<!doctype html>
+<html lang="pl" data-lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08110e">
+  <title>Polityka prywatności Chill</title>
+  <style>
+    :root {
+      --bg: #08110e;
+      --panel: #0f1b17;
+      --panel-2: #12231d;
+      --line: #22362e;
+      --text: #e8f4ef;
+      --muted: #9db4ab;
+      --faint: #728a80;
+      --accent: #3ee0a3;
+      --accent-2: #7cc8ff;
+    }
+    * { box-sizing: border-box; }
+    html { color-scheme: dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(900px 500px at 12% -10%, rgba(62, 224, 163, 0.16), transparent 60%),
+        radial-gradient(800px 460px at 100% 0%, rgba(124, 200, 255, 0.1), transparent 55%),
+        var(--bg);
+      color: var(--text);
+      font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+      line-height: 1.65;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 13px clamp(16px, 4vw, 40px);
+      background: rgba(8, 17, 14, 0.86);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(16px);
+    }
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 11px;
+      color: var(--text);
+      font-weight: 800;
+      letter-spacing: 0.01em;
+    }
+    .brand:hover { text-decoration: none; }
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 11px;
+      background: linear-gradient(145deg, var(--accent), #149e6d);
+      color: #05241a;
+      font-weight: 900;
+      font-size: 17px;
+      box-shadow: 0 8px 22px rgba(62, 224, 163, 0.25);
+    }
+    .lang-switch {
+      display: flex;
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(18, 35, 29, 0.7);
+    }
+    .lang-switch button {
+      border: 0;
+      border-radius: 999px;
+      padding: 7px 14px;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 12.5px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .lang-switch button:hover { color: var(--text); }
+    .lang-switch button.active {
+      background: color-mix(in srgb, var(--accent) 18%, transparent);
+      color: var(--accent);
+    }
+    .doc {
+      width: min(920px, 100%);
+      margin: 0 auto;
+      padding: clamp(26px, 5vw, 58px) clamp(16px, 4vw, 40px) 72px;
+    }
+    .doc-card {
+      padding: clamp(22px, 4vw, 46px);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(18, 35, 29, 0.82), rgba(15, 27, 23, 0.94));
+      box-shadow: 0 28px 80px rgba(0, 0, 0, 0.38);
+    }
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0 0 10px;
+      color: var(--accent);
+      font-size: 11.5px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+    .kicker::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 16%, transparent);
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(28px, 4.5vw, 42px);
+      line-height: 1.12;
+      letter-spacing: -0.03em;
+    }
+    .meta {
+      margin: 0 0 26px;
+      color: var(--faint);
+      font-size: 12.5px;
+    }
+    .lead {
+      margin: 0 0 30px;
+      padding: 16px 18px;
+      border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+      border-radius: 14px;
+      background: color-mix(in srgb, var(--accent) 7%, transparent);
+      color: var(--text);
+      font-size: 14.5px;
+    }
+    h2 {
+      margin: 34px 0 10px;
+      font-size: 18px;
+      line-height: 1.3;
+      letter-spacing: -0.01em;
+    }
+    h2:first-of-type { margin-top: 0; }
+    p { margin: 0 0 12px; color: var(--muted); }
+    ul { margin: 0 0 16px; padding-left: 22px; color: var(--muted); }
+    li { margin: 5px 0; }
+    li::marker { color: color-mix(in srgb, var(--accent) 70%, var(--muted)); }
+    strong { color: var(--text); font-weight: 700; }
+    .doc-foot {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px 20px;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 26px;
+      padding-top: 20px;
+      border-top: 1px solid var(--line);
+      color: var(--faint);
+      font-size: 12px;
+    }
+    .doc-foot a { font-weight: 700; }
+    .page-foot {
+      width: min(920px, 100%);
+      margin: 0 auto;
+      padding: 0 clamp(16px, 4vw, 40px) 40px;
+      color: var(--faint);
+      font-size: 11.5px;
+      text-align: center;
+    }
+    html[data-lang="pl"] [data-doc-lang="en"],
+    html[data-lang="en"] [data-doc-lang="pl"] { display: none; }
+    @media (max-width: 640px) {
+      .topbar { padding: 11px 14px; }
+      .doc { padding-top: 20px; }
+      .doc-card { border-radius: 17px; }
+      .lang-switch button { padding: 6px 10px; }
+      .lead { padding: 13px 14px; }
+      .doc-foot { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/"><span class="mark">C</span><span>Chill</span></a>
+    <div class="lang-switch" role="group" aria-label="Język / Language">
+      <button type="button" data-set-lang="pl">Polski</button>
+      <button type="button" data-set-lang="en">English</button>
+    </div>
+  </header>
+
+  <main class="doc">
+    <article class="doc-card">
+      <section data-doc-lang="pl">
+        <p class="kicker">Dokumenty Chill</p>
+        <h1>Polityka prywatności Chill</h1>
+        <p class="meta">Wersja 2026-11-18 · Ostatnia aktualizacja: 18 listopada 2026</p>
+        <p class="lead">Ta polityka wyjaśnia, jakie dane zbiera Chill, gdzie są przechowywane i jakie masz prawa. Administratorem danych jest HyperZmylka — projekt Chill. Kontakt: GitHub projektu.</p>
+
+        <h2>1. Zakres polityki</h2>
+        <p>Polityka obejmuje aplikację Chill na komputer, publiczną stronę chill-pl.alwaysdata.net oraz serwery Chill, z którymi łączy się aplikacja.</p>
+
+        <h2>2. Jakie dane przetwarzamy</h2>
+        <ul>
+          <li><strong>Dane konta:</strong> nazwa użytkownika, opcjonalny adres e-mail, skrót hasła, nazwa wyświetlana, handle, kolor profilu i avatar.</li>
+          <li><strong>Treści:</strong> wiadomości na kanałach, wiadomości prywatne, załączniki, reakcje, nazwy serwerów i kanałów oraz opisy profili.</li>
+          <li><strong>Głos i ekran:</strong> sygnalizacja połączenia, identyfikatory uczestników i metadane techniczne. Dźwięk i obraz są przesyłane między uczestnikami; nie nagrywamy rozmów.</li>
+          <li><strong>Dane techniczne:</strong> adres IP, czas połączenia, typ klienta, wersja aplikacji i logi błędów — w zakresie potrzebnym do bezpieczeństwa i działania usługi.</li>
+          <li><strong>Dane lokalne:</strong> historia wiadomości, ustawienia wyglądu, język, tokeny sesji i pamięć podręczna na Twoim urządzeniu.</li>
+        </ul>
+
+        <h2>3. Skąd mamy dane</h2>
+        <p>Dane pochodzą od Ciebie (konto, treści, ustawienia), z Twojego urządzenia (dane techniczne, pamięć lokalna) oraz z serwerów, do których dołączasz.</p>
+
+        <h2>4. Cele i podstawy prawne</h2>
+        <ul>
+          <li><strong>Świadczenie usługi</strong> — umowa, art. 6 ust. 1 lit. b RODO.</li>
+          <li><strong>Bezpieczeństwo, zapobieganie nadużyciom i diagnostyka</strong> — uzasadniony interes administratora, art. 6 ust. 1 lit. f RODO.</li>
+          <li><strong>Mikrofon, udostępnianie ekranu, powiadomienia</strong> — zgoda, art. 6 ust. 1 lit. a RODO; możesz ją wycofać w każdej chwili.</li>
+          <li><strong>Obowiązki prawne</strong> — art. 6 ust. 1 lit. c RODO, gdy prawo wymaga przechowywania lub ujawnienia danych.</li>
+        </ul>
+
+        <h2>5. Gdzie przechowujemy dane</h2>
+        <ul>
+          <li>Na Twoim urządzeniu — konta, ustawienia i lokalna historia.</li>
+          <li>Na serwerach wybranych przez Ciebie lub prowadzonych przez właścicieli serwerów. Takie serwery mogą znajdować się poza EOG i mieć własne zasady prywatności.</li>
+          <li>Na publicznej stronie projektu u dostawcy hostingu w Unii Europejskiej.</li>
+          <li>Transmisja odbywa się przez HTTPS i WSS. Nie gwarantujemy, że żadna metoda transmisji lub przechowywania nie zostanie przełamana.</li>
+        </ul>
+
+        <h2>6. Komu udostępniamy dane</h2>
+        <ul>
+          <li>Odbiorcom wiadomości i członkom serwera, na którym publikujesz treści.</li>
+          <li>Dostawcy hostingu i utrzymania usługi — wyłącznie w zakresie potrzebnym do jej działania.</li>
+          <li>Organom publicznym, jeśli wymaga tego prawo.</li>
+          <li>Nie sprzedajemy danych i nie używamy ich do reklam behawioralnych.</li>
+        </ul>
+
+        <h2>7. Jak długo przechowujemy dane</h2>
+        <ul>
+          <li>Dane lokalne — do momentu usunięcia ich w aplikacji lub wyczyszczenia danych aplikacji.</li>
+          <li>Treści na serwerze — według zasad właściciela serwera, do usunięcia wiadomości, konta lub serwera.</li>
+          <li>Kopie zapasowe — przez ograniczony czas potrzebny do odtworzenia usługi.</li>
+          <li>Logi techniczne — krótko, chyba że dłuższe przechowywanie jest konieczne ze względów bezpieczeństwa lub prawnych.</li>
+        </ul>
+
+        <h2>8. Twoje prawa</h2>
+        <ul>
+          <li>Dostęp do danych, sprostowanie, usunięcie, ograniczenie przetwarzania, przenoszenie danych i sprzeciw.</li>
+          <li>Wycofanie zgody w dowolnym momencie — nie wpływa to na zgodność wcześniejszego przetwarzania z prawem.</li>
+          <li>Skarga do Prezesa Urzędu Ochrony Danych Osobowych (UODO) lub organu nadzorczego w Twoim kraju.</li>
+          <li>Wnioski realizujemy przez kontakt podany niżej. Możemy poprosić o informacje potrzebne do weryfikacji tożsamości.</li>
+        </ul>
+
+        <h2>9. Pliki lokalne i pamięć przeglądarki</h2>
+        <p>Chill używa pamięci lokalnej i plików sesji do zapamiętania logowania, języka, motywu i ustawień. Nie używamy reklamowych narzędzi śledzących. Dane możesz wyczyścić w ustawieniach aplikacji lub przeglądarki.</p>
+
+        <h2>10. Bezpieczeństwo</h2>
+        <p>Stosujemy szyfrowaną transmisję HTTPS/WSS, skróty haseł, kontrolę dostępu i aktualizacje bezpieczeństwa. Żadna metoda nie daje jednak pełnej gwarancji bezpieczeństwa — chroń swoje hasło i urządzenie.</p>
+
+        <h2>11. Dzieci</h2>
+        <p>Chill jest przeznaczony dla osób, które ukończyły 13 lat. Jeśli jesteś młodszy, nie korzystaj z aplikacji. Rodzicu lub opiekunie — skontaktuj się z nami, aby usunąć dane dziecka.</p>
+
+        <h2>12. Zmiany polityki</h2>
+        <p>Nowa wersja polityki jest publikowana na tej stronie i sygnalizowana w aplikacji. Przy istotnych zmianach pokażemy powiadomienie.</p>
+
+        <h2>13. Kontakt</h2>
+        <p>Pytania dotyczące prywatności i wnioski o realizację praw: <a href="https://github.com/HyperZmylka/chill" rel="noopener">github.com/HyperZmylka/chill</a>.</p>
+
+        <div class="doc-foot">
+          <span>Chill · Polityka prywatności w wersji 2026-11-18</span>
+          <a href="/terms.html">Regulamin →</a>
+        </div>
+      </section>
+
+      <section data-doc-lang="en">
+        <p class="kicker">Chill documents</p>
+        <h1>Chill Privacy Policy</h1>
+        <p class="meta">Version 2026-11-18 · Last updated: November 18, 2026</p>
+        <p class="lead">This policy explains what data Chill processes, where it is stored, and what rights you have. The data controller is HyperZmylka — the Chill project. Contact: the project's GitHub.</p>
+
+        <h2>1. Scope</h2>
+        <p>This policy covers the Chill desktop app, the public chill-pl.alwaysdata.net website, and the Chill servers the app connects to.</p>
+
+        <h2>2. Data we process</h2>
+        <ul>
+          <li><strong>Account data:</strong> username, optional email address, password hash, display name, handle, profile color, and avatar.</li>
+          <li><strong>Content:</strong> channel messages, direct messages, attachments, reactions, server and channel names, and profile descriptions.</li>
+          <li><strong>Voice and screen:</strong> connection signaling, participant identifiers, and technical metadata. Audio and video are transmitted between participants; we do not record calls.</li>
+          <li><strong>Technical data:</strong> IP address, connection time, client type, app version, and error logs — only as needed for security and operation.</li>
+          <li><strong>Local data:</strong> message history, appearance settings, language, session tokens, and cache on your device.</li>
+        </ul>
+
+        <h2>3. Where the data comes from</h2>
+        <p>Data comes from you (account, content, settings), from your device (technical data, local storage), and from the servers you join.</p>
+
+        <h2>4. Purposes and legal bases</h2>
+        <ul>
+          <li><strong>Providing the service</strong> — contract, Art. 6(1)(b) GDPR.</li>
+          <li><strong>Security, abuse prevention, and diagnostics</strong> — legitimate interest, Art. 6(1)(f) GDPR.</li>
+          <li><strong>Microphone, screen sharing, notifications</strong> — consent, Art. 6(1)(a) GDPR; you may withdraw it at any time.</li>
+          <li><strong>Legal obligations</strong> — Art. 6(1)(c) GDPR where the law requires storage or disclosure.</li>
+        </ul>
+
+        <h2>5. Where we store data</h2>
+        <ul>
+          <li>On your device — accounts, settings, and local history.</li>
+          <li>On servers you choose or that are operated by server owners. Such servers may be located outside the EEA and have their own privacy rules.</li>
+          <li>On the project's public website, hosted by a provider in the European Union.</li>
+          <li>Transmission uses HTTPS and WSS. No transmission or storage method is guaranteed to be unbreakable.</li>
+        </ul>
+
+        <h2>6. Who we share data with</h2>
+        <ul>
+          <li>Message recipients and members of the server where you publish content.</li>
+          <li>The hosting and maintenance provider — only as needed to run the service.</li>
+          <li>Public authorities where required by law.</li>
+          <li>We do not sell data or use it for behavioral advertising.</li>
+        </ul>
+
+        <h2>7. Retention</h2>
+        <ul>
+          <li>Local data — until you delete it in the app or clear app data.</li>
+          <li>Server content — according to the server owner's rules, until the message, account, or server is deleted.</li>
+          <li>Backups — for the limited time needed to restore the service.</li>
+          <li>Technical logs — for a short time, unless longer storage is necessary for security or legal reasons.</li>
+        </ul>
+
+        <h2>8. Your rights</h2>
+        <ul>
+          <li>Access, rectification, erasure, restriction, data portability, and objection.</li>
+          <li>Withdraw consent at any time — this does not affect the lawfulness of prior processing.</li>
+          <li>Lodge a complaint with the Polish data protection authority (UODO) or your local supervisory authority.</li>
+          <li>Requests can be sent through the contact below. We may ask for information needed to verify your identity.</li>
+        </ul>
+
+        <h2>9. Local files and browser storage</h2>
+        <p>Chill uses local storage and session files to remember login, language, theme, and settings. We do not use advertising trackers. You can clear this data in the app or browser settings.</p>
+
+        <h2>10. Security</h2>
+        <p>We use encrypted HTTPS/WSS transmission, password hashing, access controls, and security updates. No method is completely secure — protect your password and device.</p>
+
+        <h2>11. Children</h2>
+        <p>Chill is intended for people aged 13 and over. If you are younger, do not use the app. Parents or guardians — contact us to delete a child's data.</p>
+
+        <h2>12. Changes to this policy</h2>
+        <p>A new version is published on this page and announced in the app. For significant changes, we will show a notice.</p>
+
+        <h2>13. Contact</h2>
+        <p>Privacy questions and rights requests: <a href="https://github.com/HyperZmylka/chill" rel="noopener">github.com/HyperZmylka/chill</a>.</p>
+
+        <div class="doc-foot">
+          <span>Chill · Privacy Policy version 2026-11-18</span>
+          <a href="/terms.html">Terms of Service →</a>
+        </div>
+      </section>
+    </article>
+  </main>
+
+  <footer class="page-foot">Chill · <a href="/terms.html">Regulamin</a> · <a href="/privacy.html">Polityka prywatności</a></footer>
+
+  <script>
+    (function () {
+      var params = new URLSearchParams(location.search);
+      var lang = params.get('lang');
+      if (lang !== 'pl' && lang !== 'en') {
+        try { lang = localStorage.getItem('chill.lang'); } catch (error) { lang = ''; }
+      }
+      if (lang !== 'pl' && lang !== 'en') {
+        lang = String(navigator.language || '').toLowerCase().indexOf('pl') === 0 ? 'pl' : 'en';
+      }
+      function apply(next) {
+        document.documentElement.dataset.lang = next;
+        document.documentElement.lang = next;
+        document.title = next === 'pl' ? 'Polityka prywatności Chill' : 'Chill Privacy Policy';
+        var buttons = document.querySelectorAll('[data-set-lang]');
+        for (var i = 0; i < buttons.length; i += 1) {
+          var active = buttons[i].getAttribute('data-set-lang') === next;
+          buttons[i].classList.toggle('active', active);
+          buttons[i].setAttribute('aria-pressed', active ? 'true' : 'false');
+        }
+      }
+      apply(lang);
+      var buttons = document.querySelectorAll('[data-set-lang]');
+      for (var i = 0; i < buttons.length; i += 1) {
+        buttons[i].addEventListener('click', function () {
+          var next = this.getAttribute('data-set-lang');
+          apply(next);
+          try { localStorage.setItem('chill.lang', next); } catch (error) { /* ignore */ }
+        });
+      }
+    })();
+  </script>
+</body>
+</html>
