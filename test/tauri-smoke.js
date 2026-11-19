@@ -753,21 +753,72 @@ let cdp = null;
 
     const miniAppClicks = await evaluate(`(async () => {
       const calls = [];
+      const boundsCalls = [];
+      const closed = [];
       const external = [];
       const originalApp = CHILL.app.openApp;
+      const originalBounds = CHILL.app.setAppBounds;
+      const originalClose = CHILL.app.closeApp;
       const originalExternal = CHILL.app.openExternal;
-      CHILL.app.openApp = (id) => { calls.push(String(id)); return Promise.resolve(null); };
+      CHILL.app.openApp = (id, bounds) => { calls.push({ id: String(id), bounds }); return Promise.resolve(null); };
+      CHILL.app.setAppBounds = (id, bounds) => { boundsCalls.push({ id: String(id), bounds }); return Promise.resolve(null); };
+      CHILL.app.closeApp = (id) => { closed.push(String(id)); return Promise.resolve(null); };
       CHILL.app.openExternal = (url) => { external.push(String(url)); };
       const card = document.querySelector('.mini-app-card[data-app-id="tiktok"]');
       card.querySelector('.mini-app-open').click();
+      await new Promise((resolve) => setTimeout(resolve, 160));
+      const back = document.getElementById('backBtn');
+      const openState = {
+        header: document.getElementById('chatName')?.textContent,
+        sub: document.getElementById('chatSub')?.textContent,
+        backVisible: getComputedStyle(back).display !== 'none',
+        backTitle: back.title,
+        openClass: document.body.classList.contains('mini-app-open'),
+      };
+      back.click();
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      const closedState = {
+        header: document.getElementById('chatName')?.textContent,
+        backVisible: getComputedStyle(back).display !== 'none',
+        openClass: document.body.classList.contains('mini-app-open'),
+        tabs: document.querySelectorAll('.mini-hub-tab').length,
+      };
       card.querySelector('.mini-app-browser').click();
       await new Promise((resolve) => setTimeout(resolve, 120));
       CHILL.app.openApp = originalApp;
+      CHILL.app.setAppBounds = originalBounds;
+      CHILL.app.closeApp = originalClose;
       CHILL.app.openExternal = originalExternal;
-      return { calls, external };
+      return { calls, boundsCalls, closed, external, openState, closedState };
     })()`);
-    check('TikTok otwiera się w oknie aplikacji', miniAppClicks.calls[0] === 'tiktok', JSON.stringify(miniAppClicks));
+    const requestedBounds = miniAppClicks.calls[0]?.bounds || {};
+    check('TikTok otwiera się w miejscu zakładki Mini', miniAppClicks.calls[0]?.id === 'tiktok' && requestedBounds.width > 100 && requestedBounds.height > 100 && requestedBounds.y > 0, JSON.stringify(miniAppClicks.calls[0]));
+    check('widok aplikacji pokazuje nazwę i strzałkę powrotu', miniAppClicks.openState.header === 'TikTok' && miniAppClicks.openState.backVisible && /Mini/.test(miniAppClicks.openState.sub) && miniAppClicks.openState.openClass, JSON.stringify(miniAppClicks.openState));
+    check('powrót zamyka aplikację i wraca do Mini', miniAppClicks.closed[0] === 'tiktok' && !miniAppClicks.closedState.backVisible && miniAppClicks.closedState.header === 'Mini' && !miniAppClicks.closedState.openClass && miniAppClicks.closedState.tabs === 2, JSON.stringify(miniAppClicks.closedState));
+    check('widok aplikacji dostaje aktualne wymiary okna', miniAppClicks.boundsCalls.length > 0 && miniAppClicks.boundsCalls[0].id === 'tiktok', JSON.stringify(miniAppClicks.boundsCalls));
     check('aplikację można też otworzyć w przeglądarce', miniAppClicks.external[0] === 'https://www.tiktok.com/', JSON.stringify(miniAppClicks));
+
+    const nativeEmbed = await evaluate(`(async () => {
+      const main = document.getElementById('main');
+      const header = main.querySelector('.chat-header');
+      const mainRect = main.getBoundingClientRect();
+      const headerRect = header.getBoundingClientRect();
+      const bounds = {
+        x: Math.max(0, Math.round(mainRect.left)),
+        y: Math.max(0, Math.round(headerRect.bottom)),
+        width: Math.max(1, Math.round(mainRect.width)),
+        height: Math.max(1, Math.round(innerHeight - headerRect.bottom)),
+      };
+      const before = await CHILL.app.appStatus();
+      await CHILL.app.openApp('tiktok', bounds);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const during = await CHILL.app.appStatus();
+      await CHILL.app.closeApp('tiktok');
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const after = await CHILL.app.appStatus();
+      return { before, during, after, bounds };
+    })()`);
+    check('powłoka tworzy osadzony widok aplikacji w głównym oknie', nativeEmbed.before !== 'tiktok' && nativeEmbed.during === 'tiktok' && nativeEmbed.after == null, JSON.stringify(nativeEmbed));
 
     await evaluate("document.querySelector('.mini-hub-tab[data-mini-tab=\"games\"]').click()");
     await waitEval("!!document.querySelector('.minigame-card')", 8_000, 'games tab again');

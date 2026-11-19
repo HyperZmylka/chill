@@ -1,9 +1,12 @@
 use std::sync::Mutex;
 
 use once_cell::sync::Lazy;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Rect, WebviewBuilder, WebviewUrl,
+    WebviewWindow,
+};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_notification::NotificationExt;
 
@@ -66,7 +69,7 @@ pub fn chill_open_external(url: String) -> Result<(), String> {
 }
 
 // Aplikacje dostępne w zakładce Mini. Adresy są stałe, więc interfejs nie
-// może otworzyć dowolnej strony w uprzywilejowanym oknie powłoki.
+// może otworzyć dowolnej strony w uprzywilejowanym widoku powłoki.
 fn mini_app_target(id: &str) -> Option<(&'static str, &'static str)> {
     match id {
         "tiktok" => Some(("TikTok", "https://www.tiktok.com/")),
@@ -78,24 +81,105 @@ fn mini_app_target(id: &str) -> Option<(&'static str, &'static str)> {
     }
 }
 
+const MINI_APP_LABEL_PREFIX: &str = "app-";
+
+#[derive(Clone, Copy, Deserialize)]
+pub struct MiniAppBounds {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+impl MiniAppBounds {
+    fn rect(self) -> Rect {
+        Rect {
+            position: LogicalPosition::new(self.x.max(0.0), self.y.max(0.0)).into(),
+            size: LogicalSize::new(self.width.max(1.0), self.height.max(1.0)).into(),
+        }
+    }
+}
+
+fn close_mini_app_webviews(app: &AppHandle, only: Option<&str>) {
+    let wanted = only.map(|id| format!("{MINI_APP_LABEL_PREFIX}{id}"));
+    let labels = app
+        .webviews()
+        .keys()
+        .filter(|label| label.starts_with(MINI_APP_LABEL_PREFIX))
+        .filter(|label| wanted.as_deref().map(|value| value == label.as_str()).unwrap_or(true))
+        .cloned()
+        .collect::<Vec<_>>();
+    for label in labels {
+        if let Some(webview) = app.get_webview(&label) {
+            let _ = webview.close();
+        }
+    }
+}
+
+pub fn close_all_mini_apps(app: &AppHandle) {
+    close_mini_app_webviews(app, None);
+}
+
+// Widok aplikacji jest dzieckiem głównego okna, więc TikTok i pozostałe
+// serwisy otwierają się w miejscu zakładki Mini, a nagłówek Chill zostaje
+// widoczny nad nim. Dzięki temu działa strzałka powrotu i nie powstaje
+// dodatkowe okno z osobnym procesem przeglądarki.
 #[tauri::command]
-pub async fn chill_open_app(app: AppHandle, id: String) -> Result<(), String> {
-    let (title, url) = mini_app_target(&id).ok_or_else(|| "Nieznana aplikacja.".to_string())?;
-    let label = format!("app-{id}");
-    if let Some(window) = app.get_webview_window(&label) {
-        let _ = window.show();
-        let _ = window.unminimize();
-        let _ = window.set_focus();
+pub async fn chill_open_app(
+    app: AppHandle,
+    id: String,
+    bounds: MiniAppBounds,
+) -> Result<(), String> {
+    let (_title, url) = mini_app_target(&id).ok_or_else(|| "Nieznana aplikacja.".to_string())?;
+    let label = format!("{MINI_APP_LABEL_PREFIX}{id}");
+    if let Some(webview) = app.get_webview(&label) {
+        let _ = webview.set_bounds(bounds.rect());
+        let _ = webview.set_focus();
         return Ok(());
     }
+    close_mini_app_webviews(&app, None);
+    let window = app
+        .get_window("main")
+        .ok_or_else(|| "Brak głównego okna Chill.".to_string())?;
     let parsed = url::Url::parse(url).map_err(|_| "Nieprawidłowy adres aplikacji.".to_string())?;
-    WebviewWindowBuilder::new(&app, label, WebviewUrl::External(parsed))
-        .title(format!("{title} — Chill"))
-        .inner_size(1120.0, 780.0)
-        .min_inner_size(460.0, 360.0)
-        .build()
-        .map(|_| ())
+    let webview = window
+        .add_child(
+            WebviewBuilder::new(label, WebviewUrl::External(parsed)),
+            LogicalPosition::new(bounds.x.max(0.0), bounds.y.max(0.0)),
+            LogicalSize::new(bounds.width.max(1.0), bounds.height.max(1.0)),
+        )
+        .map_err(|error| error.to_string())?;
+    let _ = webview.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn chill_close_app(app: AppHandle, id: Option<String>) -> Result<(), String> {
+    close_mini_app_webviews(&app, id.as_deref());
+    Ok(())
+}
+
+#[tauri::command]
+pub fn chill_set_app_bounds(
+    app: AppHandle,
+    id: String,
+    bounds: MiniAppBounds,
+) -> Result<(), String> {
+    let label = format!("{MINI_APP_LABEL_PREFIX}{id}");
+    let Some(webview) = app.get_webview(&label) else {
+        return Ok(());
+    };
+    webview
+        .set_bounds(bounds.rect())
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn chill_app_status(app: AppHandle) -> Option<String> {
+    app.webviews()
+        .keys()
+        .find(|label| label.starts_with(MINI_APP_LABEL_PREFIX))
+        .map(|label| label.trim_start_matches(MINI_APP_LABEL_PREFIX).to_string())
 }
 
 #[tauri::command]
@@ -350,8 +434,9 @@ fn version_parts(value: &str) -> Vec<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{mini_app_target, update_asset_url};
+    use super::{mini_app_target, update_asset_url, MiniAppBounds};
     use serde_json::json;
+    use tauri::{Position, Size};
 
     #[test]
     fn mini_apps_use_fixed_https_targets() {
@@ -367,6 +452,25 @@ mod tests {
     fn unknown_mini_app_is_rejected() {
         assert!(mini_app_target("file").is_none());
         assert!(mini_app_target("https://example.com").is_none());
+    }
+
+    #[test]
+    fn embedded_app_bounds_stay_positive() {
+        let rect = MiniAppBounds {
+            x: -12.0,
+            y: 74.0,
+            width: 0.0,
+            height: 640.0,
+        }
+        .rect();
+        assert!(matches!(
+            rect.position,
+            Position::Logical(position) if position.x == 0.0 && position.y == 74.0
+        ));
+        assert!(matches!(
+            rect.size,
+            Size::Logical(size) if size.width == 1.0 && size.height == 640.0
+        ));
     }
 
     #[test]

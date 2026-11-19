@@ -482,6 +482,11 @@
 .mini-app-browser:hover { color: var(--text); }
 .mini-app-browser:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
 
+/* Widok aplikacji to natywny WebView2 pod nagłówkiem. Chowamy treść Mini,
+   żeby nie prześwitywała podczas ładowania serwisu. */
+body.mini-app-open .chat-body { visibility: hidden; }
+.chat-emoji.mini-app-emoji svg { width: 24px; height: 24px; }
+
 /* ---------- Ekran gry ---------- */
 .minigame-overlay {
   position: fixed;

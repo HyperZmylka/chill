@@ -22,7 +22,7 @@ Spokojny komunikator desktopowy (Rust + Tauri) z własną identyfikacją wizualn
 - **Wzmianki `@`** — podpowiedzi członków serwera i znajomych, wstawianie nicku z klawiatury i wyróżnienie w wiadomości.
 - **Statusy** — online, zaraz wracam, nie przeszkadzać, niewidoczny.
 - **Wykrywanie gier** — automatyczne rozpoznawanie uruchomionej gry i jej prawdziwej ikony z pliku EXE; „Gra w …” na profilu i liście członków.
-- **Mini** — zakładka z wyborem **Mini Gierek** (Ostatni Krąg, Pojedynek 1v1) i **Aplikacji** (TikTok, YouTube, Twitch, Instagram, Spotify). Aplikacje otwierają się w osobnym oknie Chill i pamiętają logowanie na własne konto.
+- **Mini** — zakładka z wyborem **Mini Gierek** (Ostatni Krąg, Pojedynek 1v1) i **Aplikacji** (TikTok, YouTube, Twitch, Instagram, Spotify). Aplikacje otwierają się w tym samym oknie Chill, w miejscu zakładki Mini; strzałka w nagłówku wraca do Mini. Logowanie działa na własne konto i zostaje zapamiętane, a widok jest zamykany po powrocie lub schowaniu Chill do zasobnika.
 - **Powiadomienia** — systemowe dymki, przyjemny dwudźwięk przy nowej wiadomości i trzytonowy sygnał przy wzmiance, tryb „tylko wzmianki”, odznaki.
 - **Wygląd** — sześć presetów (Chill, Discord, Minimal, Zorza, Zachód słońca, Ocean), motyw Discord, 12 akcentów i własny kolor, kształt interfejsu (miękki, zaokrąglony, kwadratowy), tła (Zorza, Zachód słońca, Ocean, Las, Mono), styl wiadomości (dymki lub płaski jak w Discordzie), skalowanie całego interfejsu (75–150%), rozmiar tekstu, ograniczenie animacji i wysoki kontrast.
 - **Język interfejsu** — polski (domyślnie) albo angielski, przełączany w Ustawieniach → Język. Zmiana działa od razu, również w menu tray.

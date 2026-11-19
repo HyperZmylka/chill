@@ -1073,14 +1073,16 @@ const I18N_EN = {
   'aplikacje': 'apps',
   'Otwórz TikTok, YouTube, Twitch, Instagram i Spotify. Zaloguj się na swoje konto — sesja zostaje zapamiętana na tym urządzeniu.': 'Open TikTok, YouTube, Twitch, Instagram, and Spotify. Sign in to your account — the session is remembered on this device.',
   'Twoje konto': 'Your account',
-  'Osobne okno Chill': 'Separate Chill window',
+  'W oknie Chill': 'In the Chill window',
   'Nowa karta': 'New tab',
   'Zaloguj się na swoje konto': 'Sign in to your account',
   'Otwórz w Chill': 'Open in Chill',
   'Otwórz': 'Open',
   'W przeglądarce': 'In browser',
-  'Aplikacje otwierają się w osobnym oknie Chill. Logujesz się na swoje konto w serwisie — Chill nie przechowuje haseł. Jeśli logowanie nie działa w oknie aplikacji, użyj „W przeglądarce”.': 'Apps open in a separate Chill window. You sign in to your account on the service — Chill does not store passwords. If signing in does not work in the app window, use “In browser”.',
+  'Aplikacje otwierają się w tym samym oknie Chill, w miejscu zakładki Mini. Wróć strzałką w nagłówku. Logujesz się na swoje konto w serwisie — Chill nie przechowuje haseł. Jeśli logowanie nie działa, użyj „W przeglądarce”.': 'Apps open in the same Chill window, where the Mini tab is. Use the arrow in the header to go back. You sign in to your account on the service — Chill does not store passwords. If signing in does not work, use “In browser”.',
   'Aplikacje otwierają się w nowej karcie. Logujesz się na swoje konto w serwisie — Chill nie przechowuje haseł.': 'Apps open in a new tab. You sign in to your account on the service — Chill does not store passwords.',
+  'Aplikacja w Chillu — wróć do Mini': 'App in Chill — back to Mini',
+  'Wróć do Mini': 'Back to Mini',
   'Nie udało się otworzyć aplikacji w Chillu. Otwieram w przeglądarce.': 'Could not open the app in Chill. Opening it in your browser.',
   'Gry wbudowane': 'Built-in games',
   'Krótkie gry w Chillu. Pobierz jednym kliknięciem i zagraj bez wychodzenia z aplikacji.': 'Short games inside Chill. Download in one click and play without leaving the app.',
@@ -3796,9 +3798,26 @@ function moveMention(step) {
 function bindChat() {
   window.addEventListener('online', reconnectStaleSockets);
   window.addEventListener('focus', reconnectStaleSockets);
+  window.addEventListener('focus', syncMiniAppState);
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden) reconnectStaleSockets();
   });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) syncMiniAppState();
+  });
+  $('backBtn')?.addEventListener('click', closeMiniApp);
+  // Kliknięcia poza nagłówkiem (np. w ustawienia, profil albo listę serwerów)
+  // najpierw zamykają widok aplikacji, żeby okna Chill nie schowały się pod
+  // natywnym widokiem WebView2.
+  document.addEventListener('click', (event) => {
+    if (!miniAppView) return;
+    if (event.target.closest?.('.chat-header')) return;
+    dismissMiniApp();
+    renderHeader();
+  }, true);
+  if (CHILL.app?.onAppClosed) {
+    CHILL.app.onAppClosed(() => resetMiniAppView());
+  }
   $('composer').addEventListener('submit', sendCurrentMessage);
   const input = $('messageInput');
   $('attachBtn')?.addEventListener('click', () => $('attachmentInput')?.click());
@@ -7183,6 +7202,7 @@ function pushHistory(key, message) {
 }
 
 function selectConversation(kind, id) {
+  dismissMiniApp();
   closeServerMenu();
   resetVoiceSession();
   clearPendingAttachment();
@@ -7319,6 +7339,7 @@ function unreadCountFor(prefix) {
 }
 
 function selectHome() {
+  dismissMiniApp();
   closeServerMenu();
   resetVoiceSession();
   activeServerId = null;
@@ -7339,6 +7360,7 @@ function selectHome() {
 }
 
 function selectMiniGames() {
+  dismissMiniApp();
   closeServerMenu();
   resetVoiceSession();
   activeServerId = null;
@@ -7362,6 +7384,7 @@ function selectMiniGames() {
 function selectServer(id, preferredChannelId = '') {
   const server = servers.find((item) => item.id === id);
   if (!server) return;
+  dismissMiniApp();
   closeServerMenu();
   resetVoiceSession();
   hideMentionPop();
@@ -7392,6 +7415,7 @@ function selectServer(id, preferredChannelId = '') {
 function selectChannel(channelId) {
   const state = serverState(activeServerId);
   if (!state || !state.channels.some((channel) => channel.id === channelId)) return;
+  dismissMiniApp();
   closeServerMenu();
   resetVoiceSession();
   hideMentionPop();
@@ -9007,7 +9031,24 @@ function bindProfilePopout() {
 }
 
 function renderHeader() {
-  $('backBtn').style.display = 'none';
+  const embedded = miniAppView;
+  $('backBtn').style.display = embedded ? 'inline-grid' : 'none';
+  $('backBtn').title = t(embedded ? 'Wróć do Mini' : 'Wstecz');
+  $('backBtn').setAttribute('aria-label', t(embedded ? 'Wróć do Mini' : 'Wstecz'));
+  if (embedded) {
+    $('searchBtn').hidden = true;
+    $('chatEmoji').classList.add('mini-app-emoji');
+    const icon = MINI_APP_ICONS[embedded.id];
+    if (icon) $('chatEmoji').innerHTML = icon;
+    else $('chatEmoji').textContent = initial(embedded.name);
+    $('chatEmoji').style.background = 'color-mix(in srgb, var(--panel-2) 92%, transparent)';
+    $('chatEmoji').style.color = 'var(--text)';
+    $('chatName').textContent = embedded.name;
+    $('chatSub').textContent = t('Aplikacja w Chillu — wróć do Mini');
+    updateComposer();
+    return;
+  }
+  $('chatEmoji').classList.remove('mini-app-emoji');
   $('searchBtn').hidden = current.kind === 'minigames';
   if (current.kind === 'dm') {
     const entry = dmEntry(current.id);
@@ -10967,6 +11008,10 @@ const MINI_APP_ICONS = {
 };
 
 let miniHubTab = 'games';
+let miniAppView = null;
+let miniAppBoundsObserver = null;
+let miniAppBoundsFrame = 0;
+let miniAppOpenSeq = 0;
 
 function miniAppCatalog() {
   return MINI_APP_CATALOG;
@@ -10990,19 +11035,128 @@ function openMiniAppExternal(app) {
   else window.open(app.url, '_blank', 'noopener');
 }
 
+// Widok aplikacji jest przyklejony do głównego okna pod nagłówkiem rozmowy.
+// Dzięki temu nie powstaje drugie okno, a nad TikTokiem zostaje pasek Chill
+// ze strzałką powrotu do zakładki Mini.
+function miniAppsEmbeddedBounds() {
+  const main = $('main');
+  const header = document.querySelector('#main > .chat-header');
+  if (!main || !header) return null;
+  const mainRect = main.getBoundingClientRect();
+  const headerRect = header.getBoundingClientRect();
+  const x = Math.max(0, Math.round(mainRect.left));
+  const y = Math.max(0, Math.round(headerRect.bottom));
+  const width = Math.round(mainRect.width);
+  const height = Math.round(window.innerHeight - y);
+  if (width < 2 || height < 2) return null;
+  return { x, y, width, height };
+}
+
+function stopMiniAppBoundsTracking() {
+  if (miniAppBoundsObserver) {
+    miniAppBoundsObserver.disconnect();
+    miniAppBoundsObserver = null;
+  }
+  if (miniAppBoundsFrame) {
+    cancelAnimationFrame(miniAppBoundsFrame);
+    miniAppBoundsFrame = 0;
+  }
+  window.removeEventListener('resize', scheduleMiniAppBounds);
+}
+
+function pushMiniAppBounds() {
+  miniAppBoundsFrame = 0;
+  if (!miniAppView || !CHILL.app?.setAppBounds) return;
+  const bounds = miniAppsEmbeddedBounds();
+  if (!bounds) return;
+  try {
+    Promise.resolve(CHILL.app.setAppBounds(miniAppView.id, bounds)).catch(() => {});
+  } catch { /* ignore */ }
+}
+
+function scheduleMiniAppBounds() {
+  if (!miniAppView || miniAppBoundsFrame) return;
+  miniAppBoundsFrame = requestAnimationFrame(pushMiniAppBounds);
+}
+
+function startMiniAppBoundsTracking() {
+  stopMiniAppBoundsTracking();
+  window.addEventListener('resize', scheduleMiniAppBounds);
+  const main = $('main');
+  if (main && typeof ResizeObserver === 'function') {
+    miniAppBoundsObserver = new ResizeObserver(scheduleMiniAppBounds);
+    miniAppBoundsObserver.observe(main);
+  }
+  scheduleMiniAppBounds();
+}
+
+function resetMiniAppView() {
+  if (!miniAppView) return;
+  miniAppView = null;
+  stopMiniAppBoundsTracking();
+  document.body.classList.remove('mini-app-open');
+  renderHeader();
+}
+
+function dismissMiniApp() {
+  const view = miniAppView;
+  if (!view) return false;
+  miniAppOpenSeq += 1;
+  miniAppView = null;
+  stopMiniAppBoundsTracking();
+  document.body.classList.remove('mini-app-open');
+  try {
+    const result = CHILL.app?.closeApp?.(view.id);
+    if (result && typeof result.catch === 'function') result.catch(() => {});
+  } catch { /* ignore */ }
+  return true;
+}
+
+function closeMiniApp() {
+  if (!dismissMiniApp()) return;
+  renderHeader();
+}
+
+function syncMiniAppState() {
+  if (!miniAppView || !CHILL.app?.appStatus) return;
+  try {
+    Promise.resolve(CHILL.app.appStatus())
+      .then((id) => { if (miniAppView && !id) resetMiniAppView(); })
+      .catch(() => {});
+  } catch { /* ignore */ }
+}
+
+async function openMiniAppEmbedded(app) {
+  const bounds = miniAppsEmbeddedBounds();
+  if (!bounds) throw new Error('Brak miejsca na widok aplikacji.');
+  const seq = ++miniAppOpenSeq;
+  miniAppView = { id: app.id, name: app.name };
+  document.body.classList.add('mini-app-open');
+  renderHeader();
+  try {
+    await CHILL.app.openApp(app.id, bounds);
+  } catch (error) {
+    if (seq === miniAppOpenSeq) resetMiniAppView();
+    throw error;
+  }
+  if (seq !== miniAppOpenSeq || !miniAppView) {
+    try {
+      const result = CHILL.app.closeApp?.(app.id);
+      if (result && typeof result.catch === 'function') result.catch(() => {});
+    } catch { /* ignore */ }
+    return;
+  }
+  startMiniAppBoundsTracking();
+}
+
 function openMiniApp(app, preferBrowser = false) {
   if (!app) return;
   if (!preferBrowser && miniAppsOpenInWindow()) {
-    try {
-      Promise.resolve(CHILL.app.openApp(app.id)).catch(() => {
-        toast(t('Nie udało się otworzyć aplikacji w Chillu. Otwieram w przeglądarce.'));
-        openMiniAppExternal(app);
-      });
-      return;
-    } catch {
+    openMiniAppEmbedded(app).catch(() => {
+      toast(t('Nie udało się otworzyć aplikacji w Chillu. Otwieram w przeglądarce.'));
       openMiniAppExternal(app);
-      return;
-    }
+    });
+    return;
   }
   openMiniAppExternal(app);
 }
@@ -11044,7 +11198,7 @@ function renderMiniAppsSection(hub) {
     <div class="minigames-hero-meta">
       <span class="minigames-hero-chip"><strong>${miniAppCatalog().length}</strong> ${esc(t('aplikacje'))}</span>
       <span class="minigames-hero-chip">${esc(t('Twoje konto'))}</span>
-      <span class="minigames-hero-chip">${esc(t(canWindow ? 'Osobne okno Chill' : 'Nowa karta'))}</span>
+      <span class="minigames-hero-chip">${esc(t(canWindow ? 'W oknie Chill' : 'Nowa karta'))}</span>
     </div>
   `;
   hub.appendChild(hero);
@@ -11057,7 +11211,7 @@ function renderMiniAppsSection(hub) {
   const note = document.createElement('p');
   note.className = 'minigames-footnote';
   note.textContent = canWindow
-    ? t('Aplikacje otwierają się w osobnym oknie Chill. Logujesz się na swoje konto w serwisie — Chill nie przechowuje haseł. Jeśli logowanie nie działa w oknie aplikacji, użyj „W przeglądarce”.')
+    ? t('Aplikacje otwierają się w tym samym oknie Chill, w miejscu zakładki Mini. Wróć strzałką w nagłówku. Logujesz się na swoje konto w serwisie — Chill nie przechowuje haseł. Jeśli logowanie nie działa, użyj „W przeglądarce”.')
     : t('Aplikacje otwierają się w nowej karcie. Logujesz się na swoje konto w serwisie — Chill nie przechowuje haseł.');
   hub.appendChild(note);
 }
