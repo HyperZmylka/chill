@@ -140,6 +140,9 @@ let allUsers = [];
 let friends = [];
 let friendState = { friends: [], incoming: [], outgoing: [] };
 let pendingAttachment = null;
+let pendingReply = null;
+let reactionPopover = null;
+let messageMenuPopover = null;
 let attachmentUploading = false;
 let spotifyPanelOpen = false;
 let profileTarget = null;
@@ -1200,6 +1203,25 @@ const I18N_EN = {
   'Ta gra jest już dodana.': 'This game is already added.',
   'Usunąć serwer?': 'Delete server?',
   'Czy na pewno chcesz usunąć serwer „{name}”? Tej operacji nie można cofnąć.': 'Are you sure you want to delete the server “{name}”? This action cannot be undone.',
+  // Akcje wiadomości
+  'Odpowiedz': 'Reply',
+  'Edytuj wiadomość': 'Edit message',
+  'Więcej akcji': 'More actions',
+  'Zareaguj': 'React',
+  'Usuń wiadomość': 'Delete message',
+  'Potwierdź usunięcie': 'Confirm delete',
+  'Skopiuj tekst': 'Copy text',
+  'Skopiowano wiadomość.': 'Message copied.',
+  'Nie udało się skopiować wiadomości.': 'Could not copy the message.',
+  'Brak połączenia — spróbuj ponownie.': 'No connection — try again.',
+  'Nie udało się zapisać zmian.': 'Could not save changes.',
+  'Nie udało się usunąć wiadomości.': 'Could not delete the message.',
+  'edytowano': 'edited',
+  'Zapisano zmiany.': 'Changes saved.',
+  'Wiadomość usunięta.': 'Message deleted.',
+  'Anuluj odpowiedź': 'Cancel reply',
+  'Odpowiadasz {name}': 'Replying to {name}',
+  'Wiadomość': 'Message',
 };
 
 function t(text, vars = null) {
@@ -3827,6 +3849,21 @@ function bindChat() {
     if (file) setPendingAttachment(file);
   });
   $('composerAttachmentRemove')?.addEventListener('click', () => clearPendingAttachment());
+  $('composerReplyCancel')?.addEventListener('click', () => clearPendingReply());
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    if (messageMenuPopover) {
+      closeMessageMenu();
+      return;
+    }
+    if (reactionPopover) {
+      closeReactionPicker();
+      return;
+    }
+    if (pendingReply && document.activeElement?.id === 'messageInput') {
+      clearPendingReply();
+    }
+  });
   bindAttachmentDrop();
   input.addEventListener('input', () => {
     resizeInput();
@@ -4107,21 +4144,63 @@ function handleMessage(msg) {
 
     case 'dm': {
       const m = msg.message;
-      if (!m || m.authorId === myId) return;
-      const other = m.authorId === myId ? m.to : m.authorId;
-      pushHistory(`dm:${other}`, m);
+      if (!m || !m.authorId) return;
+      const own = m.authorId === myId;
+      const other = localDmPeer(m);
+      if (!other) return;
+      const key = `dm:${other}`;
+      replaceHistoryMessage(key, m);
       if (current.kind === 'dm' && current.id === other) {
         if (!searchQuery) renderMessages(false);
         scrollBottom();
-      } else {
-        bumpUnread(`dm:${other}`, isMention(m.text));
+      } else if (!own) {
+        bumpUnread(key, isMention(m.text));
         renderDmList();
         renderServers();
         updateBadges();
       }
       renderMembers();
-      const user = allUsers.find((u) => u.id === other);
-      notifyIncoming(m, user?.name || t('Wiadomość prywatna'), current.kind === 'dm' && current.id === other);
+      if (!own) {
+        const user = allUsers.find((u) => u.id === other);
+        notifyIncoming(m, user?.name || t('Wiadomość prywatna'), current.kind === 'dm' && current.id === other);
+      }
+      break;
+    }
+
+    case 'dm:reaction': {
+      const m = msg.message;
+      if (!m?.id) return;
+      const other = localDmPeer(m);
+      if (!other) return;
+      replaceHistoryMessage(`dm:${other}`, m);
+      if (current.kind === 'dm' && current.id === other) updateMessageReactions(m);
+      break;
+    }
+
+    case 'dm:edit': {
+      const m = msg.message;
+      if (!m?.id) return;
+      const other = localDmPeer(m);
+      if (!other) return;
+      replaceHistoryMessage(`dm:${other}`, m);
+      if (pendingReply?.id === m.id) {
+        pendingReply.text = messagePreviewText(m);
+        renderPendingReply();
+      }
+      if (current.kind === 'dm' && current.id === other) renderMessages(false);
+      break;
+    }
+
+    case 'dm:delete': {
+      const other = dmPeerFromKey(msg.dmKey, myId);
+      const messageId = String(msg.messageId || '');
+      const clientId = String(msg.clientId || '');
+      if (!other || (!messageId && !clientId)) return;
+      removeHistoryMessage(`dm:${other}`, messageId, clientId);
+      if (pendingReply && (pendingReply.id === messageId || (clientId && pendingReply.clientId === clientId))) {
+        clearPendingReply();
+      }
+      if (current.kind === 'dm' && current.id === other) renderMessages(false);
       break;
     }
 
@@ -4767,32 +4846,124 @@ function handleServerFrame(serverId, msg) {
       break;
     }
 
+    case 'server:reaction': {
+      const message = msg.message;
+      if (!message?.id) return;
+      const channelId = String(message.channelId || msg.channelId || '');
+      if (!channelId) return;
+      const key = `server:${serverId}:${channelId}`;
+      replaceHistoryMessage(key, message);
+      if (current.kind === 'server' && current.serverId === serverId && current.id === channelId) {
+        updateMessageReactions(message);
+      }
+      break;
+    }
+
+    case 'server:edit': {
+      const message = msg.message;
+      if (!message?.id) return;
+      const channelId = String(message.channelId || msg.channelId || '');
+      if (!channelId) return;
+      const key = `server:${serverId}:${channelId}`;
+      replaceHistoryMessage(key, message);
+      if (pendingReply?.id === message.id) {
+        pendingReply.text = messagePreviewText(message);
+        renderPendingReply();
+      }
+      if (current.kind === 'server' && current.serverId === serverId && current.id === channelId) {
+        renderMessages(false);
+      }
+      break;
+    }
+
+    case 'server:delete': {
+      const channelId = String(msg.channelId || '');
+      const messageId = String(msg.messageId || '');
+      const clientId = String(msg.clientId || '');
+      if (!channelId || (!messageId && !clientId)) return;
+      removeHistoryMessage(`server:${serverId}:${channelId}`, messageId, clientId);
+      if (pendingReply && (pendingReply.id === messageId || (clientId && pendingReply.clientId === clientId))) {
+        clearPendingReply();
+      }
+      if (current.kind === 'server' && current.serverId === serverId && current.id === channelId) {
+        renderMessages(false);
+      }
+      break;
+    }
+
     case 'server:dm': {
       const message = msg.message;
       if (!message || !message.authorId) return;
-      if (message.authorId === state.you?.memberId) return;
-      const other = String(message.authorId);
+      const own = message.authorId === state.you?.memberId;
+      const other = serverDmPeer(state, message);
+      if (!other) return;
       const dmId = serverFriendId(serverId, other);
       const key = `dm:${dmId}`;
-      pushHistory(key, message);
-      const member = state.members.find((item) => item.id === other);
-      upsertServerFriend(serverId, member || {
-        id: other,
-        name: message.authorName,
-        color: message.authorColor,
-      });
+      replaceHistoryMessage(key, message);
+      if (!own) {
+        const member = state.members.find((item) => item.id === other);
+        upsertServerFriend(serverId, member || {
+          id: other,
+          name: message.authorName,
+          color: message.authorColor,
+        });
+      }
       const active = current.kind === 'dm' && current.id === dmId;
       if (active) {
         if (!searchQuery) renderMessages(false);
         scrollBottom();
         renderHeader();
         updateBadges();
+      } else if (own) {
+        renderSidebar();
       } else {
         bumpUnread(key, isMention(message.text));
         renderSidebar();
         updateBadges();
       }
-      notifyIncoming(message, `${state.server.name} • ${t('wiadomość prywatna')}`, active);
+      if (!own) {
+        notifyIncoming(message, `${state.server.name} • ${t('wiadomość prywatna')}`, active);
+      }
+      break;
+    }
+
+    case 'server:dm:reaction': {
+      const message = msg.message;
+      if (!message?.id) return;
+      const other = serverDmPeer(state, message);
+      if (!other) return;
+      const dmId = serverFriendId(serverId, other);
+      replaceHistoryMessage(`dm:${dmId}`, message);
+      if (current.kind === 'dm' && current.id === dmId) updateMessageReactions(message);
+      break;
+    }
+
+    case 'server:dm:edit': {
+      const message = msg.message;
+      if (!message?.id) return;
+      const other = serverDmPeer(state, message);
+      if (!other) return;
+      const dmId = serverFriendId(serverId, other);
+      replaceHistoryMessage(`dm:${dmId}`, message);
+      if (pendingReply?.id === message.id) {
+        pendingReply.text = messagePreviewText(message);
+        renderPendingReply();
+      }
+      if (current.kind === 'dm' && current.id === dmId) renderMessages(false);
+      break;
+    }
+
+    case 'server:dm:delete': {
+      const other = dmPeerFromKey(msg.dmKey, state.you?.memberId);
+      const messageId = String(msg.messageId || '');
+      const clientId = String(msg.clientId || '');
+      if (!other || (!messageId && !clientId)) return;
+      const dmId = serverFriendId(serverId, other);
+      removeHistoryMessage(`dm:${dmId}`, messageId, clientId);
+      if (pendingReply && (pendingReply.id === messageId || (clientId && pendingReply.clientId === clientId))) {
+        clearPendingReply();
+      }
+      if (current.kind === 'dm' && current.id === dmId) renderMessages(false);
       break;
     }
 
@@ -7206,6 +7377,7 @@ function selectConversation(kind, id) {
   closeServerMenu();
   resetVoiceSession();
   clearPendingAttachment();
+  clearPendingReply({ focus: false });
   activeServerId = null;
   current = { kind, id };
   hideMentionPop();
@@ -9150,6 +9322,647 @@ function addEmptyAction(wrap, label, className, handler) {
   actions.appendChild(button);
 }
 
+// ============================================================
+// AKCJE WIADOMOŚCI (reakcje, edycja, odpowiedzi)
+// ============================================================
+const QUICK_REACTIONS = ['❤️', '✅', '🔥'];
+const REACTION_PICKER_EMOJIS = [
+  '❤️', '✅', '🔥', '😂', '👍', '👎', '😮', '😢', '😡',
+  '🎉', '💯', '🚀', '👀', '🤔', '😍', '🙏', '👏', '🤝',
+  '🫡', '💜', '😎', '🥳', '☕', '🍕', '⚡', '✨', '💬', '🕹️',
+];
+
+function makeClientMessageId() {
+  return `c-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function conversationMemberId() {
+  if (current.kind === 'server') {
+    return serverState(current.serverId)?.you?.memberId || '';
+  }
+  if (current.kind === 'dm') {
+    const entry = dmEntry(current.id);
+    if (entry?.kind === 'server') {
+      return serverState(entry.serverId)?.you?.memberId || '';
+    }
+  }
+  return myId;
+}
+
+function dmPeerFromKey(dmKey, selfId) {
+  const parts = String(dmKey || '').split('|');
+  return parts.find((part) => part && part !== selfId) || '';
+}
+
+function serverDmPeer(state, message) {
+  if (!message) return '';
+  return message.authorId === state?.you?.memberId
+    ? String(message.to || '')
+    : String(message.authorId || '');
+}
+
+function localDmPeer(message) {
+  if (!message) return '';
+  return message.authorId === myId ? String(message.to || '') : String(message.authorId || '');
+}
+
+function messagePreviewText(message) {
+  const text = String(message?.text ?? '').trim();
+  if (!text) return '';
+  try {
+    const sticker = stickerMessageDescriptor(text);
+    if (sticker) return `🏷 ${stickerLabel(sticker)}`;
+  } catch { /* ignore */ }
+  try {
+    const voice = VOICE?.parse(text);
+    if (voice) {
+      return `🎤 ${t('Wiadomość głosowa')}${voice.seconds ? ` • ${VOICE.formatDuration(voice.seconds)}` : ''}`;
+    }
+  } catch { /* ignore */ }
+  try {
+    const attachment = ATTACHMENTS?.parse(text);
+    if (attachment) return `📎 ${attachment.name || t('Załącznik')}`;
+  } catch { /* ignore */ }
+  try {
+    if (gifMessageDescriptor(text)) return 'GIF';
+  } catch { /* ignore */ }
+  return text.length > 140 ? `${text.slice(0, 139)}…` : text;
+}
+
+function messageIsEditable(message) {
+  const text = String(message?.text ?? '').trim();
+  if (!text) return false;
+  try {
+    if (stickerMessageDescriptor(text)) return false;
+    if (VOICE?.parse(text)) return false;
+    if (ATTACHMENTS?.parse(text)) return false;
+    if (gifMessageDescriptor(text)) return false;
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+function renderPendingReply() {
+  const box = $('composerReply');
+  if (!box) return;
+  const visible = Boolean(pendingReply) && pendingReply.key === conversationKey();
+  box.hidden = !visible;
+  if (!visible) return;
+  const author = $('composerReplyAuthor');
+  const text = $('composerReplyText');
+  if (author) {
+    author.textContent = pendingReply.authorId === conversationMemberId()
+      ? t('Ty')
+      : pendingReply.authorName || t('Użytkownik');
+  }
+  if (text) text.textContent = pendingReply.text || t('Wiadomość');
+}
+
+function setPendingReply(message) {
+  if (!message) return;
+  pendingReply = {
+    id: String(message.id || ''),
+    clientId: message.clientId || '',
+    authorId: String(message.authorId || ''),
+    authorName: String(message.authorName || ''),
+    authorColor: String(message.authorColor || ''),
+    text: messagePreviewText(message),
+    key: conversationKey(),
+  };
+  renderPendingReply();
+}
+
+function clearPendingReply({ focus = false } = {}) {
+  pendingReply = null;
+  renderPendingReply();
+  if (focus) $('messageInput')?.focus();
+}
+
+function messageTransport() {
+  if (current.kind === 'server') {
+    const state = serverState(current.serverId);
+    const channel = state?.channels.find((item) => item.id === current.id);
+    if (!state?.ws || state.ws.readyState !== WebSocket.OPEN || !channel || channel.type === 'voice') return null;
+    return {
+      kind: 'server',
+      socket: state.ws,
+      channelId: channel.id,
+      key: conversationKey(),
+      memberId: state.you?.memberId || '',
+    };
+  }
+  if (current.kind === 'dm') {
+    const entry = dmEntry(current.id);
+    if (!entry) return null;
+    if (entry.kind === 'server') {
+      const state = serverState(entry.serverId);
+      if (!state?.ws || state.ws.readyState !== WebSocket.OPEN || !state.you) return null;
+      return {
+        kind: 'server-dm',
+        socket: state.ws,
+        to: entry.memberId,
+        key: conversationKey(),
+        memberId: state.you.memberId,
+      };
+    }
+    if (!wsReady()) return null;
+    return { kind: 'dm', socket: ws, to: current.id, key: conversationKey(), memberId: myId };
+  }
+  return null;
+}
+
+function sendMessageAction(transport, action, payload) {
+  if (!transport?.socket || transport.socket.readyState !== WebSocket.OPEN) {
+    toast(t('Brak połączenia — spróbuj ponownie.'));
+    return false;
+  }
+  const prefix = transport.kind === 'server'
+    ? 'server'
+    : transport.kind === 'server-dm' ? 'server:dm' : 'dm';
+  const body = { type: `${prefix}:${action}`, ...payload };
+  if (transport.kind === 'server') body.channelId = transport.channelId;
+  else body.to = transport.to;
+  try {
+    transport.socket.send(JSON.stringify(body));
+    return true;
+  } catch {
+    toast(t('Brak połączenia — spróbuj ponownie.'));
+    return false;
+  }
+}
+
+function findHistoryEntry(key, messageId, clientId = '') {
+  const list = history.get(key);
+  if (!Array.isArray(list)) return null;
+  return list.find((item) => item.id === messageId || (clientId && item.clientId === clientId)) || null;
+}
+
+function replaceHistoryMessage(key, message) {
+  if (!message?.id) return null;
+  const list = history.get(key) || [];
+  const index = list.findIndex((item) => item.id === message.id || (message.clientId && item.clientId === message.clientId));
+  if (index >= 0) {
+    list[index] = { ...list[index], ...message };
+  } else {
+    list.push(message);
+  }
+  if (list.length > 300) list.splice(0, list.length - 300);
+  history.set(key, list);
+  return index >= 0 ? list[index] : message;
+}
+
+function removeHistoryMessage(key, messageId, clientId = '') {
+  const list = history.get(key);
+  if (!Array.isArray(list)) return false;
+  const next = list.filter((item) => item.id !== messageId && !(clientId && item.clientId === clientId));
+  if (next.length === list.length) return false;
+  history.set(key, next);
+  return true;
+}
+
+function toggleStoredReaction(key, messageId, clientId, emoji, memberId) {
+  const item = findHistoryEntry(key, messageId, clientId);
+  if (!item) return null;
+  if (!item.reactions || typeof item.reactions !== 'object') item.reactions = {};
+  const users = Array.isArray(item.reactions[emoji]) ? item.reactions[emoji].slice() : [];
+  const index = users.indexOf(memberId);
+  if (index >= 0) users.splice(index, 1);
+  else users.push(memberId);
+  if (users.length) item.reactions[emoji] = users;
+  else delete item.reactions[emoji];
+  return item;
+}
+
+function applyLocalMessageEdit(key, messageId, clientId, text) {
+  const item = findHistoryEntry(key, messageId, clientId);
+  if (!item) return null;
+  item.text = text;
+  item.editedAt = Date.now();
+  const list = history.get(key) || [];
+  for (const other of list) {
+    if (other.replyTo?.id === item.id) other.replyTo.text = messagePreviewText({ text });
+  }
+  return item;
+}
+
+function messageElement(message) {
+  const container = $('messages');
+  if (!container || !message) return null;
+  const id = String(message.id || '');
+  const clientId = String(message.clientId || '');
+  for (const el of container.querySelectorAll('.msg[data-id]')) {
+    if (el.dataset.id === id) return el;
+    if (clientId && el.dataset.clientId === clientId) return el;
+  }
+  return null;
+}
+
+function buildReactionRow(message) {
+  const reactions = message?.reactions && typeof message.reactions === 'object' ? message.reactions : {};
+  const entries = Object.entries(reactions).filter(([, users]) => Array.isArray(users) && users.length);
+  if (!entries.length) return null;
+  const mine = conversationMemberId();
+  const row = document.createElement('div');
+  row.className = 'msg-reactions';
+  for (const [emoji, users] of entries) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `reaction-pill${mine && users.includes(mine) ? ' mine' : ''}`;
+    button.title = `${emoji} • ${users.length}`;
+    button.setAttribute('aria-label', `${emoji} • ${users.length}`);
+    button.innerHTML = `<span class="reaction-emoji">${esc(emoji)}</span><span class="reaction-count">${users.length}</span>`;
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleMessageReaction(message, emoji);
+    });
+    row.appendChild(button);
+  }
+  return row;
+}
+
+function updateMessageReactions(message) {
+  const el = messageElement(message);
+  if (!el) return;
+  const main = el.querySelector('.msg-main');
+  if (!main) return;
+  const currentRow = main.querySelector('.msg-reactions');
+  const nextRow = buildReactionRow(message);
+  if (currentRow && nextRow) currentRow.replaceWith(nextRow);
+  else if (currentRow) currentRow.remove();
+  else if (nextRow) {
+    const actions = main.querySelector('.msg-actions');
+    if (actions) main.insertBefore(nextRow, actions);
+    else main.appendChild(nextRow);
+  }
+}
+
+function closeReactionPicker() {
+  if (!reactionPopover) return;
+  if (reactionPopover._cleanup) reactionPopover._cleanup();
+  reactionPopover.remove();
+  reactionPopover = null;
+}
+
+function placeFixedPopover(pop, anchor, width) {
+  document.body.appendChild(pop);
+  pop.style.visibility = 'hidden';
+  const rect = anchor.getBoundingClientRect();
+  const height = pop.offsetHeight || 240;
+  const actualWidth = width || pop.offsetWidth || 220;
+  const left = Math.max(8, Math.min(rect.left + rect.width / 2 - actualWidth / 2, window.innerWidth - actualWidth - 8));
+  let top = rect.top - height - 8;
+  if (top < 8) top = Math.min(window.innerHeight - height - 8, rect.bottom + 8);
+  pop.style.left = `${Math.round(left)}px`;
+  pop.style.top = `${Math.round(Math.max(8, top))}px`;
+  pop.style.visibility = '';
+}
+
+function openReactionPicker(anchor, onPick) {
+  closeReactionPicker();
+  closeMessageMenu();
+  const pop = document.createElement('div');
+  pop.className = 'reaction-pop';
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', t('Zareaguj'));
+  for (const emoji of REACTION_PICKER_EMOJIS) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'emoji-item';
+    button.textContent = emoji;
+    button.title = emoji;
+    button.setAttribute('aria-label', emoji);
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      closeReactionPicker();
+      onPick(emoji);
+    });
+    pop.appendChild(button);
+  }
+  pop.addEventListener('click', (event) => event.stopPropagation());
+  reactionPopover = pop;
+  placeFixedPopover(pop, anchor, 238);
+  const onDocumentClick = (event) => {
+    if (!reactionPopover) return;
+    if (reactionPopover.contains(event.target) || anchor.contains(event.target)) return;
+    closeReactionPicker();
+  };
+  const onKey = (event) => {
+    if (event.key !== 'Escape') return;
+    closeReactionPicker();
+  };
+  setTimeout(() => document.addEventListener('click', onDocumentClick), 0);
+  document.addEventListener('keydown', onKey);
+  pop._cleanup = () => {
+    document.removeEventListener('click', onDocumentClick);
+    document.removeEventListener('keydown', onKey);
+  };
+  pop.querySelector('button')?.focus();
+}
+
+function closeMessageMenu() {
+  if (!messageMenuPopover) return;
+  if (messageMenuPopover._cleanup) messageMenuPopover._cleanup();
+  messageMenuPopover.remove();
+  messageMenuPopover = null;
+}
+
+async function copyMessageText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    toast(t('Skopiowano wiadomość.'));
+    return;
+  } catch { /* fallback below */ }
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    area.remove();
+    if (!ok) throw new Error('copy failed');
+    toast(t('Skopiowano wiadomość.'));
+  } catch {
+    toast(t('Nie udało się skopiować wiadomości.'));
+  }
+}
+
+function scrollToMessage(messageId) {
+  const container = $('messages');
+  if (!container) return;
+  const el = Array.from(container.querySelectorAll('.msg[data-id]')).find((item) => item.dataset.id === messageId);
+  if (!el) return;
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.classList.add('highlight');
+  setTimeout(() => el.classList.remove('highlight'), 1600);
+}
+
+function deleteMessage(message) {
+  const transport = messageTransport();
+  if (!transport) {
+    toast(t('Brak połączenia — spróbuj ponownie.'));
+    return;
+  }
+  const key = conversationKey();
+  const snapshot = { ...message };
+  removeHistoryMessage(key, message.id, message.clientId);
+  renderMessages(false);
+  const sent = sendMessageAction(transport, 'delete', {
+    messageId: message.id,
+    clientId: message.clientId,
+  });
+  if (!sent) {
+    replaceHistoryMessage(key, snapshot);
+    renderMessages(false);
+    toast(t('Nie udało się usunąć wiadomości.'));
+    return;
+  }
+  if (pendingReply?.id === message.id) clearPendingReply();
+  toast(t('Wiadomość usunięta.'));
+}
+
+function toggleMessageReaction(message, emoji) {
+  const transport = messageTransport();
+  if (!transport) {
+    toast(t('Brak połączenia — spróbuj ponownie.'));
+    return;
+  }
+  const key = conversationKey();
+  const updated = toggleStoredReaction(key, message.id, message.clientId, emoji, transport.memberId);
+  if (updated) updateMessageReactions(updated);
+  const sent = sendMessageAction(transport, 'reaction', {
+    messageId: message.id,
+    clientId: message.clientId,
+    emoji,
+  });
+  if (!sent && updated) {
+    toggleStoredReaction(key, message.id, message.clientId, emoji, transport.memberId);
+    updateMessageReactions(updated);
+  }
+}
+
+function beginMessageEdit(message) {
+  const el = messageElement(message);
+  const bubble = el?.querySelector('.bubble');
+  if (!bubble || bubble.classList.contains('editing')) return;
+  if (!messageIsEditable(message)) return;
+  const original = String(message.text ?? '');
+  bubble.classList.add('editing');
+  bubble.innerHTML = '';
+  const form = document.createElement('form');
+  form.className = 'msg-edit';
+  const textarea = document.createElement('textarea');
+  textarea.value = original;
+  textarea.rows = Math.min(8, Math.max(2, original.split('\n').length));
+  textarea.maxLength = 4000;
+  textarea.setAttribute('aria-label', t('Edytuj wiadomość'));
+  const actions = document.createElement('div');
+  actions.className = 'msg-edit-actions';
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'btn-secondary';
+  cancel.textContent = t('Anuluj');
+  const save = document.createElement('button');
+  save.type = 'submit';
+  save.className = 'btn-primary';
+  save.textContent = t('Zapisz');
+  actions.appendChild(cancel);
+  actions.appendChild(save);
+  form.appendChild(textarea);
+  form.appendChild(actions);
+  bubble.appendChild(form);
+
+  const close = () => renderMessages(false);
+  cancel.addEventListener('click', close);
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const value = textarea.value.trim();
+    if (!value) {
+      textarea.focus();
+      return;
+    }
+    if (value === original) {
+      close();
+      return;
+    }
+    const transport = messageTransport();
+    if (!transport) {
+      toast(t('Brak połączenia — spróbuj ponownie.'));
+      return;
+    }
+    const key = conversationKey();
+    const snapshot = { ...message };
+    applyLocalMessageEdit(key, message.id, message.clientId, value);
+    renderMessages(false);
+    const sent = sendMessageAction(transport, 'edit', {
+      messageId: message.id,
+      clientId: message.clientId,
+      text: value,
+    });
+    if (!sent) {
+      replaceHistoryMessage(key, snapshot);
+      renderMessages(false);
+      toast(t('Nie udało się zapisać zmian.'));
+    }
+  });
+  textarea.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+      return;
+    }
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      form.requestSubmit();
+    }
+  });
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+}
+
+function startReply(message) {
+  setPendingReply(message);
+  $('messageInput')?.focus();
+}
+
+function openMessageMenu(anchor, message) {
+  closeMessageMenu();
+  closeReactionPicker();
+  const pop = document.createElement('div');
+  pop.className = 'msg-menu';
+  pop.setAttribute('role', 'menu');
+  pop.setAttribute('aria-label', t('Więcej akcji'));
+
+  const addItem = (label, icon, handler, className = '') => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `msg-menu-item${className ? ` ${className}` : ''}`;
+    button.setAttribute('role', 'menuitem');
+    button.innerHTML = `<span class="msg-menu-icon" aria-hidden="true">${icon}</span><span>${esc(label)}</span>`;
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      handler(button);
+    });
+    pop.appendChild(button);
+    return button;
+  };
+
+  addItem(t('Skopiuj tekst'), '⧉', () => {
+    closeMessageMenu();
+    void copyMessageText(String(message.text ?? ''));
+  });
+  if (messageIsEditable(message)) {
+    addItem(t('Edytuj wiadomość'), '✎', () => {
+      closeMessageMenu();
+      beginMessageEdit(message);
+    });
+  }
+  addItem(t('Odpowiedz'), '↩', () => {
+    closeMessageMenu();
+    startReply(message);
+  });
+  const remove = addItem(t('Usuń wiadomość'), '🗑', (button) => {
+    if (button.dataset.confirm !== '1') {
+      button.dataset.confirm = '1';
+      button.classList.add('danger');
+      button.innerHTML = `<span class="msg-menu-icon" aria-hidden="true">⚠</span><span>${esc(t('Potwierdź usunięcie'))}</span>`;
+      clearTimeout(button._timer);
+      button._timer = setTimeout(() => {
+        if (!button.isConnected) return;
+        button.dataset.confirm = '';
+        button.classList.remove('danger');
+        button.innerHTML = `<span class="msg-menu-icon" aria-hidden="true">🗑</span><span>${esc(t('Usuń wiadomość'))}</span>`;
+      }, 3200);
+      return;
+    }
+    closeMessageMenu();
+    deleteMessage(message);
+  }, 'danger-soft');
+
+  pop.addEventListener('click', (event) => event.stopPropagation());
+  messageMenuPopover = pop;
+  placeFixedPopover(pop, anchor, 198);
+  const onDocumentClick = (event) => {
+    if (!messageMenuPopover) return;
+    if (messageMenuPopover.contains(event.target) || anchor.contains(event.target)) return;
+    closeMessageMenu();
+  };
+  const onKey = (event) => {
+    if (event.key !== 'Escape') return;
+    closeMessageMenu();
+  };
+  setTimeout(() => document.addEventListener('click', onDocumentClick), 0);
+  document.addEventListener('keydown', onKey);
+  pop._cleanup = () => {
+    document.removeEventListener('click', onDocumentClick);
+    document.removeEventListener('keydown', onKey);
+  };
+  pop.querySelector('button')?.focus();
+  return remove;
+}
+
+function messageActionButton(label, content, handler, className = '') {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `msg-action${className ? ` ${className}` : ''}`;
+  button.title = label;
+  button.setAttribute('aria-label', label);
+  button.innerHTML = content;
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    handler(event, button);
+  });
+  return button;
+}
+
+const MSG_ICON_EDIT = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4l10-10a2.12 2.12 0 0 0-3-3L5 17z"/><path d="M13.5 6.5 17.5 10.5"/></svg>';
+const MSG_ICON_REPLY = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 7 4 12l5 5"/><path d="M4 12h9a7 7 0 0 1 7 7"/></svg>';
+const MSG_ICON_MORE = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
+
+function buildMessageActions(message) {
+  const actions = document.createElement('div');
+  actions.className = 'msg-actions';
+  for (const emoji of QUICK_REACTIONS) {
+    actions.appendChild(messageActionButton(`${t('Zareaguj')} ${emoji}`, `<span class="msg-quick-emoji">${esc(emoji)}</span>`, () => {
+      toggleMessageReaction(message, emoji);
+    }, 'msg-quick'));
+  }
+  actions.appendChild(messageActionButton(t('Zareaguj'), '<span class="msg-quick-emoji">☺</span>', (event, button) => {
+    openReactionPicker(button, (emoji) => toggleMessageReaction(message, emoji));
+  }, 'msg-react-more'));
+  if (messageIsEditable(message)) {
+    actions.appendChild(messageActionButton(t('Edytuj wiadomość'), MSG_ICON_EDIT, () => beginMessageEdit(message)));
+  }
+  actions.appendChild(messageActionButton(t('Odpowiedz'), MSG_ICON_REPLY, () => startReply(message)));
+  actions.appendChild(messageActionButton(t('Więcej akcji'), MSG_ICON_MORE, (event, button) => {
+    openMessageMenu(button, message);
+  }));
+  return actions;
+}
+
+function buildMessageReplyRef(message) {
+  const reply = message?.replyTo;
+  if (!reply?.id) return null;
+  const ref = document.createElement('div');
+  ref.className = 'msg-reply-ref';
+  ref.tabIndex = 0;
+  ref.setAttribute('role', 'button');
+  ref.setAttribute('aria-label', t('Odpowiadasz {name}', { name: reply.authorName || t('Użytkownik') }));
+  ref.innerHTML = `<span class="msg-reply-icon" aria-hidden="true">↩</span><strong>${esc(reply.authorName || t('Użytkownik'))}</strong><span class="msg-reply-text">${esc(reply.text || '')}</span>`;
+  const open = () => scrollToMessage(String(reply.id));
+  ref.addEventListener('click', open);
+  ref.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      open();
+    }
+  });
+  return ref;
+}
+
 function renderMessages(scroll = true) {
   const container = $('messages');
   if (!container) return;
@@ -9303,6 +10116,7 @@ function buildMessage(message, grouped) {
   const el = document.createElement('div');
   el.className = `msg${own ? ' own' : ''}${grouped ? ' grouped' : ''}${searchQuery ? ' search-hit' : ''}`;
   el.dataset.id = message.id;
+  el.dataset.clientId = message.clientId || '';
 
   const openAuthor = () => {
     if (own) {
@@ -9349,7 +10163,8 @@ function buildMessage(message, grouped) {
 
   const meta = document.createElement('div');
   meta.className = 'msg-meta';
-  meta.innerHTML = `<span class="msg-author clickable">${esc(message.authorName)}</span><span class="msg-time">${formatTime(message.at)}</span>`;
+  const edited = message.editedAt ? ` <span class="msg-edited">(${esc(t('edytowano'))})</span>` : '';
+  meta.innerHTML = `<span class="msg-author clickable">${esc(message.authorName)}</span><span class="msg-time">${formatTime(message.at)}${edited}</span>`;
   meta.querySelector('.msg-author')?.addEventListener('click', openAuthor);
 
   const bubble = document.createElement('div');
@@ -9424,8 +10239,17 @@ function buildMessage(message, grouped) {
     }
   }
 
+  if (own) {
+    bubble.tabIndex = 0;
+    bubble.setAttribute('aria-label', t('Wiadomość'));
+  }
   main.appendChild(meta);
+  const replyRef = buildMessageReplyRef(message);
+  if (replyRef) main.appendChild(replyRef);
   main.appendChild(bubble);
+  const reactions = buildReactionRow(message);
+  if (reactions) main.appendChild(reactions);
+  if (own) main.appendChild(buildMessageActions(message));
   el.appendChild(avatar);
   el.appendChild(main);
   return el;
@@ -10523,6 +11347,17 @@ function deliverMessage(text) {
     return false;
   }
 
+  const reply = pendingReply && pendingReply.key === conversationKey() ? pendingReply : null;
+  if (pendingReply && !reply) clearPendingReply({ focus: false });
+  const clientId = makeClientMessageId();
+  const replyPreview = reply ? {
+    id: reply.id,
+    authorId: reply.authorId,
+    authorName: reply.authorName,
+    authorColor: reply.authorColor,
+    text: reply.text,
+  } : undefined;
+
   if (current.kind === 'server') {
     const state = serverState(current.serverId);
     const channel = state?.channels.find((item) => item.id === current.id);
@@ -10534,7 +11369,11 @@ function deliverMessage(text) {
       toast(t('Kanały głosowe nie obsługują wiadomości tekstowych.'));
       return false;
     }
-    const payload = { type: 'server:message', channelId: channel.id, text };
+    const payload = { type: 'server:message', channelId: channel.id, text, clientId };
+    if (reply) {
+      payload.replyToId = reply.id;
+      if (reply.clientId) payload.replyToClientId = reply.clientId;
+    }
     if (state.ws && state.ws.readyState === WebSocket.OPEN) {
       try {
         state.ws.send(JSON.stringify(payload));
@@ -10567,14 +11406,20 @@ function deliverMessage(text) {
       }
       const message = {
         id: `sdm-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        clientId,
         authorId: state.you.memberId,
         authorName: myName,
         authorColor: myColor,
         to: entry.memberId,
         text,
         at: Date.now(),
+        ...(replyPreview ? { replyTo: replyPreview } : {}),
       };
-      const payload = { type: 'server:dm', to: entry.memberId, text };
+      const payload = { type: 'server:dm', to: entry.memberId, text, clientId };
+      if (reply) {
+        payload.replyToId = reply.id;
+        if (reply.clientId) payload.replyToClientId = reply.clientId;
+      }
       if (state.ws && state.ws.readyState === WebSocket.OPEN) {
         try {
           state.ws.send(JSON.stringify(payload));
@@ -10596,14 +11441,20 @@ function deliverMessage(text) {
       }
       const message = {
         id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        clientId,
         authorId: myId,
         authorName: myName,
         authorColor: myColor,
         to: current.id,
         text,
         at: Date.now(),
+        ...(replyPreview ? { replyTo: replyPreview } : {}),
       };
-      const payload = { type: 'dm', to: current.id, text };
+      const payload = { type: 'dm', to: current.id, text, clientId };
+      if (reply) {
+        payload.replyToId = reply.id;
+        if (reply.clientId) payload.replyToClientId = reply.clientId;
+      }
       if (wsReady()) {
         ws.send(JSON.stringify(payload));
       } else {
@@ -10615,6 +11466,7 @@ function deliverMessage(text) {
     }
   }
 
+  if (reply) clearPendingReply({ focus: false });
   if (searchQuery) {
     setMessageSearch(false);
   } else {

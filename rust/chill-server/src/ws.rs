@@ -109,6 +109,15 @@ fn payload_bool(value: &Value, key: &str) -> bool {
     value.get(key).and_then(Value::as_bool).unwrap_or(false)
 }
 
+fn payload_client_id(value: &Value) -> Option<String> {
+    let id = payload_string(value, "clientId");
+    if id.is_empty() {
+        None
+    } else {
+        Some(take_chars(&id, 80))
+    }
+}
+
 fn payload_u64(value: &Value, key: &str) -> Option<u64> {
     value.get(key).and_then(|item| {
         item.as_u64()
@@ -124,6 +133,72 @@ fn dm_key(a: &str, b: &str) -> String {
     let mut parts = [a.to_string(), b.to_string()];
     parts.sort();
     format!("{}|{}", parts[0], parts[1])
+}
+
+fn sanitize_reaction_emoji(value: &str) -> Option<String> {
+    let cleaned: String = value
+        .chars()
+        .filter(|character| !character.is_control() && !character.is_whitespace())
+        .take(16)
+        .collect();
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
+}
+
+fn toggle_reaction(message: &mut Message, user_id: &str, emoji: &str) {
+    let mut remove = false;
+    if let Some(users) = message.reactions.get_mut(emoji) {
+        if let Some(index) = users.iter().position(|id| id == user_id) {
+            users.remove(index);
+        } else {
+            users.push(user_id.to_string());
+        }
+        remove = users.is_empty();
+    } else if message.reactions.len() < 16 {
+        message.reactions.insert(emoji.to_string(), vec![user_id.to_string()]);
+    }
+    if remove {
+        message.reactions.remove(emoji);
+    }
+}
+
+fn reply_preview(message: &Message) -> ReplyPreview {
+    ReplyPreview {
+        id: message.id.clone(),
+        author_id: message.author_id.clone(),
+        author_name: message.author_name.clone(),
+        author_color: message.author_color.clone(),
+        text: take_chars(message.text.trim(), 120),
+    }
+}
+
+fn reply_target(list: &[Message], reply_to_id: &str, reply_to_client_id: &str) -> Option<ReplyPreview> {
+    if reply_to_id.is_empty() && reply_to_client_id.is_empty() {
+        return None;
+    }
+    list.iter()
+        .find(|message| {
+            (!reply_to_id.is_empty() && message.id == reply_to_id)
+                || (!reply_to_client_id.is_empty()
+                    && message.client_id.as_deref() == Some(reply_to_client_id))
+        })
+        .map(reply_preview)
+}
+
+fn message_index(list: &[Message], message_id: &str, client_id: &str) -> Option<usize> {
+    list.iter()
+        .position(|message| message.id == message_id)
+        .or_else(|| {
+            if client_id.is_empty() {
+                None
+            } else {
+                list.iter()
+                    .position(|message| message.client_id.as_deref() == Some(client_id))
+            }
+        })
 }
 
 fn member_identity(value: &str) -> String {
@@ -211,7 +286,13 @@ fn handle_message(state: &AppState, conn_id: u64, local: bool, ip: &str, msg: &V
         "join-server" => handle_join_server(state, conn_id, local, ip, msg),
         "server:leave" => handle_server_leave(state, conn_id),
         "server:message" => handle_server_message(state, conn_id, msg),
+        "server:reaction" => handle_server_reaction(state, conn_id, msg),
+        "server:edit" => handle_server_edit(state, conn_id, msg),
+        "server:delete" => handle_server_delete(state, conn_id, msg),
         "server:dm" => handle_server_dm(state, conn_id, msg),
+        "server:dm:reaction" => handle_server_dm_reaction(state, conn_id, msg),
+        "server:dm:edit" => handle_server_dm_edit(state, conn_id, msg),
+        "server:dm:delete" => handle_server_dm_delete(state, conn_id, msg),
         "server:dm:typing" => handle_server_dm_typing(state, conn_id, msg),
         "server:typing" => handle_server_typing(state, conn_id, msg),
         "friends:request" => handle_friend_request(state, conn_id, msg),
@@ -234,6 +315,9 @@ fn handle_message(state: &AppState, conn_id: u64, local: bool, ip: &str, msg: &V
         "server:update" => handle_server_update(state, conn_id, msg),
         "server:activity" => handle_server_activity(state, conn_id, msg),
         "dm" => handle_dm(state, conn_id, local, msg),
+        "dm:reaction" => handle_dm_reaction(state, conn_id, local, msg),
+        "dm:edit" => handle_dm_edit(state, conn_id, local, msg),
+        "dm:delete" => handle_dm_delete(state, conn_id, local, msg),
         "dm:typing" => handle_dm_typing(state, conn_id, local, msg),
         "activity" => handle_activity(state, conn_id, local, msg),
         "status" => handle_status(state, conn_id, local, msg),
@@ -821,6 +905,8 @@ fn handle_server_message(state: &AppState, conn_id: u64, msg: &Value) {
     let Some(session) = conn.server.clone() else { return };
     let channel_id = payload_string(msg, "channelId");
     let text = take_chars(payload_string(msg, "text").trim(), 4000);
+    let reply_to_id = payload_string(msg, "replyToId");
+    let reply_to_client_id = payload_string(msg, "replyToClientId");
     if text.is_empty() {
         return;
     }
@@ -846,6 +932,7 @@ fn handle_server_message(state: &AppState, conn_id: u64, msg: &Value) {
         }
         let message = Message {
             id: new_message_id(),
+            client_id: payload_client_id(msg),
             channel_id: Some(channel.id.clone()),
             author_id: session.member_id.clone(),
             author_name: session.name.clone(),
@@ -853,6 +940,11 @@ fn handle_server_message(state: &AppState, conn_id: u64, msg: &Value) {
             to: None,
             text,
             at: now_ms(),
+            reply_to: server
+                .messages
+                .get(&channel.id)
+                .and_then(|list| reply_target(list, &reply_to_id, &reply_to_client_id)),
+            ..Default::default()
         };
         let list = server.messages.entry(channel.id.clone()).or_default();
         list.push(message.clone());
@@ -871,11 +963,159 @@ fn handle_server_message(state: &AppState, conn_id: u64, msg: &Value) {
     }
 }
 
+fn handle_server_reaction(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(session) = conn.server.clone() else { return };
+    let channel_id = payload_string(msg, "channelId");
+    let message_id = payload_string(msg, "messageId");
+    let client_id = payload_string(msg, "clientId");
+    let Some(emoji) = sanitize_reaction_emoji(&payload_string(msg, "emoji")) else {
+        return;
+    };
+    let mut payload = None;
+    let mut server_id = String::new();
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        server_id = server.id.clone();
+        let Some(list) = server.messages.get_mut(&channel_id) else {
+            return;
+        };
+        let Some(index) = message_index(list, &message_id, &client_id) else {
+            return;
+        };
+        let message = &mut list[index];
+        toggle_reaction(message, &session.member_id, &emoji);
+        payload = Some(json!({
+            "type": "server:reaction",
+            "channelId": channel_id,
+            "message": message,
+        }));
+    }
+    state.save_servers();
+    if let Some(payload) = payload {
+        state.broadcast_server(&server_id, payload, None);
+    }
+}
+
+fn handle_server_edit(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(session) = conn.server.clone() else { return };
+    let channel_id = payload_string(msg, "channelId");
+    let message_id = payload_string(msg, "messageId");
+    let client_id = payload_string(msg, "clientId");
+    let text = take_chars(payload_string(msg, "text").trim(), 4000);
+    if text.is_empty() {
+        return;
+    }
+    let mut payload = None;
+    let mut server_id = String::new();
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        server_id = server.id.clone();
+        let Some(list) = server.messages.get_mut(&channel_id) else {
+            return;
+        };
+        let Some(index) = message_index(list, &message_id, &client_id) else {
+            return;
+        };
+        if list[index].author_id != session.member_id {
+            return;
+        }
+        list[index].text = text.clone();
+        list[index].edited_at = Some(now_ms());
+        let message = list[index].clone();
+        for other in server.messages.values_mut() {
+            for item in other.iter_mut() {
+                if item
+                    .reply_to
+                    .as_ref()
+                    .map(|reply| reply.id == message.id)
+                    .unwrap_or(false)
+                {
+                    if let Some(reply) = item.reply_to.as_mut() {
+                        reply.text = take_chars(text.trim(), 120);
+                    }
+                }
+            }
+        }
+        payload = Some(json!({
+            "type": "server:edit",
+            "channelId": channel_id,
+            "message": message,
+        }));
+    }
+    state.save_servers();
+    if let Some(payload) = payload {
+        state.broadcast_server(&server_id, payload, None);
+    }
+}
+
+fn handle_server_delete(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(session) = conn.server.clone() else { return };
+    let channel_id = payload_string(msg, "channelId");
+    let message_id = payload_string(msg, "messageId");
+    let client_id = payload_string(msg, "clientId");
+    let mut removed = None;
+    let mut server_id = String::new();
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        server_id = server.id.clone();
+        let Some(list) = server.messages.get_mut(&channel_id) else {
+            return;
+        };
+        let Some(index) = message_index(list, &message_id, &client_id) else {
+            return;
+        };
+        if list[index].author_id != session.member_id {
+            return;
+        }
+        removed = Some(list.remove(index));
+    }
+    state.save_servers();
+    if let Some(message) = removed {
+        state.remove_media_from_messages(std::slice::from_ref(&message));
+        state.broadcast_server(
+            &server_id,
+            json!({
+                "type": "server:delete",
+                "channelId": channel_id,
+                "messageId": message.id,
+                "clientId": message.client_id,
+            }),
+            None,
+        );
+    }
+}
+
 fn handle_server_dm(state: &AppState, conn_id: u64, msg: &Value) {
     let Some(conn) = state.conn(conn_id) else { return };
     let Some(session) = conn.server.clone() else { return };
     let to = payload_string(msg, "to");
     let text = take_chars(payload_string(msg, "text").trim(), 4000);
+    let reply_to_id = payload_string(msg, "replyToId");
+    let reply_to_client_id = payload_string(msg, "replyToClientId");
     if to.is_empty() || text.is_empty() || to == session.member_id {
         return;
     }
@@ -910,8 +1150,14 @@ fn handle_server_dm(state: &AppState, conn_id: u64, msg: &Value) {
         let Some(server) = store.hosted.iter_mut().find(|server| server.id == session.server_id) else {
             return;
         };
+        let key = dm_key(&session.member_id, &to);
+        let reply_to = server
+            .dms
+            .get(&key)
+            .and_then(|list| reply_target(list, &reply_to_id, &reply_to_client_id));
         let message = Message {
             id: new_message_id(),
+            client_id: payload_client_id(msg),
             channel_id: None,
             author_id: session.member_id.clone(),
             author_name: session.name.clone(),
@@ -919,9 +1165,10 @@ fn handle_server_dm(state: &AppState, conn_id: u64, msg: &Value) {
             to: Some(to.clone()),
             text,
             at: now_ms(),
+            reply_to,
+            ..Default::default()
         };
-        let key = dm_key(&session.member_id, &to);
-        let list = server.dms.entry(key).or_default();
+        let list = server.dms.entry(key.clone()).or_default();
         list.push(message.clone());
         if list.len() > 500 {
             dropped = list.first().cloned();
@@ -930,6 +1177,7 @@ fn handle_server_dm(state: &AppState, conn_id: u64, msg: &Value) {
         payload = json!({
             "type": "server:dm",
             "serverId": server.id,
+            "dmKey": key,
             "message": message,
         });
         drop(store);
@@ -965,6 +1213,183 @@ fn session_server_id(payload: &Value) -> String {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string()
+}
+
+fn broadcast_server_dm_event(
+    state: &AppState,
+    server_id: &str,
+    first: &str,
+    second: &str,
+    payload: &Value,
+) {
+    for target in state.conns() {
+        let matches = target
+            .server
+            .as_ref()
+            .map(|session| {
+                session.server_id == server_id
+                    && (session.member_id == first || session.member_id == second)
+            })
+            .unwrap_or(false);
+        if matches {
+            target.send_json(payload);
+        }
+    }
+}
+
+fn handle_server_dm_reaction(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(session) = conn.server.clone() else { return };
+    let to = payload_string(msg, "to");
+    let message_id = payload_string(msg, "messageId");
+    let client_id = payload_string(msg, "clientId");
+    let Some(emoji) = sanitize_reaction_emoji(&payload_string(msg, "emoji")) else {
+        return;
+    };
+    if to.is_empty() || to == session.member_id {
+        return;
+    }
+    let key = dm_key(&session.member_id, &to);
+    let mut updated = None;
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        if !server.members.iter().any(|member| member.id == to) {
+            return;
+        }
+        let Some(list) = server.dms.get_mut(&key) else {
+            return;
+        };
+        let Some(index) = message_index(list, &message_id, &client_id) else {
+            return;
+        };
+        let message = &mut list[index];
+        toggle_reaction(message, &session.member_id, &emoji);
+        updated = Some(message.clone());
+    }
+    state.save_servers();
+    if let Some(message) = updated {
+        broadcast_server_dm_event(
+            state,
+            &session.server_id,
+            &session.member_id,
+            &to,
+            &json!({
+                "type": "server:dm:reaction",
+                "serverId": session.server_id,
+                "dmKey": key,
+                "message": message,
+            }),
+        );
+    }
+}
+
+fn handle_server_dm_edit(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(session) = conn.server.clone() else { return };
+    let to = payload_string(msg, "to");
+    let message_id = payload_string(msg, "messageId");
+    let client_id = payload_string(msg, "clientId");
+    let text = take_chars(payload_string(msg, "text").trim(), 4000);
+    if to.is_empty() || to == session.member_id || text.is_empty() {
+        return;
+    }
+    let key = dm_key(&session.member_id, &to);
+    let mut updated = None;
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        let Some(list) = server.dms.get_mut(&key) else {
+            return;
+        };
+        let Some(index) = message_index(list, &message_id, &client_id) else {
+            return;
+        };
+        let message = &mut list[index];
+        if message.author_id != session.member_id {
+            return;
+        }
+        message.text = text;
+        message.edited_at = Some(now_ms());
+        updated = Some(message.clone());
+    }
+    state.save_servers();
+    if let Some(message) = updated {
+        broadcast_server_dm_event(
+            state,
+            &session.server_id,
+            &session.member_id,
+            &to,
+            &json!({
+                "type": "server:dm:edit",
+                "serverId": session.server_id,
+                "dmKey": key,
+                "message": message,
+            }),
+        );
+    }
+}
+
+fn handle_server_dm_delete(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(session) = conn.server.clone() else { return };
+    let to = payload_string(msg, "to");
+    let message_id = payload_string(msg, "messageId");
+    let client_id = payload_string(msg, "clientId");
+    if to.is_empty() || to == session.member_id {
+        return;
+    }
+    let key = dm_key(&session.member_id, &to);
+    let mut removed = None;
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        let Some(list) = server.dms.get_mut(&key) else {
+            return;
+        };
+        let Some(index) = message_index(list, &message_id, &client_id) else {
+            return;
+        };
+        if list[index].author_id != session.member_id {
+            return;
+        }
+        removed = Some(list.remove(index));
+    }
+    state.save_servers();
+    if let Some(message) = removed {
+        state.remove_media_from_messages(std::slice::from_ref(&message));
+        broadcast_server_dm_event(
+            state,
+            &session.server_id,
+            &session.member_id,
+            &to,
+            &json!({
+                "type": "server:dm:delete",
+                "serverId": session.server_id,
+                "dmKey": key,
+                "messageId": message.id,
+                "clientId": message.client_id,
+            }),
+        );
+    }
 }
 
 fn handle_server_dm_typing(state: &AppState, conn_id: u64, msg: &Value) {
@@ -1969,6 +2394,8 @@ fn handle_dm(state: &AppState, conn_id: u64, local: bool, msg: &Value) {
     let Some(user_id) = conn.user_id.clone() else { return };
     let to = payload_string(msg, "to");
     let text = payload_string(msg, "text");
+    let reply_to_id = payload_string(msg, "replyToId");
+    let reply_to_client_id = payload_string(msg, "replyToClientId");
     if to.is_empty() || text.is_empty() {
         return;
     }
@@ -1990,38 +2417,199 @@ fn handle_dm(state: &AppState, conn_id: u64, local: bool, msg: &Value) {
     let Some(user) = state.online.read().get(&user_id).cloned() else {
         return;
     };
-    let message = Message {
-        id: new_message_id(),
-        channel_id: None,
-        author_id: user_id.clone(),
-        author_name: user.name,
-        author_color: user.color,
-        to: Some(to.clone()),
-        text: take_chars(&text, 4000),
-        at: now_ms(),
-    };
     let key = dm_key(&user_id, &to);
     let mut dropped = None;
-    {
+    let message = {
         let mut chat = state.chat.write();
-        let list = chat.dms.entry(key).or_default();
+        let reply_to = chat
+            .dms
+            .get(&key)
+            .and_then(|list| reply_target(list, &reply_to_id, &reply_to_client_id));
+        let message = Message {
+            id: new_message_id(),
+            client_id: payload_client_id(msg),
+            channel_id: None,
+            author_id: user_id.clone(),
+            author_name: user.name,
+            author_color: user.color,
+            to: Some(to.clone()),
+            text: take_chars(&text, 4000),
+            at: now_ms(),
+            reply_to,
+            ..Default::default()
+        };
+        let list = chat.dms.entry(key.clone()).or_default();
         list.push(message.clone());
         if list.len() > 500 {
             dropped = list.first().cloned();
             list.remove(0);
         }
-    }
+        message
+    };
     state.save_chat();
     if let Some(message) = dropped {
         state.remove_media_from_messages(&[message]);
     }
-    let payload = json!({ "type": "dm", "message": message });
+    let payload = json!({ "type": "dm", "dmKey": key, "message": message });
     send(state, conn_id, &payload);
     if to != user_id {
         let target_conn = state.user_conns.lock().get(&to).copied();
         if let Some(target) = target_conn.and_then(|id| state.conn(id)) {
             target.send_json(&payload);
         }
+    }
+}
+
+fn send_local_dm_event(
+    state: &AppState,
+    conn_id: u64,
+    user_id: &str,
+    to: &str,
+    payload: &Value,
+) {
+    send(state, conn_id, payload);
+    if to != user_id {
+        let target_conn = state.user_conns.lock().get(to).copied();
+        if let Some(target) = target_conn.and_then(|id| state.conn(id)) {
+            target.send_json(payload);
+        }
+    }
+}
+
+fn handle_dm_reaction(state: &AppState, conn_id: u64, local: bool, msg: &Value) {
+    if !local {
+        return;
+    }
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(user_id) = conn.user_id.clone() else { return };
+    let to = payload_string(msg, "to");
+    let message_id = payload_string(msg, "messageId");
+    let client_id = payload_string(msg, "clientId");
+    let Some(emoji) = sanitize_reaction_emoji(&payload_string(msg, "emoji")) else {
+        return;
+    };
+    if to.is_empty() || to == user_id {
+        return;
+    }
+    let key = dm_key(&user_id, &to);
+    let mut updated = None;
+    {
+        let mut chat = state.chat.write();
+        let Some(list) = chat.dms.get_mut(&key) else {
+            return;
+        };
+        let Some(index) = message_index(list, &message_id, &client_id) else {
+            return;
+        };
+        let message = &mut list[index];
+        toggle_reaction(message, &user_id, &emoji);
+        updated = Some(message.clone());
+    }
+    state.save_chat();
+    if let Some(message) = updated {
+        send_local_dm_event(
+            state,
+            conn_id,
+            &user_id,
+            &to,
+            &json!({
+                "type": "dm:reaction",
+                "dmKey": key,
+                "message": message,
+            }),
+        );
+    }
+}
+
+fn handle_dm_edit(state: &AppState, conn_id: u64, local: bool, msg: &Value) {
+    if !local {
+        return;
+    }
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(user_id) = conn.user_id.clone() else { return };
+    let to = payload_string(msg, "to");
+    let message_id = payload_string(msg, "messageId");
+    let client_id = payload_string(msg, "clientId");
+    let text = take_chars(payload_string(msg, "text").trim(), 4000);
+    if to.is_empty() || to == user_id || text.is_empty() {
+        return;
+    }
+    let key = dm_key(&user_id, &to);
+    let mut updated = None;
+    {
+        let mut chat = state.chat.write();
+        let Some(list) = chat.dms.get_mut(&key) else {
+            return;
+        };
+        let Some(index) = message_index(list, &message_id, &client_id) else {
+            return;
+        };
+        let message = &mut list[index];
+        if message.author_id != user_id {
+            return;
+        }
+        message.text = text;
+        message.edited_at = Some(now_ms());
+        updated = Some(message.clone());
+    }
+    state.save_chat();
+    if let Some(message) = updated {
+        send_local_dm_event(
+            state,
+            conn_id,
+            &user_id,
+            &to,
+            &json!({
+                "type": "dm:edit",
+                "dmKey": key,
+                "message": message,
+            }),
+        );
+    }
+}
+
+fn handle_dm_delete(state: &AppState, conn_id: u64, local: bool, msg: &Value) {
+    if !local {
+        return;
+    }
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(user_id) = conn.user_id.clone() else { return };
+    let to = payload_string(msg, "to");
+    let message_id = payload_string(msg, "messageId");
+    let client_id = payload_string(msg, "clientId");
+    if to.is_empty() || to == user_id {
+        return;
+    }
+    let key = dm_key(&user_id, &to);
+    let mut removed = None;
+    {
+        let mut chat = state.chat.write();
+        let Some(list) = chat.dms.get_mut(&key) else {
+            return;
+        };
+        let Some(index) = message_index(list, &message_id, &client_id) else {
+            return;
+        };
+        if list[index].author_id != user_id {
+            return;
+        }
+        removed = Some(list.remove(index));
+    }
+    state.save_chat();
+    if let Some(message) = removed {
+        state.remove_media_from_messages(std::slice::from_ref(&message));
+        send_local_dm_event(
+            state,
+            conn_id,
+            &user_id,
+            &to,
+            &json!({
+                "type": "dm:delete",
+                "dmKey": key,
+                "messageId": message.id,
+                "clientId": message.client_id,
+            }),
+        );
     }
 }
 
@@ -2241,6 +2829,53 @@ mod tests {
             at,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn reactions_toggle_per_member_and_clean_up() {
+        let mut item = Message {
+            id: "m1".to_string(),
+            text: "hello".to_string(),
+            ..Default::default()
+        };
+        toggle_reaction(&mut item, "u1", "🔥");
+        assert_eq!(item.reactions.get("🔥").map(Vec::len), Some(1));
+        toggle_reaction(&mut item, "u2", "🔥");
+        assert_eq!(item.reactions.get("🔥").map(Vec::len), Some(2));
+        toggle_reaction(&mut item, "u1", "🔥");
+        assert_eq!(item.reactions.get("🔥"), Some(&vec!["u2".to_string()]));
+        toggle_reaction(&mut item, "u2", "🔥");
+        assert!(item.reactions.is_empty());
+    }
+
+    #[test]
+    fn reaction_emoji_rejects_blank_values_and_trims_length() {
+        assert_eq!(sanitize_reaction_emoji("  "), None);
+        assert_eq!(sanitize_reaction_emoji(" 🔥 "), Some("🔥".to_string()));
+        assert_eq!(sanitize_reaction_emoji(&"❤".repeat(20)).map(|value| value.chars().count()), Some(16));
+    }
+
+    #[test]
+    fn reply_preview_points_at_original_message() {
+        let mut item = Message {
+            id: "m2".to_string(),
+            author_id: "u1".to_string(),
+            author_name: "Ania".to_string(),
+            text: "  odpowiedź  ".to_string(),
+            ..Default::default()
+        };
+        let target = reply_target(&[message("m1", "u2", 1), item.clone()], "m2", "")
+            .expect("reply target");
+        assert_eq!(target.id, "m2");
+        assert_eq!(target.text, "odpowiedź");
+        assert!(reply_target(&[item.clone()], "missing", "").is_none());
+        let mut optimistic = item.clone();
+        optimistic.id = "local-1".to_string();
+        optimistic.client_id = Some("c-1".to_string());
+        let by_client = reply_target(&[optimistic], "", "c-1").expect("client reply target");
+        assert_eq!(by_client.id, "local-1");
+        item.reply_to = Some(target);
+        assert_eq!(item.reply_to.unwrap().author_name, "Ania");
     }
 
     #[test]

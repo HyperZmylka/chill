@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use once_cell::sync::Lazy;
@@ -482,8 +482,20 @@ pub struct Channel {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
+pub struct ReplyPreview {
+    pub id: String,
+    pub author_id: String,
+    pub author_name: String,
+    pub author_color: String,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct Message {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_id: Option<String>,
     pub author_id: String,
@@ -493,6 +505,12 @@ pub struct Message {
     pub to: Option<String>,
     pub text: String,
     pub at: u64,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub reactions: BTreeMap<String, Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edited_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<ReplyPreview>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]

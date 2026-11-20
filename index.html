@@ -414,6 +414,14 @@
     </div>
 
     <form class="composer" id="composer" autocomplete="off">
+      <div class="composer-reply" id="composerReply" hidden>
+        <span class="composer-reply-accent" aria-hidden="true"></span>
+        <span class="composer-reply-body">
+          <strong id="composerReplyAuthor"></strong>
+          <span id="composerReplyText"></span>
+        </span>
+        <button type="button" class="composer-attachment-remove" id="composerReplyCancel" title="Anuluj odpowiedź" aria-label="Anuluj odpowiedź" data-i18n-title="Anuluj odpowiedź" data-i18n-aria-label="Anuluj odpowiedź">✕</button>
+      </div>
       <div class="composer-attachment" id="composerAttachment" hidden>
         <span class="composer-attachment-thumb" id="composerAttachmentThumb" aria-hidden="true">📎</span>
         <span class="composer-attachment-info">

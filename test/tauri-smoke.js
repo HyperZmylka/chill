@@ -477,6 +477,125 @@ let cdp = null;
     const imageBytes = Buffer.from(await imageResponse.arrayBuffer());
     check('aplikacja pobiera załącznik z serwera', imageResponse.status === 200 && imageBytes.length > 0, `${imageResponse.status} ${imageBytes.length}`);
 
+    const actionsText = 'Wiadomość do akcji 4.16.15';
+    await evaluate(`(() => {
+      const input = document.getElementById('messageInput');
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+      setter.call(input, ${JSON.stringify(actionsText)});
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('composer').requestSubmit();
+      return true;
+    })()`);
+    const actionsEcho = await alice.waitFor((m) => m.type === 'dm' && m.message?.text === actionsText, 12_000, 'dm actions message');
+    check('wiadomość do akcji ma identyfikator serwera i klienta', Boolean(actionsEcho.message?.id && actionsEcho.message?.clientId), JSON.stringify(actionsEcho.message));
+    await waitEval(`document.getElementById('messages').innerText.includes(${JSON.stringify(actionsText)})`, 15_000, 'actions message in view');
+
+    const actionBar = await evaluate(`(() => {
+      const msg = Array.from(document.querySelectorAll('#messages .msg.own')).find((item) => item.querySelector('.bubble')?.textContent.includes(${JSON.stringify(actionsText)}));
+      const bar = msg?.querySelector('.msg-actions');
+      return {
+        found: Boolean(msg),
+        buttons: bar ? bar.querySelectorAll('.msg-action').length : 0,
+        quick: bar ? Array.from(bar.querySelectorAll('.msg-quick .msg-quick-emoji')).map((el) => el.textContent) : [],
+        visibility: bar ? getComputedStyle(bar).visibility : 'missing',
+        id: msg?.dataset.id || '',
+        rect: msg ? (() => { const r = msg.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })() : null,
+      };
+    })()`);
+    check('własna wiadomość ma pasek siedmiu akcji', Boolean(actionBar.found && actionBar.buttons === 7), JSON.stringify(actionBar));
+    check('szybkie reakcje to serce, check i ogień', actionBar.quick.join('') === '❤️✅🔥', JSON.stringify(actionBar.quick));
+    check('pasek akcji jest ukryty bez najechania', actionBar.visibility === 'hidden', actionBar.visibility);
+
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: actionBar.rect.x, y: actionBar.rect.y, button: 'none' });
+    await sleep(220);
+    const hoveredBar = await evaluate(`(() => {
+      const msg = Array.from(document.querySelectorAll('#messages .msg.own')).find((item) => item.dataset.id === ${JSON.stringify(actionBar.id)});
+      const bar = msg?.querySelector('.msg-actions');
+      return bar ? getComputedStyle(bar).visibility : 'missing';
+    })()`);
+    check('pasek akcji pokazuje się po najechaniu myszą', hoveredBar === 'visible', hoveredBar);
+
+    await evaluate(`(() => {
+      const msg = Array.from(document.querySelectorAll('#messages .msg.own')).find((item) => item.dataset.id === ${JSON.stringify(actionBar.id)});
+      msg.querySelectorAll('.msg-actions .msg-action')[0].click();
+      return true;
+    })()`);
+    const reactionEcho = await alice.waitFor((m) => m.type === 'dm:reaction' && m.message?.id === actionsEcho.message.id, 10_000, 'dm reaction');
+    check('szybka reakcja trafia do serwera', Array.isArray(reactionEcho.message?.reactions?.['❤️']) && reactionEcho.message.reactions['❤️'].includes(bobId), JSON.stringify(reactionEcho.message?.reactions));
+    await waitEval(`(() => {
+      const msg = Array.from(document.querySelectorAll('#messages .msg.own')).find((item) => item.dataset.id === ${JSON.stringify(actionsEcho.message.id)});
+      const pill = msg?.querySelector('.reaction-pill');
+      return Boolean(pill && pill.classList.contains('mine') && pill.querySelector('.reaction-count')?.textContent === '1');
+    })()`, 8_000, 'reaction pill');
+    check('reakcja pojawia się jako aktywna pigułka', true);
+
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 4, y: 4, button: 'none' });
+    await sleep(200);
+
+    const editedText = 'Wiadomość po edycji 4.16.15';
+    await evaluate(`(() => {
+      const msg = Array.from(document.querySelectorAll('#messages .msg.own')).find((item) => item.dataset.id === ${JSON.stringify(actionBar.id)});
+      msg.querySelectorAll('.msg-actions .msg-action')[4].click();
+      const form = msg.querySelector('.msg-edit');
+      const textarea = form?.querySelector('textarea');
+      if (!form || !textarea) return false;
+      textarea.value = ${JSON.stringify(editedText)};
+      form.requestSubmit();
+      return true;
+    })()`);
+    const editEcho = await alice.waitFor((m) => m.type === 'dm:edit' && m.message?.id === actionsEcho.message.id, 10_000, 'dm edit');
+    check('edycja trafia do serwera', editEcho.message?.text === editedText && Number(editEcho.message?.editedAt) > 0, JSON.stringify(editEcho.message));
+    await waitEval(`(() => {
+      const msg = Array.from(document.querySelectorAll('#messages .msg.own')).find((item) => item.dataset.id === ${JSON.stringify(actionsEcho.message.id)});
+      return Boolean(msg && msg.innerText.includes(${JSON.stringify(editedText)}) && msg.querySelector('.msg-edited'));
+    })()`, 8_000, 'edited message in view');
+    check('edytowana wiadomość ma znacznik edycji', true);
+
+    await evaluate(`(() => {
+      const msg = Array.from(document.querySelectorAll('#messages .msg.own')).find((item) => item.dataset.id === ${JSON.stringify(actionBar.id)});
+      msg.querySelectorAll('.msg-actions .msg-action')[5].click();
+      return true;
+    })()`);
+    const replyBanner = await evaluate(`(() => ({
+      hidden: document.getElementById('composerReply').hidden,
+      author: document.getElementById('composerReplyAuthor').textContent,
+      text: document.getElementById('composerReplyText').textContent,
+    }))()`);
+    check('odpowiedź pokazuje baner nad kompozytorem', replyBanner.hidden === false && replyBanner.text.includes(editedText), JSON.stringify(replyBanner));
+
+    const replyText = 'Odpowiedź testowa 4.16.15';
+    await evaluate(`(() => {
+      const input = document.getElementById('messageInput');
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set;
+      setter.call(input, ${JSON.stringify(replyText)});
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      document.getElementById('composer').requestSubmit();
+      return true;
+    })()`);
+    const replyEcho = await alice.waitFor((m) => m.type === 'dm' && m.message?.text === replyText, 12_000, 'dm reply');
+    check('odpowiedź wskazuje oryginalną wiadomość', replyEcho.message?.replyTo?.id === actionsEcho.message.id && replyEcho.message?.replyTo?.text?.includes(editedText), JSON.stringify(replyEcho.message?.replyTo));
+    await waitEval("document.getElementById('composerReply').hidden === true", 8_000, 'reply banner cleared');
+    check('baner odpowiedzi znika po wysłaniu', true);
+    await waitEval(`(() => {
+      const msg = Array.from(document.querySelectorAll('#messages .msg.own')).find((item) => item.querySelector('.bubble')?.textContent.includes(${JSON.stringify(replyText)}));
+      return Boolean(msg?.querySelector('.msg-reply-ref'));
+    })()`, 8_000, 'reply reference');
+    check('wysłana odpowiedź ma odwołanie do oryginału', true);
+
+    await evaluate(`(() => {
+      const msg = Array.from(document.querySelectorAll('#messages .msg.own')).find((item) => item.dataset.id === ${JSON.stringify(actionBar.id)});
+      msg.querySelectorAll('.msg-actions .msg-action')[6].click();
+      const remove = document.querySelector('.msg-menu .msg-menu-item.danger-soft');
+      if (!remove) return false;
+      remove.click();
+      remove.click();
+      return true;
+    })()`);
+    const deleteEcho = await alice.waitFor((m) => m.type === 'dm:delete' && m.messageId === actionsEcho.message.id, 10_000, 'dm delete');
+    check('usunięcie trafia do serwera', deleteEcho.messageId === actionsEcho.message.id && deleteEcho.dmKey, JSON.stringify(deleteEcho));
+    await waitEval(`!Array.from(document.querySelectorAll('#messages .msg')).some((item) => item.dataset.id === ${JSON.stringify(actionsEcho.message.id)})`, 8_000, 'message deleted from view');
+    check('usunięta wiadomość znika z aplikacji', true);
+
     alice.send({
       type: 'join-server',
       serverId: server.id,
