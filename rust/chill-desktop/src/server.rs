@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Context};
 use chill_server::config::Config;
+use tauri::window::Color;
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const DEFAULT_PORT: u16 = 47830;
@@ -82,6 +83,9 @@ fn create_window(app: &AppHandle, url: &str) -> anyhow::Result<()> {
         .title("Chill")
         .inner_size(1320.0, 860.0)
         .min_inner_size(940.0, 600.0)
+        // Ciemne tło okna zapobiega białemu błyskowi przed pierwszym
+        // namalowaniem ekranu startowego.
+        .background_color(Color(5, 10, 8, 255))
         .visible(false)
         .build()?;
     if !hidden {

@@ -23,6 +23,7 @@ const files = [
   'tauri-desktop.js',
   'package.json',
   'build/icon.png',
+  'build/icon.svg',
 ];
 
 fs.rmSync(target, { recursive: true, force: true });

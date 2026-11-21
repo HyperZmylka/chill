@@ -282,6 +282,7 @@ async fn asset(
         "chill-web.js" => ("chill-web.js", "text/javascript; charset=utf-8"),
         "tauri-desktop.js" => ("tauri-desktop.js", "text/javascript; charset=utf-8"),
         "build/icon.png" => ("build/icon.png", "image/png"),
+        "build/icon.svg" => ("build/icon.svg", "image/svg+xml"),
         _ => return text_response(StatusCode::NOT_FOUND, "Not found"),
     };
     let Ok(data) = tokio::fs::read(state.cfg.web_root.join(file)).await else {

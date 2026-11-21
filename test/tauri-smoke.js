@@ -295,6 +295,21 @@ let cdp = null;
     check('strona działa w powłoce Tauri', await evaluate("document.documentElement.dataset.runtime === 'tauri'"));
     await waitEval("getComputedStyle(document.getElementById('loginScreen')).display !== 'none'", 10_000, 'login visible');
     check('ekran rejestracji jest widoczny', true);
+    const bootSplash = await evaluate(`(() => {
+      const splash = document.getElementById('bootSplash');
+      return {
+        exists: Boolean(splash),
+        letters: splash ? splash.querySelectorAll('.boot-letter').length : 0,
+        icon: splash?.querySelector('.boot-icon img')?.getAttribute('src') || '',
+      };
+    })()`);
+    check(
+      'ekran startowy ma ikonę i pięć animowanych liter',
+      Boolean(bootSplash.exists && bootSplash.letters === 5 && /build\/icon\.svg$/.test(bootSplash.icon)),
+      JSON.stringify(bootSplash),
+    );
+    await waitEval("document.getElementById('bootSplash').hidden === true", 3000, 'boot splash hidden');
+    check('ekran startowy znika po przygotowaniu aplikacji', true);
 
     await evaluate(`(() => {
       document.getElementById('tabRegister').click();

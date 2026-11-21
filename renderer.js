@@ -1645,20 +1645,35 @@ document.addEventListener('DOMContentLoaded', () => {
   boot();
 });
 
+const BOOT_SPLASH_MIN_MS = 520;
+const bootSplashShownAt = performance.now();
+let bootSplashTimer = 0;
+
+function dismissBootSplash() {
+  const splash = $('bootSplash');
+  if (!splash || splash.hidden || bootSplashTimer) return;
+  const wait = Math.max(0, BOOT_SPLASH_MIN_MS - (performance.now() - bootSplashShownAt));
+  bootSplashTimer = setTimeout(() => {
+    splash.classList.add('boot-leaving');
+    setTimeout(() => {
+      splash.hidden = true;
+      splash.classList.remove('boot-leaving');
+    }, 190);
+  }, wait);
+}
+
 async function boot() {
-  const started = Date.now();
   let user = null;
   try {
     const result = await CHILL.auth.session();
     if (result && result.ok) user = result.user;
   } catch { /* ignore */ }
 
-  const wait = Math.max(0, 520 - (Date.now() - started));
-  setTimeout(() => {
-    $('bootSplash').hidden = true;
-    if (user) enterApp(user);
-    else showAuth('login');
-  }, wait);
+  // Aplikacja przygotowuje się pod ekranem startowym, więc po animacji
+  // interfejs jest już gotowy i nie trzeba czekać na dodatkowe renderowanie.
+  if (user) enterApp(user);
+  else showAuth('login');
+  dismissBootSplash();
 }
 
 // ============================================================
@@ -1722,7 +1737,7 @@ function switchAuthTab(mode) {
 function showAuth(mode = 'login') {
   $('loginScreen').style.display = 'grid';
   $('chatApp').style.display = 'none';
-  $('bootSplash').hidden = true;
+  dismissBootSplash();
   if (CHILL.app?.setUiScale) CHILL.app.setUiScale(1);
   switchAuthTab(mode);
 }
@@ -1875,7 +1890,7 @@ function enterApp(user) {
 
   $('loginScreen').style.display = 'none';
   $('chatApp').style.display = 'grid';
-  $('bootSplash').hidden = true;
+  dismissBootSplash();
   $('chatApp').classList.toggle('compact', prefs.compact);
   $('messageSearch').value = '';
   $('searchBar').hidden = true;

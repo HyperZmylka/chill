@@ -11,10 +11,22 @@
 <body data-theme="gradient">
 
 <!-- Ekran startowy -->
-<div class="boot" id="bootSplash">
-  <div class="boot-logo">C</div>
-  <div class="boot-name">Chill</div>
-  <div class="boot-spinner" aria-hidden="true"></div>
+<div class="boot" id="bootSplash" role="status" aria-label="Chill — uruchamianie">
+  <div class="boot-glow" aria-hidden="true"></div>
+  <div class="boot-lockup" aria-hidden="true">
+    <div class="boot-icon">
+      <img src="build/icon.svg" alt="" draggable="false" decoding="async">
+    </div>
+    <div class="boot-word">
+      <span class="boot-letter" style="--i: 0">C</span>
+      <span class="boot-letter" style="--i: 1">h</span>
+      <span class="boot-letter" style="--i: 2">i</span>
+      <span class="boot-letter" style="--i: 3">l</span>
+      <span class="boot-letter" style="--i: 4">l</span>
+      <span class="boot-dot"></span>
+    </div>
+  </div>
+  <div class="boot-track" aria-hidden="true"><span></span></div>
 </div>
 
 <!-- ========== LOGOWANIE ========== -->
