@@ -6,7 +6,7 @@ on:
       tag:
         description: Release tag to build and upload
         required: true
-        default: v4.16.16
+        default: v4.17.0
 
 permissions:
   contents: write
@@ -39,7 +39,7 @@ jobs:
         run: npm ci
 
       - name: Run tests
-        run: node --test test/appearance.test.js test/discord-import.test.js test/stickers.test.js test/voice.test.js test/game-detect.test.js test/minigames.test.js test/gifs.test.js test/identity.test.js test/layout.test.js test/reconnect.test.js test/legal.test.js test/mini-apps.test.js test/message-actions.test.js test/boot.test.js
+        run: node --test test/appearance.test.js test/attachments.test.js test/attachment-stream.test.js test/discord-import.test.js test/stickers.test.js test/voice.test.js test/game-detect.test.js test/minigames.test.js test/gifs.test.js test/identity.test.js test/layout.test.js test/reconnect.test.js test/legal.test.js test/mini-apps.test.js test/message-actions.test.js test/boot.test.js
 
       - name: Build Tauri installer
         run: npm run desktop:build

@@ -5140,6 +5140,27 @@ html.chill-web-scale[data-web-layout="760"] .server-settings-close {
   white-space: nowrap;
 }
 .composer-attachment-info small { color: var(--faint); font-size: 11px; }
+.composer-attachment-progress {
+  display: block;
+  height: 4px;
+  margin-top: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  overflow: hidden;
+}
+.composer-attachment-progress[hidden] { display: none; }
+.composer-attachment-progress span {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+  transition: width 0.12s linear;
+}
+.composer-attachment.uploading {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel-2));
+}
 .composer-attachment-remove {
   width: 28px;
   height: 28px;

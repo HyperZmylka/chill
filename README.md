@@ -18,6 +18,7 @@ Spokojny komunikator desktopowy (Rust + Tauri) z własną identyfikacją wizualn
 - **Emoji** — picker z wyszukiwarką i listą ostatnio używanych.
 - **Naklejki** — wbudowany zestaw Chill Pack (24 grafiki SVG), kategorie i wyszukiwarka; wybrana naklejka pojawia się bezpośrednio w rozmowie.
 - **Wiadomości głosowe** — nagrywanie mikrofonem (do 120 s) w jakości 48 kHz / 64 kb/s, z redukcją szumów i wyrównaniem poziomu; odtwarzanie z pauzą i przewijaniem. Działają w kanałach serwera oraz w DM-ach lokalnych i serwerowych.
+- **Pliki i załączniki** — wysyłanie plików do 64 MB z paskiem postępu i możliwością anulowania; obrazy, wideo i audio mają podgląd w rozmowie, a pozostałe pliki przycisk pobierania.
 - **GIF-y** — przycisk obok emoji, kategorie i wyszukiwarka; wybrany GIF pojawia się bezpośrednio w rozmowie.
 - **Wzmianki `@`** — podpowiedzi członków serwera i znajomych, wstawianie nicku z klawiatury i wyróżnienie w wiadomości.
 - **Statusy** — online, zaraz wracam, nie przeszkadzać, niewidoczny.
@@ -111,6 +112,16 @@ Konta lokalne na tym samym komputerze nadal pojawiają się w **Wiadomościach p
 - Dostęp do pliku jest powiązany z aktywną sesją i członkostwem w serwerze. Token jest ważny przez 7 dni i jest unieważniany po rozłączeniu, więc odtwarzanie wymaga połączenia z serwerem, do którego należy rozmowa.
 - Do nagrywania potrzebny jest mikrofon. Jeśli w dolnym pasku wybrano konkretne urządzenie wejściowe, nagrywanie użyje właśnie jego (z bezpiecznym powrotem do domyślnego mikrofonu).
 - Wyszukiwarka wiadomości znajduje głosówki po słowach `głosówka`, `nagranie`, `audio`, `voice message` i pokrewnych, również bez polskich znaków diakrytycznych.
+
+## Pliki i załączniki
+
+- Przycisk spinacza w polu pisania pozwala wysłać dowolny plik o rozmiarze do **64 MB**. Limit jest taki sam w aplikacji desktopowej i w publicznej wersji w przeglądarce.
+- Duże pliki są strumieniowane na dysk, więc wysyłanie nie obciąża pamięci komputera hosta. Podczas wysyłania widać pasek postępu i procent; **✕** przy załączniku anuluje transfer, a plik zostaje w polu pisania, żeby można było spróbować ponownie.
+- Postęp jest liczony z rzeczywistych bajtów, a nie z szacowanego czasu. Wolne, ale postępujące wysyłanie nie kończy się przedwcześnie — transfer przerywa się dopiero po 90 sekundach bez jakiegokolwiek ruchu.
+- Obrazy, wideo i audio są odtwarzane lub pokazywane bezpośrednio w rozmowie; pozostałe pliki mają nazwę, rozmiar i przycisk **Pobierz plik**.
+- Historia przechowuje tylko lekki token `chill-file://<id>?n=<nazwa>&m=<typ>&s=<rozmiar>`; sam plik trafia do `attachments/` na komputerze hosta, a metadane do `attachments/index.json`. Plik jest usuwany razem z wiadomością, po skróceniu historii albo po usunięciu kanału/serwera.
+- Dostęp do załącznika jest powiązany z aktywną sesją i członkostwem w serwerze. Pobieranie obsługuje zakresy bajtów, więc odtwarzanie wideo i wznawianie pobierania działają bez pobierania całego pliku od nowa.
+- Uprawnienia są sprawdzane także po stronie hosta — bez aktywnej sesji nie można pobrać ani usunąć załącznika, nawet znając jego identyfikator.
 
 ## Rozmowy głosowe i udostępnianie ekranu
 

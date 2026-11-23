@@ -144,6 +144,8 @@ let pendingReply = null;
 let reactionPopover = null;
 let messageMenuPopover = null;
 let attachmentUploading = false;
+let attachmentUpload = null;
+let attachmentUploadSeq = 0;
 let spotifyPanelOpen = false;
 let profileTarget = null;
 let profileSelectedGame = '';
@@ -414,7 +416,14 @@ const I18N_EN = {
   'Przeciągnij plik tutaj': 'Drag a file here',
   'Wyślij plik': 'Send file',
   'Nie udało się wysłać pliku.': 'Could not send the file.',
-  'Plik jest za duży. Maksymalny rozmiar to 12 MB.': 'The file is too large. The maximum size is 12 MB.',
+  'Plik jest za duży. Maksymalny rozmiar to {size}.': 'The file is too large. The maximum size is {size}.',
+  'Anuluj wysyłanie': 'Cancel upload',
+  'Anulowano wysyłanie pliku.': 'Upload cancelled.',
+  'Sesja wysyłania pliku wygasła — połącz ponownie.': 'The upload session expired — reconnect.',
+  'Nie udało się wysłać pliku. Sprawdź połączenie.': 'Could not send the file. Check your connection.',
+  'Wysyłanie pliku trwało zbyt długo. Spróbuj ponownie.': 'The upload took too long. Try again.',
+  'Serwer nie może zapisać pliku. Spróbuj ponownie.': 'The server cannot save the file. Try again.',
+  'Poczekaj na zakończenie wysyłania pliku.': 'Wait for the current upload to finish.',
   'Nie można teraz dodać pliku — połącz z serwerem.': 'Cannot add a file right now — connect to the server.',
   'Załącznik': 'Attachment',
   'Pobierz plik': 'Download file',
@@ -3863,7 +3872,13 @@ function bindChat() {
     event.target.value = '';
     if (file) setPendingAttachment(file);
   });
-  $('composerAttachmentRemove')?.addEventListener('click', () => clearPendingAttachment());
+  $('composerAttachmentRemove')?.addEventListener('click', () => {
+    if (attachmentUpload) {
+      cancelAttachmentUpload();
+      return;
+    }
+    clearPendingAttachment();
+  });
   $('composerReplyCancel')?.addEventListener('click', () => clearPendingReply());
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
@@ -7391,6 +7406,7 @@ function selectConversation(kind, id) {
   dismissMiniApp();
   closeServerMenu();
   resetVoiceSession();
+  if (attachmentUpload) toast(t('Nie wysłano pliku — zmieniono rozmowę.'));
   clearPendingAttachment();
   clearPendingReply({ focus: false });
   activeServerId = null;
@@ -11168,7 +11184,62 @@ function setMessageSearch(open) {
   }
 }
 
+function attachmentLimitLabel() {
+  return ATTACHMENTS ? ATTACHMENTS.formatSize(ATTACHMENTS.MAX_BYTES) : '64 MB';
+}
+
+function attachmentTooLargeMessage() {
+  return t('Plik jest za duży. Maksymalny rozmiar to {size}.', { size: attachmentLimitLabel() });
+}
+
+function setAttachmentProgress(percent) {
+  const box = $('composerAttachmentProgress');
+  const bar = $('composerAttachmentProgressBar');
+  if (!box || !bar) return;
+  if (percent === null || percent === undefined) {
+    box.hidden = true;
+    box.setAttribute('aria-valuenow', '0');
+    bar.style.width = '0%';
+    return;
+  }
+  const value = Math.max(0, Math.min(100, Math.round(percent)));
+  box.hidden = false;
+  box.setAttribute('aria-valuenow', String(value));
+  box.setAttribute('aria-label', t('Wysyłanie pliku…'));
+  bar.style.width = `${value}%`;
+  const meta = $('composerAttachmentMeta');
+  if (meta && pendingAttachment && attachmentUploading) {
+    meta.textContent = `${ATTACHMENTS.formatSize(pendingAttachment.size)} • ${t('Wysyłanie pliku…')} ${value}%`;
+  }
+}
+
+function setAttachmentUploadUi(uploading) {
+  const box = $('composerAttachment');
+  if (box) box.classList.toggle('uploading', uploading);
+  const remove = $('composerAttachmentRemove');
+  if (remove) {
+    const label = uploading ? t('Anuluj wysyłanie') : t('Usuń załącznik');
+    remove.title = label;
+    remove.setAttribute('aria-label', label);
+  }
+  const meta = $('composerAttachmentMeta');
+  if (meta && pendingAttachment && !uploading) {
+    meta.textContent = `${ATTACHMENTS.formatSize(pendingAttachment.size)} • ${t('Wyślij plik')}`;
+  }
+}
+
+function cancelAttachmentUpload(options = {}) {
+  const upload = attachmentUpload;
+  if (!upload) return false;
+  attachmentUpload = null;
+  upload.cancelled = true;
+  try { upload.xhr.abort(); } catch { /* ignore */ }
+  if (!options.silent) toast(t('Anulowano wysyłanie pliku.'));
+  return true;
+}
+
 function clearPendingAttachment() {
+  cancelAttachmentUpload({ silent: true });
   if (pendingAttachment?.previewUrl) {
     try { URL.revokeObjectURL(pendingAttachment.previewUrl); } catch { /* ignore */ }
   }
@@ -11180,6 +11251,8 @@ function clearPendingAttachment() {
     thumb.style.backgroundImage = '';
     thumb.textContent = '📎';
   }
+  setAttachmentProgress(null);
+  setAttachmentUploadUi(false);
   refreshComposerSendState();
 }
 
@@ -11194,12 +11267,16 @@ function refreshComposerSendState() {
 
 function setPendingAttachment(file) {
   if (!file || !ATTACHMENTS) return;
+  if (attachmentUploading) {
+    toast(t('Poczekaj na zakończenie wysyłania pliku.'));
+    return;
+  }
   if (!voiceTransport()) {
     toast(t('Nie można teraz dodać pliku — połącz z serwerem.'));
     return;
   }
   if (file.size > ATTACHMENTS.MAX_BYTES) {
-    toast(t('Plik jest za duży. Maksymalny rozmiar to 12 MB.'), 4200);
+    toast(attachmentTooLargeMessage(), 4200);
     return;
   }
   clearPendingAttachment();
@@ -11231,6 +11308,86 @@ function setPendingAttachment(file) {
   refreshComposerSendState();
 }
 
+function uploadAttachment(transport, attachment) {
+  return new Promise((resolve, reject) => {
+    const url = `${transport.secure ? 'https' : 'http'}://${transport.address}/attachment?key=${encodeURIComponent(transport.key)}&n=${encodeURIComponent(attachment.name)}&m=${encodeURIComponent(attachment.mime)}`;
+    const xhr = new XMLHttpRequest();
+    const upload = { xhr, cancelled: false, stalled: false };
+    attachmentUpload = upload;
+    // Duże pliki mogą iść długo na słabym łączu, więc zamiast sztywnego limitu
+    // pilnujemy, czy transfer rzeczywiście posuwa się do przodu.
+    let lastActivity = Date.now();
+    let watchdog = null;
+    const noteActivity = () => { lastActivity = Date.now(); };
+    const stopWatchdog = () => {
+      if (watchdog) {
+        clearInterval(watchdog);
+        watchdog = null;
+      }
+    };
+    const finish = () => {
+      stopWatchdog();
+      if (attachmentUpload === upload) attachmentUpload = null;
+      return !upload.cancelled;
+    };
+    xhr.open('POST', url, true);
+    xhr.timeout = 0;
+    xhr.setRequestHeader('content-type', attachment.mime || 'application/octet-stream');
+    watchdog = setInterval(() => {
+      if (upload.cancelled || upload.stalled) return;
+      if (Date.now() - lastActivity < 90 * 1000) return;
+      upload.stalled = true;
+      try { xhr.abort(); } catch { /* ignore */ }
+    }, 5000);
+    xhr.addEventListener('loadstart', noteActivity);
+    xhr.upload.addEventListener('loadstart', noteActivity);
+    xhr.upload.addEventListener('progress', (event) => {
+      noteActivity();
+      if (upload.cancelled || !event.lengthComputable || !event.total) return;
+      setAttachmentProgress((event.loaded / event.total) * 100);
+    });
+    xhr.addEventListener('load', () => {
+      if (!finish()) return;
+      let data = null;
+      try { data = JSON.parse(xhr.responseText || 'null'); } catch { /* ignore */ }
+      if (xhr.status >= 200 && xhr.status < 300 && data?.ok && data.id) {
+        resolve(data);
+      } else if (xhr.status === 413 || data?.error === 'too-large') {
+        reject(new Error(attachmentTooLargeMessage()));
+      } else if (xhr.status === 401 || xhr.status === 403) {
+        reject(new Error(t('Sesja wysyłania pliku wygasła — połącz ponownie.')));
+      } else if (data?.error === 'save-failed') {
+        reject(new Error(t('Serwer nie może zapisać pliku. Spróbuj ponownie.')));
+      } else {
+        reject(new Error(t('Nie udało się wysłać pliku.')));
+      }
+    });
+    xhr.addEventListener('error', () => {
+      if (!finish()) return;
+      reject(new Error(t('Nie udało się wysłać pliku. Sprawdź połączenie.')));
+    });
+    xhr.addEventListener('readystatechange', () => {
+      if (xhr.readyState >= 2) noteActivity();
+    });
+    xhr.addEventListener('timeout', () => {
+      if (!finish()) return;
+      reject(new Error(t('Wysyłanie pliku trwało zbyt długo. Spróbuj ponownie.')));
+    });
+    xhr.addEventListener('abort', () => {
+      stopWatchdog();
+      if (attachmentUpload === upload) attachmentUpload = null;
+      if (upload.stalled) {
+        reject(new Error(t('Wysyłanie pliku trwało zbyt długo. Spróbuj ponownie.')));
+        return;
+      }
+      const error = new Error(t('Anulowano wysyłanie pliku.'));
+      error.cancelled = true;
+      reject(error);
+    });
+    xhr.send(attachment.file);
+  });
+}
+
 async function sendAttachmentMessage(caption) {
   if (!pendingAttachment || attachmentUploading) return;
   const transport = voiceTransport();
@@ -11240,26 +11397,13 @@ async function sendAttachmentMessage(caption) {
   }
   const targetKey = conversationKey();
   const attachment = pendingAttachment;
+  const uploadId = ++attachmentUploadSeq;
   attachmentUploading = true;
+  setAttachmentUploadUi(true);
+  setAttachmentProgress(0);
   refreshComposerSendState();
-  const url = `${transport.secure ? 'https' : 'http'}://${transport.address}/attachment?key=${encodeURIComponent(transport.key)}&n=${encodeURIComponent(attachment.name)}&m=${encodeURIComponent(attachment.mime)}`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
   try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': attachment.mime || 'application/octet-stream' },
-      body: attachment.file,
-      signal: controller.signal,
-    });
-    let data = null;
-    try { data = await response.json(); } catch { /* ignore */ }
-    if (!response.ok || !data?.ok || !data.id) {
-      if (response.status === 413 || data?.error === 'too-large') {
-        throw new Error(t('Plik jest za duży. Maksymalny rozmiar to 12 MB.'));
-      }
-      throw new Error(t('Nie udało się wysłać pliku.'));
-    }
+    const data = await uploadAttachment(transport, attachment);
     if (conversationKey() !== targetKey) {
       toast(t('Nie wysłano pliku — zmieniono rozmowę.'));
       return;
@@ -11274,10 +11418,13 @@ async function sendAttachmentMessage(caption) {
     $('sendBtn').disabled = true;
     input.focus();
   } catch (error) {
-    toast(error?.message || t('Nie udało się wysłać pliku.'), 4200);
+    if (!error?.cancelled) toast(error?.message || t('Nie udało się wysłać pliku.'), 4200);
   } finally {
-    clearTimeout(timeout);
+    if (attachmentUploadSeq !== uploadId) return;
+    attachmentUpload = null;
     attachmentUploading = false;
+    setAttachmentProgress(null);
+    setAttachmentUploadUi(false);
     refreshComposerSendState();
   }
 }

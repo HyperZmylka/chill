@@ -685,6 +685,7 @@ let cdp = null;
     check('licznik Odebrane pokazuje nowe powiadomienie', inboxBadge.text === '1' && !inboxBadge.hidden && inboxBadge.hasUnread, JSON.stringify(inboxBadge));
     await evaluate("document.getElementById('inboxBtn').click()");
     await waitEval("!document.getElementById('inboxOverlay').hidden", 8000, 'inbox open');
+    await sleep(320);
     const inboxLayout = await evaluate(`(() => {
       const card = document.querySelector('.inbox-card').getBoundingClientRect();
       return {

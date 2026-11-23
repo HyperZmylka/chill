@@ -31,6 +31,7 @@ const {
 } = require('./discord-import');
 const voiceMessages = require('./voice');
 const attachmentMessages = require('./attachments');
+const { writeBodyToFile } = require('./attachment-stream');
 const { InternetTunnel } = require('./tunnel');
 const { createGameDetector } = require('./game-detect');
 
@@ -2217,22 +2218,35 @@ async function handleAttachmentUpload(req, res, searchParams) {
     return sendJson(res, 413, { ok: false, error: 'too-large' });
   }
 
-  let body;
+  const id = crypto.randomBytes(16).toString('hex');
+  const ext = attachmentMessages.extensionForMime(mime, name);
+  const file = `${id}.${ext}`;
+  const dir = attachmentsDir();
+  const temp = path.join(dir, `.${id}.part`);
+  const finalPath = path.join(dir, file);
   try {
-    body = await readVoiceBody(req, attachmentMessages.MAX_BYTES);
+    fs.mkdirSync(dir, { recursive: true });
+  } catch (err) {
+    console.error('[attachments] Nie udało się utworzyć katalogu:', err.message);
+    return sendJson(res, 500, { ok: false, error: 'save-failed' });
+  }
+
+  // Strumieniujemy ciało żądania na dysk — duże pliki nie trafiają do RAM.
+  let size;
+  try {
+    size = await writeBodyToFile(req, attachmentMessages.MAX_BYTES, temp);
   } catch (err) {
     if (err?.code === 'too-large') return sendJson(res, 413, { ok: false, error: 'too-large' });
     return sendJson(res, 400, { ok: false, error: 'invalid-body' });
   }
-  if (!body.length) return sendJson(res, 400, { ok: false, error: 'empty-file' });
-
-  const id = crypto.randomBytes(16).toString('hex');
-  const ext = attachmentMessages.extensionForMime(mime, name);
-  const file = `${id}.${ext}`;
+  if (!size) {
+    fs.rmSync(temp, { force: true });
+    return sendJson(res, 400, { ok: false, error: 'empty-file' });
+  }
   try {
-    fs.mkdirSync(attachmentsDir(), { recursive: true });
-    fs.writeFileSync(path.join(attachmentsDir(), file), body);
+    fs.renameSync(temp, finalPath);
   } catch (err) {
+    fs.rmSync(temp, { force: true });
     console.error('[attachments] Nie udało się zapisać pliku:', err.message);
     return sendJson(res, 500, { ok: false, error: 'save-failed' });
   }
@@ -2246,11 +2260,11 @@ async function handleAttachmentUpload(req, res, searchParams) {
     mime,
     ext,
     file,
-    size: body.length,
+    size,
     at: Date.now(),
   };
   saveAttachmentStore();
-  return sendJson(res, 200, { ok: true, id, name, mime, size: body.length });
+  return sendJson(res, 200, { ok: true, id, name, mime, size });
 }
 
 function handleAttachmentDownload(req, res, pathname, searchParams) {

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::io::SeekFrom;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -13,7 +14,10 @@ use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use futures_util::StreamExt;
 use serde_json::{json, Value};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio_util::io::ReaderStream;
 
 use crate::bridge::{self, BridgeContext};
 use crate::model::*;
@@ -21,7 +25,7 @@ use crate::state::*;
 
 const MAX_BRIDGE_BODY: usize = 4 * 1024 * 1024;
 const MAX_VOICE_BODY: usize = 4 * 1024 * 1024;
-const MAX_ATTACHMENT_BODY: usize = 12 * 1024 * 1024;
+const MAX_ATTACHMENT_BODY: usize = 64 * 1024 * 1024;
 const MIN_VOICE_SECONDS: f64 = 0.5;
 const MAX_VOICE_SECONDS: f64 = 120.0;
 
@@ -851,11 +855,61 @@ async fn voice_delete(
     json_response(StatusCode::OK, &json!({ "ok": true }))
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum UploadBodyError {
+    TooLarge,
+    Invalid,
+    SaveFailed,
+}
+
+async fn write_upload_body(
+    body: Body,
+    limit: usize,
+    temp: &std::path::Path,
+) -> Result<usize, UploadBodyError> {
+    let mut out = tokio::fs::File::create(temp)
+        .await
+        .map_err(|_| UploadBodyError::SaveFailed)?;
+    let mut size = 0usize;
+    let mut stream = body.into_data_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(_) => {
+                drop(out);
+                let _ = tokio::fs::remove_file(temp).await;
+                return Err(UploadBodyError::Invalid);
+            }
+        };
+        size = match size.checked_add(chunk.len()) {
+            Some(value) => value,
+            None => limit.saturating_add(1),
+        };
+        if size > limit {
+            drop(out);
+            let _ = tokio::fs::remove_file(temp).await;
+            return Err(UploadBodyError::TooLarge);
+        }
+        if out.write_all(&chunk).await.is_err() {
+            drop(out);
+            let _ = tokio::fs::remove_file(temp).await;
+            return Err(UploadBodyError::SaveFailed);
+        }
+    }
+    if out.flush().await.is_err() {
+        drop(out);
+        let _ = tokio::fs::remove_file(temp).await;
+        return Err(UploadBodyError::SaveFailed);
+    }
+    drop(out);
+    Ok(size)
+}
+
 async fn attachment_upload(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
-    body: axum::body::Bytes,
+    body: Body,
 ) -> Response {
     let token = query.get("key").cloned().unwrap_or_default();
     let Some(auth) = state.active_voice_token(&token) else {
@@ -884,18 +938,7 @@ async fn attachment_upload(
             );
         }
     }
-    if body.len() > MAX_ATTACHMENT_BODY {
-        return json_response(
-            StatusCode::PAYLOAD_TOO_LARGE,
-            &json!({ "ok": false, "error": "too-large" }),
-        );
-    }
-    if body.is_empty() {
-        return json_response(
-            StatusCode::BAD_REQUEST,
-            &json!({ "ok": false, "error": "empty-file" }),
-        );
-    }
+
     let id = random_hex(16);
     let ext = attachment_extension_for_mime(&mime, &name);
     let file = format!("{}.{}", id, ext);
@@ -906,7 +949,40 @@ async fn attachment_upload(
             &json!({ "ok": false, "error": "save-failed" }),
         );
     }
-    if tokio::fs::write(dir.join(&file), &body).await.is_err() {
+
+    // Strumieniujemy ciało żądania na dysk — duże pliki nie trafiają do RAM.
+    let temp = dir.join(format!(".{}.part", id));
+    let final_path = dir.join(&file);
+    let size = match write_upload_body(body, MAX_ATTACHMENT_BODY, &temp).await {
+        Ok(size) => size,
+        Err(UploadBodyError::TooLarge) => {
+            return json_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                &json!({ "ok": false, "error": "too-large" }),
+            );
+        }
+        Err(UploadBodyError::Invalid) => {
+            return json_response(
+                StatusCode::BAD_REQUEST,
+                &json!({ "ok": false, "error": "invalid-body" }),
+            );
+        }
+        Err(UploadBodyError::SaveFailed) => {
+            return json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &json!({ "ok": false, "error": "save-failed" }),
+            );
+        }
+    };
+    if size == 0 {
+        let _ = tokio::fs::remove_file(&temp).await;
+        return json_response(
+            StatusCode::BAD_REQUEST,
+            &json!({ "ok": false, "error": "empty-file" }),
+        );
+    }
+    if tokio::fs::rename(&temp, &final_path).await.is_err() {
+        let _ = tokio::fs::remove_file(&temp).await;
         return json_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             &json!({ "ok": false, "error": "save-failed" }),
@@ -924,7 +1000,7 @@ async fn attachment_upload(
                 mime: mime.clone(),
                 ext,
                 file,
-                size: body.len() as u64,
+                size: size as u64,
                 at: now_ms(),
             },
         );
@@ -932,7 +1008,7 @@ async fn attachment_upload(
     state.save_attachments();
     json_response(
         StatusCode::OK,
-        &json!({ "ok": true, "id": id, "name": name, "mime": mime, "size": body.len() }),
+        &json!({ "ok": true, "id": id, "name": name, "mime": mime, "size": size }),
     )
 }
 
@@ -970,13 +1046,19 @@ async fn attachment_download(
         );
     }
     let path = state.attachments_dir().join(&item.file);
-    let Ok(data) = tokio::fs::read(&path).await else {
+    let Ok(meta) = tokio::fs::metadata(&path).await else {
         return json_response(
             StatusCode::NOT_FOUND,
             &json!({ "ok": false, "error": "not-found" }),
         );
     };
-    let size = data.len() as u64;
+    if !meta.is_file() {
+        return json_response(
+            StatusCode::NOT_FOUND,
+            &json!({ "ok": false, "error": "not-found" }),
+        );
+    }
+    let size = meta.len();
     let inline = attachment_inline(&item.mime);
     let mut response;
     if method == Method::HEAD {
@@ -989,8 +1071,20 @@ async fn attachment_download(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| parse_byte_range(value, size))
     {
-        let slice = data[start as usize..=(end as usize)].to_vec();
-        response = Response::new(Body::from(slice));
+        let Ok(mut file) = tokio::fs::File::open(&path).await else {
+            return json_response(
+                StatusCode::NOT_FOUND,
+                &json!({ "ok": false, "error": "not-found" }),
+            );
+        };
+        if file.seek(SeekFrom::Start(start)).await.is_err() {
+            return json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &json!({ "ok": false, "error": "read-failed" }),
+            );
+        }
+        let limited = file.take(end - start + 1);
+        response = Response::new(Body::from_stream(ReaderStream::new(limited)));
         *response.status_mut() = StatusCode::PARTIAL_CONTENT;
         response.headers_mut().insert(
             CONTENT_LENGTH,
@@ -1001,7 +1095,13 @@ async fn attachment_download(
             HeaderValue::from_str(&format!("bytes {}-{}/{}", start, end, size)).unwrap(),
         );
     } else {
-        response = Response::new(Body::from(data));
+        let Ok(file) = tokio::fs::File::open(&path).await else {
+            return json_response(
+                StatusCode::NOT_FOUND,
+                &json!({ "ok": false, "error": "not-found" }),
+            );
+        };
+        response = Response::new(Body::from_stream(ReaderStream::new(file)));
         response
             .headers_mut()
             .insert(CONTENT_LENGTH, HeaderValue::from_str(&size.to_string()).unwrap());
@@ -1077,4 +1177,48 @@ async fn attachment_delete(
     }
     state.remove_attachment_item(&id, true);
     json_response(StatusCode::OK, &json!({ "ok": true }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_upload_path() -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("chill-upload-test-{}.part", random_hex(8)))
+    }
+
+    #[tokio::test]
+    async fn upload_body_accepts_exact_limit() {
+        let path = temp_upload_path();
+        let body = Body::from(vec![7u8; 1024]);
+        let size = write_upload_body(body, 1024, &path).await.expect("upload");
+        assert_eq!(size, 1024);
+        let saved = tokio::fs::read(&path).await.expect("saved file");
+        assert_eq!(saved.len(), 1024);
+        assert_eq!(saved[0], 7);
+        assert_eq!(saved[1023], 7);
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn upload_body_rejects_one_byte_over_limit_and_removes_partial_file() {
+        let path = temp_upload_path();
+        let body = Body::from(vec![0u8; 1025]);
+        let error = write_upload_body(body, 1024, &path)
+            .await
+            .expect_err("too-large");
+        assert_eq!(error, UploadBodyError::TooLarge);
+        assert!(!path.exists());
+    }
+
+    #[tokio::test]
+    async fn upload_body_keeps_empty_body_for_handler_to_reject() {
+        let path = temp_upload_path();
+        let size = write_upload_body(Body::empty(), 1024, &path)
+            .await
+            .expect("empty upload");
+        assert_eq!(size, 0);
+        assert!(path.exists());
+        let _ = tokio::fs::remove_file(&path).await;
+    }
 }

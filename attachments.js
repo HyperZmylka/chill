@@ -4,7 +4,8 @@
   'use strict';
 
   const scheme = 'chill-file';
-  const MAX_BYTES = 12 * 1024 * 1024;
+  // 64 MiB: duże pliki są strumieniowane na dysk, więc nie obciążają RAM serwera.
+  const MAX_BYTES = 64 * 1024 * 1024;
   const MAX_NAME = 120;
   const TOKEN_RE = /^chill-file:\/\/([a-f0-9]{32})\?([^\s]*)$/;
   const MIME_EXTENSIONS = Object.freeze({
@@ -106,7 +107,8 @@
     const bytes = Math.max(0, Number(value) || 0);
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    const mb = bytes / (1024 * 1024);
+    return `${mb.toFixed(mb < 10 && mb % 1 ? 1 : 0)} MB`;
   }
 
   const api = Object.freeze({
