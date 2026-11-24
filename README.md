@@ -45,7 +45,8 @@ Serwer działa na komputerze właściciela — nie ma centralnego serwera dla se
 
 - Każde nowe konto — w aplikacji desktopowej i na stronie publicznej — jest automatycznie dodawane do serwera **Chill**.
 - Konta utworzone przed tą wersją dołączają przy następnym logowaniu albo odświeżeniu listy serwerów.
-- Na stronie publicznej link zaproszenia to `https://chill-pl.alwaysdata.net/?invite=CHILL`. W aplikacji ten sam link znajdziesz w oknie **Zaproś** na serwerze Chill.
+- Na stronie publicznej link zaproszenia to `https://chill-pl.alwaysdata.net/?invite=CHILL`.
+- W aplikacji otwórz **Zaproś** na serwerze Chill — dostaniesz zwykły link `chill://...`, który działa w innych aplikacjach Chill.
 - Serwer ma kanały `ogólny` i `aktulizacje`; nowe wersje Chill są tam opisywane.
 
 Przy pierwszym zaproszeniu Chill pobiera mały program tunelujący Cloudflare (`cloudflared`, około 55 MB) do folderu danych aplikacji. Kolejne linki są gotowe od razu. Jeśli tunel nie może zostać uruchomiony, aplikacja pokaże błąd i skopiuje link lokalny, a przycisk **Spróbuj ponownie** ponowi próbę.
