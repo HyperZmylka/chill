@@ -581,7 +581,7 @@ dependencies = [
 
 [[package]]
 name = "chill-desktop"
-version = "4.17.0"
+version = "4.18.0"
 dependencies = [
  "anyhow",
  "chill-server",
@@ -603,7 +603,7 @@ dependencies = [
 
 [[package]]
 name = "chill-server"
-version = "4.17.0"
+version = "4.18.0"
 dependencies = [
  "anyhow",
  "axum",

@@ -4,7 +4,7 @@ Spokojny komunikator desktopowy (Rust + Tauri) z własną identyfikacją wizualn
 
 ## Najważniejsze funkcje
 
-- **Własne serwery zamiast stałych pokoi** — na starcie nie ma żadnych pokoi ani kanałów. Tworzysz serwer, dostajesz kanał `ogólny` i zapraszasz znajomych.
+- **Własne serwery** — tworzysz serwer, dostajesz kanał `ogólny` i zapraszasz znajomych. Poza własnymi serwerami każde konto automatycznie trafia na oficjalny serwer **Chill** z kanałami `ogólny` i `aktulizacje`.
 - **Kanały tekstowe i głosowe** — właściciel serwera tworzy kanały do pisania albo głosowe, a następnie może je usuwać prawym przyciskiem myszy. Serwer może mieć zero kanałów.
 - **Rozmowy głosowe na żywo** — wejście na kanał głosowy od razu łączy mikrofon i słuchawki z pozostałymi osobami w kanale. Wyciszenie mikrofonu i słuchawek oraz mówienie są widoczne na liście obecnych.
 - **Udostępnianie ekranu** — w kanale głosowym można pokazać cały ekran albo okno wybranej aplikacji. Podgląd działa na żywo, a w jednym kanale udostępnia ekran jedna osoba naraz.
@@ -39,7 +39,14 @@ Spokojny komunikator desktopowy (Rust + Tauri) z własną identyfikacją wizualn
 4. Znajomy wybierze **+** → **Dołącz kodem** i wklei link — może być w innej sieci, nie musi być na tym samym Wi-Fi.
 5. Oboje musicie mieć uruchomiony Chill. Host musi być online, żeby jego serwer działał.
 
-Serwer działa na komputerze właściciela — nie ma centralnego serwera. Gdy host wyłączy aplikację, pozostali zobaczą stan „Serwer offline”, a po jego powrocie Chill połączy się ponownie automatycznie.
+Serwer działa na komputerze właściciela — nie ma centralnego serwera dla serwerów użytkowników. Gdy host wyłączy aplikację, pozostali zobaczą stan „Serwer offline”, a po jego powrocie Chill połączy się ponownie automatycznie.
+
+### Oficjalny serwer Chill
+
+- Każde nowe konto — w aplikacji desktopowej i na stronie publicznej — jest automatycznie dodawane do serwera **Chill**.
+- Konta utworzone przed tą wersją dołączają przy następnym logowaniu albo odświeżeniu listy serwerów.
+- Na stronie publicznej link zaproszenia to `https://chill-pl.alwaysdata.net/?invite=CHILL`. W aplikacji ten sam link znajdziesz w oknie **Zaproś** na serwerze Chill.
+- Serwer ma kanały `ogólny` i `aktulizacje`; nowe wersje Chill są tam opisywane.
 
 Przy pierwszym zaproszeniu Chill pobiera mały program tunelujący Cloudflare (`cloudflared`, około 55 MB) do folderu danych aplikacji. Kolejne linki są gotowe od razu. Jeśli tunel nie może zostać uruchomiony, aplikacja pokaże błąd i skopiuje link lokalny, a przycisk **Spróbuj ponownie** ponowi próbę.
 

@@ -6,6 +6,9 @@ use subtle::ConstantTimeEq;
 use crate::model::*;
 use crate::state::*;
 
+const OFFICIAL_SERVER_NAME: &str = "Chill";
+const OFFICIAL_SERVER_INVITE: &str = "CHILL";
+
 pub struct BridgeContext {
     pub public: bool,
     pub origin: String,
@@ -244,6 +247,7 @@ fn auth_register(state: &AppState, ctx: &mut BridgeContext, payload: &Value) -> 
         state.set_account_session(&account.id, true);
     }
     ctx.user = Some(account.clone());
+    ensure_official_membership(state, &account, ctx);
     reply.result = Ok(json!({ "ok": true, "user": account.public_value() }));
     reply
 }
@@ -283,6 +287,7 @@ fn auth_login(state: &AppState, ctx: &mut BridgeContext, payload: &Value) -> Bri
         state.set_account_session(&account.id, remember);
     }
     ctx.user = Some(account.clone());
+    ensure_official_membership(state, &account, ctx);
     reply.result = Ok(json!({ "ok": true, "user": account.public_value() }));
     reply
 }
@@ -612,6 +617,167 @@ fn joined_membership(state: &AppState, entry: &JoinedEntry, ctx: &BridgeContext)
     })
 }
 
+/// Adds the official Chill server to every account that does not own it yet.
+///
+/// The server is hosted by the same instance (public website) or by the local
+/// desktop instance, so the account only needs a normal joined entry. This is
+/// called after registration, after login and whenever the server list is read,
+/// which also covers accounts created before this feature existed.
+fn ensure_official_membership(state: &AppState, user: &Account, ctx: &BridgeContext) -> bool {
+    let official = {
+        let store = state.servers.read();
+        store
+            .hosted
+            .iter()
+            .find(|server| server.invite.eq_ignore_ascii_case(OFFICIAL_SERVER_INVITE))
+            .or_else(|| {
+                // The desktop app hosts its own "Chill" server under a random
+                // invite, so locally the name is the stable marker.
+                if state.cfg.public_web {
+                    return None;
+                }
+                store
+                    .hosted
+                    .iter()
+                    .find(|server| server.name.eq_ignore_ascii_case(OFFICIAL_SERVER_NAME))
+            })
+            .cloned()
+    };
+    let Some(official) = official else {
+        return false;
+    };
+    // Owners already see their server under "hosted".
+    if official.owner_id == user.id {
+        return false;
+    }
+
+    let origin = if ctx.origin.is_empty() {
+        state.cfg.origin()
+    } else {
+        ctx.origin.clone()
+    };
+    let address = if state.cfg.public_web {
+        origin_address(&origin)
+    } else {
+        // The official server is hosted by this same desktop instance.
+        format!("127.0.0.1:{}", state.cfg.port)
+    };
+    let secure = state.cfg.public_web && origin.starts_with("https://");
+    let display_name = user.display_name();
+    let color = if user.color.is_empty() {
+        "#3ee0a3".to_string()
+    } else {
+        user.color.clone()
+    };
+    let joined_at = now_ms();
+    let mut changed = false;
+
+    {
+        let mut store = state.servers.write();
+        if let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == official.id)
+        {
+            let existing_member = server.members.iter_mut().find(|member| {
+                member.id == user.id
+                    || (!member.account_id.is_empty() && member.account_id == user.id)
+            });
+            if let Some(member) = existing_member {
+                if member.account_id != user.id {
+                    member.account_id = user.id.clone();
+                    changed = true;
+                }
+                if member.name != display_name {
+                    member.name = display_name.clone();
+                    changed = true;
+                }
+                if member.color != color {
+                    member.color = color.clone();
+                    changed = true;
+                }
+            } else {
+                server.members.push(ServerMember {
+                    id: user.id.clone(),
+                    account_id: user.id.clone(),
+                    name: display_name.clone(),
+                    color: color.clone(),
+                    owner: false,
+                    joined_at,
+                    last_seen: joined_at,
+                    handle: user.effective_handle(),
+                    avatar: sanitize_avatar(&user.avatar),
+                    banner: sanitize_banner(&user.banner),
+                    badges: user.badges.clone(),
+                    games: user.games.clone(),
+                    about: user.about.clone(),
+                    ..Default::default()
+                });
+                changed = true;
+            }
+        }
+
+        if let Some(entry) = store
+            .joined
+            .iter_mut()
+            .find(|entry| entry.user_id == user.id && entry.id == official.id)
+        {
+            let banner = Value::String(official.banner.clone());
+            if entry.address != address
+                || entry.secure != secure
+                || entry.invite != official.invite
+                || entry.member_id != user.id
+                || entry.name != official.name
+                || entry.color != official.color
+                || entry.icon != official.icon
+                || entry.tag != official.tag
+                || entry.banner != banner
+                || entry.description != official.description
+                || entry.traits != official.traits
+                || entry.games != official.games
+            {
+                entry.address = address;
+                entry.secure = secure;
+                entry.invite = official.invite.clone();
+                entry.member_id = user.id.clone();
+                entry.name = official.name.clone();
+                entry.color = official.color.clone();
+                entry.icon = official.icon.clone();
+                entry.tag = official.tag.clone();
+                entry.banner = banner;
+                entry.description = official.description.clone();
+                entry.traits = official.traits.clone();
+                entry.games = official.games.clone();
+                changed = true;
+            }
+        } else {
+            store.joined.push(JoinedEntry {
+                user_id: user.id.clone(),
+                id: official.id.clone(),
+                address,
+                secure,
+                invite: official.invite.clone(),
+                name: official.name.clone(),
+                color: official.color.clone(),
+                icon: official.icon.clone(),
+                tag: official.tag.clone(),
+                banner: Value::String(official.banner.clone()),
+                description: official.description.clone(),
+                traits: official.traits.clone(),
+                games: official.games.clone(),
+                member_id: user.id.clone(),
+                joined_at,
+            });
+            changed = true;
+        }
+    }
+
+    if changed {
+        state.save_servers();
+    }
+    changed
+}
+
 fn servers_list(state: &AppState, ctx: &BridgeContext) -> BridgeReply {
     let Ok(user) = require_user(state, ctx) else {
         return BridgeReply::ok(json!({
@@ -620,6 +786,7 @@ fn servers_list(state: &AppState, ctx: &BridgeContext) -> BridgeReply {
             "servers": [],
         }));
     };
+    ensure_official_membership(state, &user, ctx);
     let hosted = state.hosted_by_owner(&user.id);
     let hosted_ids: HashSet<String> = hosted.iter().map(|server| server.id.clone()).collect();
     let mut list: Vec<Value> = hosted
@@ -872,6 +1039,16 @@ fn servers_save_joined(state: &AppState, ctx: &BridgeContext, payload: &Value) -
     }))
 }
 
+fn is_official_server(state: &AppState, id: &str) -> bool {
+    let store = state.servers.read();
+    store.hosted.iter().any(|server| {
+        server.id == id
+            && (server.invite.eq_ignore_ascii_case(OFFICIAL_SERVER_INVITE)
+                || (!state.cfg.public_web
+                    && server.name.eq_ignore_ascii_case(OFFICIAL_SERVER_NAME)))
+    })
+}
+
 fn servers_leave(state: &AppState, ctx: &BridgeContext, payload: &Value) -> BridgeReply {
     let Ok(user) = require_user(state, ctx) else {
         return BridgeReply::err("Sesja wygasła. Zaloguj się ponownie.");
@@ -879,6 +1056,11 @@ fn servers_leave(state: &AppState, ctx: &BridgeContext, payload: &Value) -> Brid
     let id = field(payload, "id").trim().to_string();
     if id.is_empty() {
         return BridgeReply::err("Nie wskazano serwera.");
+    }
+    if is_official_server(state, &id) {
+        return BridgeReply::err(
+            "Oficjalny serwer Chill jest stały — nie można go opuścić ani usunąć.",
+        );
     }
 
     let removed_server;
@@ -956,4 +1138,183 @@ fn servers_invite(state: &AppState, ctx: &BridgeContext, payload: &Value) -> Bri
         "internet": state.cfg.public_web || secure,
         "secure": secure,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use std::fs;
+    use std::path::PathBuf;
+
+    struct TestHarness {
+        state: AppState,
+        dir: PathBuf,
+    }
+
+    impl Drop for TestHarness {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    fn test_state() -> TestHarness {
+        let dir = std::env::temp_dir().join(format!("chill-bridge-test-{}", random_hex(8)));
+        let cfg = Config {
+            port: 47830,
+            host: "127.0.0.1".to_string(),
+            public_web: true,
+            public_origin: Some("https://chill.test".to_string()),
+            data_dir: dir.clone(),
+            web_root: dir.clone(),
+            build: "test".to_string(),
+            version: "test".to_string(),
+        };
+        TestHarness {
+            state: AppState::new(cfg),
+            dir,
+        }
+    }
+
+    fn test_ctx() -> BridgeContext {
+        BridgeContext {
+            public: true,
+            origin: "https://chill.test".to_string(),
+            secure: true,
+            token: String::new(),
+            user: None,
+        }
+    }
+
+    fn register(state: &AppState, ctx: &mut BridgeContext, username: &str) -> String {
+        let reply = dispatch(
+            state,
+            ctx,
+            "chill:auth-register",
+            &json!({
+                "username": username,
+                "displayName": username,
+                "password": "password123",
+                "email": "",
+            }),
+        );
+        let value = reply.result.expect("registration");
+        value["user"]["id"]
+            .as_str()
+            .expect("registered user id")
+            .to_string()
+    }
+
+    fn official_server(owner_id: &str) -> Server {
+        Server {
+            id: "chill-official".to_string(),
+            owner_id: owner_id.to_string(),
+            name: "Chill".to_string(),
+            color: "#3ee0a3".to_string(),
+            invite: "CHILL".to_string(),
+            banner: "crimson".to_string(),
+            description: "Oficjalny serwer Chill.".to_string(),
+            created_at: now_ms(),
+            channels: vec![Channel {
+                id: "ogolny".to_string(),
+                name: "ogólny".to_string(),
+                channel_type: "text".to_string(),
+                created_at: now_ms(),
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn existing_account_is_added_to_official_server_on_server_list() {
+        let harness = test_state();
+        let mut ctx = test_ctx();
+        let user_id = register(&harness.state, &mut ctx, "existing");
+        assert!(harness.state.joined_for_user(&user_id).is_empty());
+
+        harness
+            .state
+            .servers
+            .write()
+            .hosted
+            .push(official_server("someone-else"));
+
+        let reply = dispatch(&harness.state, &mut ctx, "chill:servers-list", &json!({}));
+        let value = reply.result.expect("server list");
+        let servers = value["servers"].as_array().expect("servers array");
+        assert!(servers.iter().any(|server| {
+            server["name"] == "Chill" && server["invite"] == "CHILL" && server["owner"] == false
+        }));
+
+        let joined = harness.state.joined_for_user(&user_id);
+        assert_eq!(joined.len(), 1);
+        assert_eq!(joined[0].id, "chill-official");
+        assert_eq!(joined[0].member_id, user_id);
+        assert_eq!(joined[0].address, "chill.test:443");
+        assert!(joined[0].secure);
+
+        let hosted = harness.state.find_hosted("chill-official").expect("hosted");
+        assert!(hosted.members.iter().any(|member| member.id == user_id));
+    }
+
+    #[test]
+    fn new_account_is_added_to_official_server_during_registration() {
+        let harness = test_state();
+        harness
+            .state
+            .servers
+            .write()
+            .hosted
+            .push(official_server("someone-else"));
+        let mut ctx = test_ctx();
+        let user_id = register(&harness.state, &mut ctx, "newbie");
+
+        let joined = harness.state.joined_for_user(&user_id);
+        assert_eq!(joined.len(), 1);
+        assert_eq!(joined[0].invite, "CHILL");
+        assert_eq!(joined[0].member_id, user_id);
+    }
+
+    #[test]
+    fn owner_sees_official_server_without_a_joined_entry() {
+        let harness = test_state();
+        let mut ctx = test_ctx();
+        let owner_id = register(&harness.state, &mut ctx, "owner");
+        harness
+            .state
+            .servers
+            .write()
+            .hosted
+            .push(official_server(&owner_id));
+
+        let reply = dispatch(&harness.state, &mut ctx, "chill:servers-list", &json!({}));
+        let value = reply.result.expect("server list");
+        let servers = value["servers"].as_array().expect("servers array");
+        assert!(servers.iter().any(|server| {
+            server["name"] == "Chill" && server["owner"] == true && server["memberId"] == owner_id
+        }));
+        assert!(harness.state.joined_for_user(&owner_id).is_empty());
+    }
+
+    #[test]
+    fn official_server_cannot_be_left_or_deleted() {
+        let harness = test_state();
+        let mut ctx = test_ctx();
+        let owner_id = register(&harness.state, &mut ctx, "owner");
+        harness
+            .state
+            .servers
+            .write()
+            .hosted
+            .push(official_server(&owner_id));
+
+        let reply = dispatch(
+            &harness.state,
+            &mut ctx,
+            "chill:servers-leave",
+            &json!({ "id": "chill-official" }),
+        );
+        assert!(reply.result.is_err());
+        assert!(harness.state.find_hosted("chill-official").is_some());
+    }
 }

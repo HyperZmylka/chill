@@ -918,6 +918,8 @@ const JOIN_FAILURE_WINDOW = 60_000;
 let serversStore = null;
 let serversSaveTimer = null;
 const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const OFFICIAL_SERVER_NAME = 'Chill';
+const OFFICIAL_SERVER_INVITE = 'CHILL';
 
 function makeServerId() {
   return crypto.randomBytes(8).toString('hex');
@@ -1445,6 +1447,96 @@ function joinedMembership(entry, ctx = {}) {
     memberId: entry.memberId,
     joinedAt: entry.joinedAt || Date.now(),
   };
+}
+
+function officialHostedServer(store) {
+  const byInvite = store.hosted.find((server) => String(server.invite || '').toUpperCase() === OFFICIAL_SERVER_INVITE);
+  if (byInvite) return byInvite;
+  if (PUBLIC_WEB) return null;
+  return store.hosted.find((server) => String(server.name || '').toLowerCase() === OFFICIAL_SERVER_NAME.toLowerCase()) || null;
+}
+
+// Every account lands on the official Chill server: new accounts during
+// registration, existing accounts the next time they log in or load servers.
+function ensureOfficialMembership(user, ctx = {}) {
+  if (!user || !user.id) return false;
+  const store = loadServersStore();
+  const server = officialHostedServer(store);
+  if (!server || server.ownerId === user.id) return false;
+
+  const origin = ctx.origin || publicOrigin() || `http://127.0.0.1:${CHAT_PORT}`;
+  const publicAddress = PUBLIC_WEB ? originAddress(origin) : '';
+  // The official server is hosted by this same desktop instance.
+  const address = publicAddress || `127.0.0.1:${CHAT_PORT}`;
+  const secure = publicAddress ? String(origin).startsWith('https://') : false;
+  const name = String(user.displayName || user.username || 'Gość').trim().slice(0, 32) || 'Gość';
+  const color = /^#[0-9a-f]{6}$/i.test(String(user.color || '')) ? user.color : '#3ee0a3';
+  let changed = false;
+
+  let member = server.members.find((item) => item.id === user.id);
+  if (!member) {
+    server.members.push({
+      id: user.id,
+      name,
+      color,
+      owner: false,
+      joinedAt: Date.now(),
+      lastSeen: Date.now(),
+      handle: user.handle || handleForAccount(user),
+      avatar: sanitizeAvatar(user.avatar),
+      banner: sanitizeBanner(user.banner),
+      badges: sanitizeBadges(user.badges),
+      games: sanitizeGames(user.games),
+      about: String(user.about || '').slice(0, 160),
+      playing: null,
+      playingIcon: null,
+      playingPlatform: null,
+      playingSince: null,
+    });
+    changed = true;
+  } else {
+    if (member.name !== name) {
+      member.name = name;
+      changed = true;
+    }
+    if (member.color !== color) {
+      member.color = color;
+      changed = true;
+    }
+  }
+
+  let entry = store.joined.find((item) => item.userId === user.id && item.id === server.id);
+  if (!entry) {
+    entry = { userId: user.id, id: server.id, joinedAt: Date.now(), memberId: user.id };
+    store.joined.push(entry);
+    changed = true;
+  }
+  const next = {
+    address,
+    secure,
+    invite: server.invite,
+    name: server.name,
+    color: server.color,
+    icon: server.icon || '',
+    tag: server.tag || '',
+    banner: sanitizeServerBanner(server.banner),
+    description: sanitizeServerDescription(server.description),
+    traits: sanitizeServerTextList(server.traits, SERVER_TRAIT_LIMIT, SERVER_TRAIT_LENGTH),
+    games: sanitizeServerTextList(server.games, SERVER_GAME_LIMIT, SERVER_GAME_LENGTH),
+    memberId: user.id,
+  };
+  for (const [key, value] of Object.entries(next)) {
+    if (JSON.stringify(entry[key]) !== JSON.stringify(value)) {
+      entry[key] = value;
+      changed = true;
+    }
+  }
+  if (!entry.joinedAt) {
+    entry.joinedAt = Date.now();
+    changed = true;
+  }
+  if (changed) saveServersStore();
+  return changed;
 }
 
 function serverMembersPayload(server) {
@@ -3679,6 +3771,7 @@ registerIpcHandler('chill:auth-register', (e, payload = {}) => {
   };
   store.users.push(user);
   saveAccounts();
+  ensureOfficialMembership(user, webContext(e));
   clearDiscordSession();
   const signedIn = issueSessionFor(e, user, true);
   return { ok: true, user: signedIn };
@@ -3710,6 +3803,7 @@ registerIpcHandler('chill:auth-login', (e, payload = {}) => {
   }
   clearDiscordSession();
   const signedIn = issueSessionFor(e, user, remember);
+  ensureOfficialMembership(user, webContext(e));
   return { ok: true, user: signedIn };
 });
 
@@ -3825,6 +3919,7 @@ registerIpcHandler('chill:servers-list', (e) => {
   const current = sessionUser(e);
   if (!current) return { ok: false, error: 'Sesja wygasła. Zaloguj się ponownie.', servers: [] };
   const ctx = webContext(e);
+  ensureOfficialMembership(current, ctx);
   const store = loadServersStore();
   const hosted = store.hosted
     .filter((server) => server.ownerId === current.id)
@@ -3923,6 +4018,10 @@ registerIpcHandler('chill:servers-leave', (e, payload = {}) => {
   const id = String(payload.id || '').trim();
   if (!id) return { ok: false, error: 'Nie wskazano serwera.' };
   const store = loadServersStore();
+  const official = officialHostedServer(store);
+  if (official && official.id === id) {
+    return { ok: false, error: 'Oficjalny serwer Chill jest stały — nie można go opuścić ani usunąć.' };
+  }
   const hostedIndex = store.hosted.findIndex((server) => server.id === id && server.ownerId === current.id);
   if (hostedIndex >= 0) {
     const hosted = store.hosted[hostedIndex];
