@@ -13,7 +13,7 @@ const index = read('index.html');
 const css = read('style.css');
 const terms = read('terms.html');
 const privacy = read('privacy.html');
-const httpRs = read(path.join('rust', 'chill-server', 'src', 'http.rs'));
+const assetsRs = read(path.join('rust', 'chill-server', 'src', 'assets.rs'));
 const prepare = read(path.join('scripts', 'prepare-tauri-ui.js'));
 
 test('karta dokumentów ma tytuł, opis i trzy przyciski', () => {
@@ -71,8 +71,8 @@ test('dokumenty są dwujęzyczne i mają wersję oraz datę', () => {
 });
 
 test('serwer i zasoby Tauri serwują oba dokumenty', () => {
-  assert.match(httpRs, /"terms\.html" => \("terms\.html", "text\/html; charset=utf-8"\)/);
-  assert.match(httpRs, /"privacy\.html" => \("privacy\.html", "text\/html; charset=utf-8"\)/);
+  assert.match(assetsRs, /"terms\.html", "text\/html; charset=utf-8"/);
+  assert.match(assetsRs, /"privacy\.html", "text\/html; charset=utf-8"/);
   assert.match(prepare, /'terms\.html',/);
   assert.match(prepare, /'privacy\.html',/);
 });

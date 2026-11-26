@@ -11,7 +11,7 @@ use axum::http::header::{
     REFERRER_POLICY, SET_COOKIE, X_CONTENT_TYPE_OPTIONS,
 };
 use axum::http::{HeaderMap, HeaderValue, Method, StatusCode};
-use axum::response::{IntoResponse, Response};
+use axum::response::Response;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures_util::StreamExt;
@@ -216,19 +216,18 @@ async fn index(
             "Chill Web jest dostępny tylko na tym komputerze.",
         );
     }
-    let path = state.cfg.web_root.join("index.html");
-    let Ok(data) = tokio::fs::read(&path).await else {
+    if !state.assets.has("index.html") {
         return text_response(StatusCode::NOT_FOUND, "Not found");
-    };
-    let mut response = Response::new(Body::from(data));
+    }
+    let mut response = state.assets.response(
+        "index.html",
+        &headers,
+        &method,
+        "private, no-cache",
+    );
     let secure = request_secure(&state, &headers);
     {
         let output = response.headers_mut();
-        output.insert(
-            CONTENT_TYPE,
-            HeaderValue::from_static("text/html; charset=utf-8"),
-        );
-        output.insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
         if cookie(&headers, "chill_csrf").is_empty() {
             let token = random_hex(24);
             let suffix = if secure { "; Secure" } else { "" };
@@ -250,9 +249,6 @@ async fn index(
         }
     }
     security_headers(&mut response);
-    if method == Method::HEAD {
-        *response.body_mut() = Body::empty();
-    }
     response
 }
 
@@ -270,39 +266,16 @@ async fn asset(
         );
     }
     let normalized = path.trim_start_matches('/');
-    let (file, content_type) = match normalized {
-        "index.html" => ("index.html", "text/html; charset=utf-8"),
-        "terms.html" => ("terms.html", "text/html; charset=utf-8"),
-        "privacy.html" => ("privacy.html", "text/html; charset=utf-8"),
-        "style.css" => ("style.css", "text/css; charset=utf-8"),
-        "minigames.css" => ("minigames.css", "text/css; charset=utf-8"),
-        "renderer.js" => ("renderer.js", "text/javascript; charset=utf-8"),
-        "minigames.js" => ("minigames.js", "text/javascript; charset=utf-8"),
-        "gifs.js" => ("gifs.js", "text/javascript; charset=utf-8"),
-        "stickers.js" => ("stickers.js", "text/javascript; charset=utf-8"),
-        "voice.js" => ("voice.js", "text/javascript; charset=utf-8"),
-        "attachments.js" => ("attachments.js", "text/javascript; charset=utf-8"),
-        "appearance.js" => ("appearance.js", "text/javascript; charset=utf-8"),
-        "chill-web.js" => ("chill-web.js", "text/javascript; charset=utf-8"),
-        "tauri-desktop.js" => ("tauri-desktop.js", "text/javascript; charset=utf-8"),
-        "build/icon.png" => ("build/icon.png", "image/png"),
-        "build/icon.svg" => ("build/icon.svg", "image/svg+xml"),
-        _ => return text_response(StatusCode::NOT_FOUND, "Not found"),
-    };
-    let Ok(data) = tokio::fs::read(state.cfg.web_root.join(file)).await else {
+    if !state.assets.has(normalized) {
         return text_response(StatusCode::NOT_FOUND, "Not found");
-    };
-    let mut response = Response::new(Body::from(data));
-    response
-        .headers_mut()
-        .insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
-    response
-        .headers_mut()
-        .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
-    security_headers(&mut response);
-    if method == Method::HEAD {
-        *response.body_mut() = Body::empty();
     }
+    let mut response = state.assets.response(
+        normalized,
+        &headers,
+        &method,
+        "public, max-age=0, must-revalidate",
+    );
+    security_headers(&mut response);
     response
 }
 

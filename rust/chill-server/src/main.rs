@@ -20,6 +20,37 @@ async fn main() -> anyhow::Result<()> {
     if public {
         tracing::info!("Tryb publiczny: tak");
     }
-    started.task.await??;
+    let state = started.state.clone();
+    tokio::select! {
+        result = started.task => {
+            result??;
+        }
+        _ = shutdown_signal() => {
+            tracing::info!("Zatrzymywanie Chill: zapisuj\u{0119} dane...");
+            state.flush();
+        }
+    }
     Ok(())
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut terminate = match signal(SignalKind::terminate()) {
+            Ok(signal) => signal,
+            Err(_) => {
+                let _ = tokio::signal::ctrl_c().await;
+                return;
+            }
+        };
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {}
+            _ = terminate.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+    }
 }

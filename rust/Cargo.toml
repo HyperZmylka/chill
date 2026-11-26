@@ -3,11 +3,12 @@ resolver = "2"
 members = ["chill-server", "chill-desktop"]
 
 [workspace.package]
-version = "4.18.0"
+version = "4.19.0"
 edition = "2021"
 license = "MIT"
 
 [profile.release]
-lto = "thin"
+opt-level = 3
+lto = "fat"
 codegen-units = 1
 strip = true

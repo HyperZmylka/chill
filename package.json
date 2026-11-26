@@ -1,7 +1,7 @@
 {
   "name": "chill",
   "productName": "Chill",
-  "version": "4.18.0",
+  "version": "4.19.0",
   "description": "Chill Ă˘â‚¬â€ť spokojny komunikator desktopowy: serwery, kanaÄąâ€šy tekstowe i gÄąâ€šosowe, rozmowy na ÄąÄ˝ywo, udostĂ„â„˘pnianie ekranu, wiadomoÄąâ€şci prywatne, wiadomoÄąâ€şci gÄąâ€šosowe, emoji, naklejki, GIF-y i aktualizacje.",
   "main": "main.js",
   "private": true,
@@ -10,6 +10,8 @@
   "scripts": {
     "server": "node main.js --server",
     "public": "node main.js --public-web",
+    "web:build": "node scripts/build-web.js",
+    "bench:server": "node scripts/bench-server.js",
     "desktop:prepare": "node scripts/prepare-tauri-ui.js",
     "desktop:dev": "node scripts/prepare-tauri-ui.js && cd rust/chill-desktop && tauri dev",
     "desktop:build": "node scripts/prepare-tauri-ui.js && cd rust/chill-desktop && tauri build"
@@ -18,6 +20,7 @@
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "^2.12.4"
+    "@tauri-apps/cli": "^2.12.4",
+    "esbuild": "^0.25.0"
   }
 }

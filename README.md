@@ -31,6 +31,37 @@ Spokojny komunikator desktopowy (Rust + Tauri) z własną identyfikacją wizualn
 - **Tray i autostart** — Chill zostaje w zasobniku i może startować z Windows.
 - **Aktualizacje** — sprawdzanie GitHub Releases i automatyczne pobranie oraz uruchomienie instalatora, bez pytania o zgodę.
 
+## Wydajność (4.19.0)
+
+Wersja 4.19.0 nie zmienia funkcji widocznych w interfejsie — skraca drogę wiadomości, usuwa blokujący zapis całego `servers.json` i zmniejsza transfer strony. Pomiar wykonany tym samym skryptem, na tym samym komputerze (Windows 11, build release, loopback, 120 wiadomości na serwerze, 200 żądań HTTP; podana mediana):
+
+| Metryka | 4.18.0 | 4.19.0 | Zmiana |
+| --- | ---: | ---: | ---: |
+| Start serwera | 68,2 ms | 69,2 ms | bez różnicy w granicach szumu |
+| RAM bezczynnego serwera | 9,4 MB | 10,6 MB | +1,2 MB (cache interfejsu w pamięci) |
+| Wysłanie wiadomości — mediana | 4,55 ms | **0,20 ms** | **22,8× szybciej** |
+| Wysłanie wiadomości — p95 | 15,31 ms | **0,31 ms** | **49× szybciej** |
+| `renderer.js` przez sieć | 445 926 B | **90 048 B** | **−80%** |
+| Ponowne otwarcie interfejsu (ETag) | 3,21 ms, 200 OK | **0,53 ms, 304** | **6× szybciej, 0 B danych** |
+
+Co zostało zmienione:
+
+- **Zapis poza wątkiem wiadomości** — `servers.json` i pozostałe pliki są serializowane od razu, ale zapisywane przez jeden wątek w tle. Seria wiadomości zwija się do najnowszego stanu, a zapis jest atomowy (plik tymczasowy + podmiana), więc awaria w trakcie nie zostawia uszkodzonego JSON-a.
+- **Jedna serializacja na broadcast** — wiadomość jest zamieniana na JSON raz i wysyłana do wszystkich połączeń jako współdzielony bufor, zamiast serializować ją osobno dla każdego odbiorcy.
+- **Cache statyków w RAM** — interfejs nie jest już czytany z dysku przy każdym żądaniu. Serwer wysyła `ETag`, obsługuje `304 Not Modified` i `HEAD`, a odpowiedzi tekstowe są kompresowane Brotli (gotowe pliki `.br` z builda, bez obciążania CPU serwera).
+- **Minifikacja i Brotli w buildzie** — `npm run web:build` tworzy `dist-web/` z mniejszym JS/CSS i plikami `.br`. Instalator Tauri dostaje analogicznie zminifikowane pliki przez `npm run desktop:prepare`.
+- **Krótszy start UI** — animacja startowa kończy się w ok. 300 ms zamiast 520 ms.
+- **Profil release** — pełne LTO i `opt-level = 3` dla serwera i powłoki.
+
+Dla porównania: Discord Project Phoenix (wczesny build na Rust/GPUI) był opisywany jako ok. **290 MB RAM** i ok. **1 s startu**. Serwer Chill w powyższym teście zajmuje **10,6 MB** i startuje w **69 ms**; to nie jest pomiar całej aplikacji desktopowej, ale pokazuje, że backend i warstwa statyczna nie są wąskim gardłem.
+
+Pomiar można powtórzyć:
+
+```bash
+npm run web:build
+npm run bench:server -- ./rust/target/release/chill-server.exe chill 47991 ./dist-web
+```
+
 ## Jak działają serwery
 
 1. Otwórz Chill i kliknij **+** na pasku serwerów.
@@ -234,7 +265,17 @@ Wersja Node (`node main.js --public-web`) pozostaje wyłącznie jako awaryjna ś
 - `CHILL_DATA_DIR` — trwały folder z kontami, serwerami, historią i sesjami przeglądarek.
 - `PORT` lub `CHILL_PORT` — port nasłuchiwania (domyślnie `47830`).
 - `CHILL_HOST` — opcjonalny adres nasłuchiwania procesu, np. `127.0.0.1` za reverse proxy. W Dockerze zostaw `0.0.0.0`; dostęp z zewnątrz kontroluj przez `CHILL_BIND_ADDRESS` w `.env`.
-- `CHILL_WEB_ROOT` — katalog z `index.html` i pozostałymi plikami interfejsu.
+- `CHILL_WEB_ROOT` — katalog z `index.html` i pozostałymi plikami interfejsu. W produkcji wskaż katalog `dist-web` wygenerowany przez `npm run web:build`.
+
+### Build produkcyjny interfejsu
+
+```bash
+npm ci
+npm run web:build
+CHILL_WEB_ROOT="$PWD/dist-web" ./rust/target/release/chill-server
+```
+
+`web:build` minifikuje JS/CSS bez zmiany nazw globalnych (skrypty nadal współdzielą zakres, jak w źródłach) i zapisuje obok każdego pliku tekstowego wariant Brotli. Serwer wysyła `.br` tylko wtedy, gdy plik jest nowszy od źródła, więc po zmianie UI wystarczy ponownie uruchomić build. Katalog `dist-web/` jest ignorowany przez git.
 
 ### Docker (zalecany sposób hostingu)
 

@@ -1654,7 +1654,7 @@ document.addEventListener('DOMContentLoaded', () => {
   boot();
 });
 
-const BOOT_SPLASH_MIN_MS = 520;
+const BOOT_SPLASH_MIN_MS = 300;
 const bootSplashShownAt = performance.now();
 let bootSplashTimer = 0;
 
@@ -1667,7 +1667,7 @@ function dismissBootSplash() {
     setTimeout(() => {
       splash.hidden = true;
       splash.classList.remove('boot-leaving');
-    }, 190);
+    }, 150);
   }, wait);
 }
 

@@ -11,7 +11,7 @@ const css = fs.readFileSync(path.join(root, 'style.css'), 'utf8');
 const renderer = fs.readFileSync(path.join(root, 'renderer.js'), 'utf8');
 const prepare = fs.readFileSync(path.join(root, 'scripts', 'prepare-tauri-ui.js'), 'utf8');
 const server = fs.readFileSync(path.join(root, 'rust', 'chill-desktop', 'src', 'server.rs'), 'utf8');
-const http = fs.readFileSync(path.join(root, 'rust', 'chill-server', 'src', 'http.rs'), 'utf8');
+const assets = fs.readFileSync(path.join(root, 'rust', 'chill-server', 'src', 'assets.rs'), 'utf8');
 
 function bootMarkup() {
   const start = html.indexOf('<div class="boot"');
@@ -31,7 +31,7 @@ test('ekran startowy pokazuje ikonę Chill i litery marki', () => {
 
 test('litery pojawiają się kolejno obok ikony', () => {
   assert.match(css, /\.boot-letter\s*\{[^}]*animation:\s*bootLetterIn/);
-  assert.match(css, /\.boot-letter\s*\{[^}]*animation-delay:\s*calc\(80ms \+ var\(--i\) \* 50ms\)/);
+  assert.match(css, /\.boot-letter\s*\{[^}]*animation-delay:\s*calc\(30ms \+ var\(--i\) \* 28ms\)/);
   for (const name of ['bootGlow', 'bootIconIn', 'bootHalo', 'bootLetterIn', 'bootDotIn', 'bootTrack', 'bootTrackIn']) {
     assert.match(css, new RegExp(`@keyframes ${name}`), `brak @keyframes ${name}`);
   }
@@ -40,7 +40,7 @@ test('litery pojawiają się kolejno obok ikony', () => {
 });
 
 test('ekran startowy znika płynnie po przygotowaniu aplikacji', () => {
-  assert.match(renderer, /const BOOT_SPLASH_MIN_MS = 520/);
+  assert.match(renderer, /const BOOT_SPLASH_MIN_MS = 300/);
   assert.match(renderer, /function dismissBootSplash\(\)/);
   assert.match(renderer, /classList\.add\('boot-leaving'\)/);
   assert.match(renderer, /if \(user\) enterApp\(user\);\s*else showAuth\('login'\);\s*dismissBootSplash\(\);/);
@@ -63,5 +63,5 @@ test('okno Tauri ma ciemne tło przed pierwszym malowaniem', () => {
 
 test('zasoby Tauri zawierają ikonę SVG', () => {
   assert.match(prepare, /'build\/icon\.svg'/);
-  assert.match(http, /"build\/icon\.svg" => \("build\/icon\.svg", "image\/svg\+xml"\)/);
+  assert.match(assets, /"build\/icon\.svg", "image\/svg\+xml"/);
 });

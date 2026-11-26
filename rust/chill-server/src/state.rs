@@ -1,9 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
-use axum::extract::ws::{CloseFrame, Message as WsMessage};
+use axum::extract::ws::{CloseFrame, Message as WsMessage, Utf8Bytes};
 use parking_lot::{Mutex, RwLock};
 use rand::RngCore;
 use serde::Serialize;
@@ -11,6 +14,7 @@ use serde_json::{json, Map, Value};
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
+use crate::assets::Assets;
 use crate::config::Config;
 use crate::model::*;
 
@@ -48,9 +52,11 @@ pub struct Conn {
 
 impl Conn {
     pub fn send_json(&self, value: &Value) {
-        let _ = self
-            .tx
-            .send(WsMessage::Text(value.to_string().into()));
+        self.send_text(&Utf8Bytes::from(value.to_string()));
+    }
+
+    pub fn send_text(&self, text: &Utf8Bytes) {
+        let _ = self.tx.send(WsMessage::Text(text.clone()));
     }
 
     pub fn send_binary(&self, bytes: Vec<u8>) {
@@ -94,6 +100,8 @@ pub struct LoginAttempt {
 pub struct AppState {
     pub cfg: Config,
     pub web_token: String,
+    pub assets: Assets,
+    pub persist: PersistQueue,
     pub accounts: RwLock<AccountStore>,
     pub volatile_session: Mutex<Option<SessionRecord>>,
     pub web_sessions: RwLock<WebSessionStore>,
@@ -133,6 +141,7 @@ impl AppState {
         let attachments =
             load_json::<AttachmentStore>(&cfg.data_dir.join("attachments").join("index.json"));
         let friendships = load_json::<FriendshipStore>(&cfg.data_dir.join("friendships.json"));
+        let assets = Assets::load(&cfg.web_root);
         let mut rng = rand::thread_rng();
         let mut token_bytes = [0u8; 24];
         rng.fill_bytes(&mut token_bytes);
@@ -140,6 +149,8 @@ impl AppState {
         Self {
             cfg,
             web_token: hex::encode(token_bytes),
+            assets,
+            persist: PersistQueue::new(),
             accounts: RwLock::new(accounts),
             volatile_session: Mutex::new(None),
             web_sessions: RwLock::new(web_sessions),
@@ -188,28 +199,42 @@ impl AppState {
         self.cfg.data_dir.join("friendships.json")
     }
 
+    fn persist_value<T: Serialize + ?Sized>(&self, path: PathBuf, value: &T) {
+        match serde_json::to_vec(value) {
+            Ok(data) => self.persist.submit(path, data),
+            Err(error) => eprintln!(
+                "[chill] Nie uda\u{0142}o si\u{0119} przygotowa\u{0107} zapisu {}: {}",
+                path.display(),
+                error
+            ),
+        }
+    }
+
     pub fn save_accounts(&self) {
-        persist(&self.accounts_path(), &*self.accounts.read(), true);
+        self.persist_value(self.accounts_path(), &*self.accounts.read());
     }
     pub fn save_servers(&self) {
-        persist(&self.servers_path(), &*self.servers.read(), true);
+        self.persist_value(self.servers_path(), &*self.servers.read());
     }
     pub fn save_sessions(&self) {
-        persist(&self.web_sessions_path(), &*self.web_sessions.read(), true);
+        self.persist_value(self.web_sessions_path(), &*self.web_sessions.read());
     }
     pub fn save_chat(&self) {
-        persist(&self.chat_path(), &*self.chat.read(), false);
+        self.persist_value(self.chat_path(), &*self.chat.read());
     }
     pub fn save_voice(&self) {
-        fs::create_dir_all(self.voice_dir()).ok();
-        persist(&self.voice_index_path(), &*self.voice.read(), false);
+        self.persist_value(self.voice_index_path(), &*self.voice.read());
     }
     pub fn save_attachments(&self) {
-        fs::create_dir_all(self.attachments_dir()).ok();
-        persist(&self.attachments_index_path(), &*self.attachments.read(), false);
+        self.persist_value(self.attachments_index_path(), &*self.attachments.read());
     }
     pub fn save_friendships(&self) {
-        persist(&self.friendships_path(), &*self.friendships.read(), false);
+        self.persist_value(self.friendships_path(), &*self.friendships.read());
+    }
+
+    /// Blocks until every queued snapshot is on disk. Used on graceful shutdown.
+    pub fn flush(&self) {
+        self.persist.flush();
     }
 
     // ---------- Accounts ----------
@@ -578,10 +603,12 @@ impl AppState {
         }
         payload["type"] = json!(event_type);
         payload["at"] = json!(now_ms());
-        let targets: Vec<u64> = self.user_conns.lock().values().copied().collect();
-        for conn_id in targets {
-            if let Some(conn) = self.conn(conn_id) {
-                conn.send_json(&payload);
+        let text = Utf8Bytes::from(payload.to_string());
+        let targets: HashSet<u64> = self.user_conns.lock().values().copied().collect();
+        let conns = self.connections.lock();
+        for conn in conns.values() {
+            if targets.contains(&conn.id) {
+                conn.send_text(&text);
             }
         }
     }
@@ -591,12 +618,19 @@ impl AppState {
             payload = json!({});
         }
         payload["at"] = json!(now_ms());
-        for conn in self.conns() {
+        let text = Utf8Bytes::from(payload.to_string());
+        let conns = self.connections.lock();
+        for conn in conns.values() {
             if Some(conn.id) == except {
                 continue;
             }
-            if conn.server.as_ref().map(|s| s.server_id == server_id).unwrap_or(false) {
-                conn.send_json(&payload);
+            if conn
+                .server
+                .as_ref()
+                .map(|session| session.server_id == server_id)
+                .unwrap_or(false)
+            {
+                conn.send_text(&text);
             }
         }
     }
@@ -633,9 +667,10 @@ impl AppState {
 
     pub fn server_members_payload(&self, server: &Server) -> Vec<Value> {
         let online: HashSet<String> = self
-            .conns()
-            .into_iter()
-            .filter_map(|conn| conn.server.map(|session| session.member_id))
+            .connections
+            .lock()
+            .values()
+            .filter_map(|conn| conn.server.as_ref().map(|session| session.member_id.clone()))
             .collect();
         let mut members: Vec<Value> = server
             .members
@@ -1304,19 +1339,122 @@ impl AppState {
     }
 }
 
-pub fn persist<T: Serialize + ?Sized>(path: &PathBuf, value: &T, pretty: bool) {
+enum PersistJob {
+    Write(PathBuf, Vec<u8>),
+    Flush(Sender<()>),
+}
+
+/// Serializes snapshots on the caller thread (cheap) and performs disk I/O on a
+/// dedicated writer thread. Bursts collapse to the newest snapshot per file, so
+/// sending a message never waits for `servers.json` to be rewritten.
+pub struct PersistQueue {
+    tx: Option<Sender<PersistJob>>,
+    worker: Option<JoinHandle<()>>,
+}
+
+impl PersistQueue {
+    pub fn new() -> Self {
+        let (tx, rx) = mpsc::channel::<PersistJob>();
+        let worker = std::thread::Builder::new()
+            .name("chill-persist".to_string())
+            .spawn(move || writer_loop(rx))
+            .ok();
+        Self {
+            tx: Some(tx),
+            worker,
+        }
+    }
+
+    pub fn submit(&self, path: PathBuf, data: Vec<u8>) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(PersistJob::Write(path, data));
+        }
+    }
+
+    pub fn flush(&self) {
+        let Some(tx) = &self.tx else { return };
+        let (ack_tx, ack_rx) = mpsc::channel();
+        if tx.send(PersistJob::Flush(ack_tx)).is_ok() {
+            let _ = ack_rx.recv_timeout(Duration::from_secs(5));
+        }
+    }
+}
+
+impl Default for PersistQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for PersistQueue {
+    fn drop(&mut self) {
+        self.flush();
+        self.tx.take();
+        if let Some(worker) = self.worker.take() {
+            let _ = worker.join();
+        }
+    }
+}
+
+fn writer_loop(rx: Receiver<PersistJob>) {
+    let mut pending: HashMap<PathBuf, Vec<u8>> = HashMap::new();
+    while let Ok(job) = rx.recv() {
+        match job {
+            PersistJob::Write(path, data) => {
+                pending.insert(path, data);
+                while let Ok(next) = rx.try_recv() {
+                    match next {
+                        PersistJob::Write(path, data) => {
+                            pending.insert(path, data);
+                        }
+                        PersistJob::Flush(ack) => {
+                            write_pending(&mut pending);
+                            let _ = ack.send(());
+                        }
+                    }
+                }
+                write_pending(&mut pending);
+            }
+            PersistJob::Flush(ack) => {
+                write_pending(&mut pending);
+                let _ = ack.send(());
+            }
+        }
+    }
+    write_pending(&mut pending);
+}
+
+fn write_pending(pending: &mut HashMap<PathBuf, Vec<u8>>) {
+    for (path, data) in pending.drain() {
+        write_atomic(&path, &data);
+    }
+}
+
+fn write_atomic(path: &Path, data: &[u8]) {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).ok();
     }
-    let data = if pretty {
-        serde_json::to_string_pretty(value)
-    } else {
-        serde_json::to_string(value)
-    };
-    if let Ok(data) = data {
-        if let Err(error) = fs::write(path, data) {
-            eprintln!("[chill] Nie udało się zapisać {}: {}", path.display(), error);
-        }
+    let mut name = path
+        .file_name()
+        .map(|value| value.to_os_string())
+        .unwrap_or_default();
+    name.push(".tmp");
+    let temp = path.with_file_name(name);
+    if let Err(error) = fs::write(&temp, data) {
+        eprintln!(
+            "[chill] Nie udało się zapisać {}: {}",
+            temp.display(),
+            error
+        );
+        return;
+    }
+    if let Err(error) = fs::rename(&temp, path) {
+        eprintln!(
+            "[chill] Nie udało się podmienić {}: {}",
+            path.display(),
+            error
+        );
+        let _ = fs::remove_file(&temp);
     }
 }
 
@@ -1483,4 +1621,24 @@ fn normalize_servers(store: &mut ServersStore) {
     store.joined.retain(|entry| {
         !entry.id.is_empty() && !entry.user_id.is_empty() && !entry.address.is_empty() && !entry.invite.is_empty()
     });
+}
+
+#[cfg(test)]
+mod persist_tests {
+    use super::*;
+
+    #[test]
+    fn queue_writes_latest_snapshot_without_leaving_temp_files() {
+        let dir = std::env::temp_dir().join(format!("chill-persist-{}", random_uuid()));
+        fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("store.json");
+        let queue = PersistQueue::new();
+        queue.submit(path.clone(), b"first".to_vec());
+        queue.submit(path.clone(), b"second".to_vec());
+        queue.flush();
+        assert_eq!(fs::read_to_string(&path).expect("snapshot"), "second");
+        assert!(!dir.join("store.json.tmp").exists());
+        drop(queue);
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
