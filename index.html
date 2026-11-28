@@ -190,7 +190,10 @@
     <div class="nav-group channels-group" id="channelsGroup" hidden>
       <div class="group-label">
         <span data-i18n="Kanały">Kanały</span>
-        <button type="button" class="group-add" id="addChannelBtn" title="Nowy kanał" aria-label="Nowy kanał" data-i18n-title="Nowy kanał" data-i18n-aria-label="Nowy kanał" hidden>+</button>
+        <span class="group-actions">
+          <button type="button" class="group-add" id="addCategoryBtn" title="Nowa kategoria" aria-label="Nowa kategoria" data-i18n-title="Nowa kategoria" data-i18n-aria-label="Nowa kategoria" hidden>▤</button>
+          <button type="button" class="group-add" id="addChannelBtn" title="Nowy kanał" aria-label="Nowy kanał" data-i18n-title="Nowy kanał" data-i18n-aria-label="Nowy kanał" hidden>+</button>
+        </span>
       </div>
       <nav class="nav-list" id="channelList" aria-label="Kanały" data-i18n-aria-label="Kanały"></nav>
     </div>
@@ -347,6 +350,7 @@
           <input type="search" id="messageSearch" placeholder="Szukaj w wiadomościach" data-i18n-placeholder="Szukaj w wiadomościach" spellcheck="false">
           <button type="button" class="icon-btn tiny" id="closeSearch" title="Zamknij" aria-label="Zamknij" data-i18n-title="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
         </div>
+        <button type="button" class="icon-btn pins-btn" id="pinsBtn" title="Przypięte wiadomości" data-i18n-title="Przypięte wiadomości" aria-haspopup="dialog" aria-controls="pinsOverlay" hidden>📌<span class="pins-count" id="pinsCount" hidden>0</span></button>
         <button type="button" class="icon-btn" id="searchBtn" title="Szukaj w wiadomościach" data-i18n-title="Szukaj w wiadomościach">⌕</button>
         <button type="button" class="icon-btn members-toggle active" id="membersBtn" title="Pokaż członków" data-i18n-title="Pokaż członków">◫</button>
       </div>
@@ -459,6 +463,7 @@
           </svg>
         </button>
         <button type="button" class="composer-btn gif-btn" id="gifBtn" title="GIF" aria-label="GIF" aria-controls="gifOverlay" aria-expanded="false">GIF</button>
+        <button type="button" class="composer-btn poll-btn" id="pollBtn" title="Utwórz ankietę" aria-label="Utwórz ankietę" data-i18n-title="Utwórz ankietę" data-i18n-aria-label="Utwórz ankietę" aria-haspopup="dialog" aria-controls="pollOverlay">📊</button>
         <button type="button" class="composer-btn voice-btn" id="voiceBtn" title="Nagraj wiadomość głosową" aria-label="Nagraj wiadomość głosową" data-i18n-title="Nagraj wiadomość głosową" data-i18n-aria-label="Nagraj wiadomość głosową">
           <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="9" y="3" width="6" height="11" rx="3"/>
@@ -1453,6 +1458,11 @@
         <input type="text" id="newChannelName" maxlength="32" placeholder="np. ogólny" data-i18n-placeholder="np. ogólny" spellcheck="false">
       </label>
 
+      <label class="field">
+        <span data-i18n="Kategoria">Kategoria</span>
+        <select id="newChannelCategory"></select>
+      </label>
+
       <p class="form-error" id="channelError" role="alert"></p>
       <div class="settings-actions">
         <button type="button" class="btn-secondary" id="cancelChannelBtn" data-i18n="Anuluj">Anuluj</button>
@@ -1838,6 +1848,81 @@
       <div class="settings-actions">
         <button type="button" class="btn-secondary" id="cancelDeleteChannel" data-i18n="Anuluj">Anuluj</button>
         <button type="button" class="btn-secondary danger" id="confirmDeleteChannel" data-i18n="Usuń kanał">Usuń kanał</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Przypięte wiadomości -->
+  <div class="modal" id="pinsOverlay" hidden>
+    <div class="modal-card pins-card">
+      <button type="button" class="icon-btn modal-close" id="closePinsPanel" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      <div class="server-modal-head">
+        <h2 id="pinsTitle" data-i18n="Przypięte wiadomości">Przypięte wiadomości</h2>
+        <p data-i18n="Najważniejsze wiadomości z tego kanału w jednym miejscu.">Najważniejsze wiadomości z tego kanału w jednym miejscu.</p>
+      </div>
+      <div class="pins-list" id="pinsList"></div>
+    </div>
+  </div>
+
+  <!-- Kategorie kanałów -->
+  <div class="modal" id="categoryOverlay" hidden>
+    <div class="modal-card category-card">
+      <button type="button" class="icon-btn modal-close" id="closeCategoryModal" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      <div class="server-modal-head">
+        <h2 data-i18n="Kategorie kanałów">Kategorie kanałów</h2>
+        <p data-i18n="Grupuj kanały, aby sidebar pozostał czytelny. Kliknij nazwę kategorii na liście, aby ją zwinąć.">Grupuj kanały, aby sidebar pozostał czytelny. Kliknij nazwę kategorii na liście, aby ją zwinąć.</p>
+      </div>
+      <div class="category-create-row">
+        <input type="text" id="categoryNameInput" maxlength="32" placeholder="np. Projekt" data-i18n-placeholder="np. Projekt" spellcheck="false">
+        <button type="button" class="btn-primary" id="createCategoryBtn" data-i18n="Dodaj">Dodaj</button>
+      </div>
+      <p class="form-error" id="categoryError" role="alert"></p>
+      <div class="category-manager-list" id="categoryManagerList"></div>
+      <div class="settings-actions">
+        <button type="button" class="btn-secondary" id="cancelCategoryBtn" data-i18n="Gotowe">Gotowe</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nowa ankieta -->
+  <div class="modal" id="pollOverlay" hidden>
+    <div class="modal-card poll-card">
+      <button type="button" class="icon-btn modal-close" id="closePollModal" aria-label="Zamknij" data-i18n-aria-label="Zamknij">✕</button>
+      <div class="server-modal-head">
+        <h2 data-i18n="Nowa ankieta">Nowa ankieta</h2>
+        <p data-i18n="Zadaj pytanie i dodaj od 2 do 10 odpowiedzi. Wyniki aktualizują się na żywo.">Zadaj pytanie i dodaj od 2 do 10 odpowiedzi. Wyniki aktualizują się na żywo.</p>
+      </div>
+      <label class="field">
+        <span data-i18n="Pytanie">Pytanie</span>
+        <textarea id="pollQuestion" maxlength="300" rows="2" placeholder="O co chcesz zapytać?" data-i18n-placeholder="O co chcesz zapytać?"></textarea>
+      </label>
+      <div class="field poll-options-field">
+        <span class="poll-options-label"><span data-i18n="Odpowiedzi">Odpowiedzi</span><small id="pollOptionsCount">2 / 10</small></span>
+        <div class="poll-options-editor" id="pollOptions"></div>
+        <button type="button" class="btn-secondary poll-add-option" id="addPollOption" data-i18n="Dodaj odpowiedź">Dodaj odpowiedź</button>
+      </div>
+      <div class="poll-settings">
+        <label class="field">
+          <span data-i18n="Czas trwania">Czas trwania</span>
+          <select id="pollDuration">
+            <option value="0" data-i18n="Bez terminu">Bez terminu</option>
+            <option value="60" data-i18n="1 godzina">1 godzina</option>
+            <option value="240" data-i18n="4 godziny">4 godziny</option>
+            <option value="480" data-i18n="8 godzin">8 godzin</option>
+            <option value="1440" data-i18n="1 dzień">1 dzień</option>
+            <option value="4320" data-i18n="3 dni">3 dni</option>
+            <option value="10080" data-i18n="1 tydzień">1 tydzień</option>
+          </select>
+        </label>
+        <label class="poll-multi-row">
+          <input type="checkbox" id="pollMulti">
+          <span data-i18n="Pozwól wybrać wiele odpowiedzi">Pozwól wybrać wiele odpowiedzi</span>
+        </label>
+      </div>
+      <p class="form-error" id="pollError" role="alert"></p>
+      <div class="settings-actions">
+        <button type="button" class="btn-secondary" id="cancelPollBtn" data-i18n="Anuluj">Anuluj</button>
+        <button type="button" class="btn-primary" id="createPollBtn" data-i18n="Utwórz ankietę">Utwórz ankietę</button>
       </div>
     </div>
   </div>

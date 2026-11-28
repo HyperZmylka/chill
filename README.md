@@ -6,6 +6,9 @@ Spokojny komunikator desktopowy (Rust + Tauri) z własną identyfikacją wizualn
 
 - **Własne serwery** — tworzysz serwer, dostajesz kanał `ogólny` i zapraszasz znajomych. Poza własnymi serwerami każde konto automatycznie trafia na oficjalny serwer **Chill** z kanałami `ogólny` i `aktulizacje`.
 - **Kanały tekstowe i głosowe** — właściciel serwera tworzy kanały do pisania albo głosowe, a następnie może je usuwać prawym przyciskiem myszy. Serwer może mieć zero kanałów.
+- **Kategorie kanałów** — właściciel grupuje kanały w maksymalnie 20 kategoriach, przenosi je między nimi i zwija kategorię jednym kliknięciem. Układ zapisuje się osobno dla każdego serwera.
+- **Przypięte wiadomości** — autor wiadomości albo właściciel serwera przypina do 100 wiadomości na kanał. Pinezki przetrwają przycinanie historii, a panel pozwala przejść do każdej z nich.
+- **Ankiety** — od 2 do 10 unikalnych odpowiedzi, tryb wielokrotnego wyboru, termin ważności albo ręczne zamknięcie. Wyniki aktualizują się na żywo, a głos można zmienić.
 - **Rozmowy głosowe na żywo** — wejście na kanał głosowy od razu łączy mikrofon i słuchawki z pozostałymi osobami w kanale. Wyciszenie mikrofonu i słuchawek oraz mówienie są widoczne na liście obecnych.
 - **Udostępnianie ekranu** — w kanale głosowym można pokazać cały ekran albo okno wybranej aplikacji. Podgląd działa na żywo, a w jednym kanale udostępnia ekran jedna osoba naraz.
 - **Zaproszenia linkiem** — `chill://adres:port/kod`. Link działa od razu przez internet (tunel Cloudflare), bez przekierowywania portów; w sieci lokalnej nadal można użyć adresu IP hosta.
@@ -30,6 +33,15 @@ Spokojny komunikator desktopowy (Rust + Tauri) z własną identyfikacją wizualn
 - **Profil w rogu** — awatar, nazwa i przyciski są przypięte do lewego dolnego rogu. Kliknięcie własnego profilu wysuwa kartę z banerem, odznakami, opisem, kolekcją gier i menu: edycja profilu, status, odznaki, konta, kopiowanie ID i wylogowanie.
 - **Tray i autostart** — Chill zostaje w zasobniku i może startować z Windows.
 - **Aktualizacje** — sprawdzanie GitHub Releases i automatyczne pobranie oraz uruchomienie instalatora, bez pytania o zgodę.
+
+## Nowości (4.20.0)
+
+Wersja 4.20.0 uzupełnia serwery o funkcje znane z Discorda, ale z prostszym działaniem i bez zewnętrznych usług:
+
+- **Pinezki** — przypięcie jest widoczne w nagłówku kanału i w panelu przypiętych wiadomości; limit 100 na kanał chroni historię przed rozrostem.
+- **Ankiety** — tworzone z okna obok pola wiadomości, z terminem od godziny do tygodnia, wielokrotnym wyborem i zamknięciem przez autora lub właściciela serwera.
+- **Kategorie** — zarządzanie z menu serwera i z sidebara; kanały bez kategorii pozostają na górze listy.
+- **Spójność** — funkcje działają w aplikacji desktopowej i w wersji przeglądarkowej, a stare dane (`servers.json`) wczytują się bez migracji.
 
 ## Wydajność (4.19.0)
 

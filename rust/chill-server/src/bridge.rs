@@ -852,7 +852,9 @@ fn servers_create(state: &AppState, ctx: &BridgeContext, payload: &Value) -> Bri
             name: channel_name,
             channel_type: "text".to_string(),
             created_at: now_ms(),
+            category_id: String::new(),
         }],
+        categories: Vec::new(),
         members: Vec::new(),
         messages: Default::default(),
         dms: Default::default(),
@@ -1220,6 +1222,7 @@ mod tests {
                 name: "ogólny".to_string(),
                 channel_type: "text".to_string(),
                 created_at: now_ms(),
+                category_id: String::new(),
             }],
             ..Default::default()
         }

@@ -1546,6 +1546,41 @@ fn normalize_servers(store: &mut ServersStore) {
             if server.created_at == 0 {
                 server.created_at = now_ms();
             }
+            server.categories.retain(|category| {
+                !category.id.is_empty() && !category.name.trim().is_empty()
+            });
+            let mut category_names = HashSet::new();
+            let mut category_ids = HashSet::new();
+            server.categories = server
+                .categories
+                .drain(..)
+                .filter_map(|mut category| {
+                    category.id = take_chars(&category.id, 64);
+                    category.name = take_chars(
+                        &category
+                            .name
+                            .trim()
+                            .split_whitespace()
+                            .collect::<Vec<_>>()
+                            .join(" "),
+                        32,
+                    );
+                    if category.id.is_empty() || category.name.is_empty() {
+                        return None;
+                    }
+                    let key = category.name.to_lowercase();
+                    if !category_names.insert(key) || !category_ids.insert(category.id.clone()) {
+                        return None;
+                    }
+                    if category.created_at == 0 {
+                        category.created_at = now_ms();
+                    }
+                    Some(category)
+                })
+                .take(20)
+                .collect();
+            let category_ids: HashSet<String> =
+                server.categories.iter().map(|category| category.id.clone()).collect();
             server.channels.retain(|channel| !channel.id.is_empty() && !channel.name.is_empty());
             for channel in &mut server.channels {
                 channel.name = take_chars(channel.name.trim(), 32);
@@ -1556,6 +1591,9 @@ fn normalize_servers(store: &mut ServersStore) {
                 };
                 if channel.created_at == 0 {
                     channel.created_at = now_ms();
+                }
+                if !channel.category_id.is_empty() && !category_ids.contains(&channel.category_id) {
+                    channel.category_id.clear();
                 }
             }
             server.members.retain(|member| !member.id.is_empty());
@@ -1599,8 +1637,17 @@ fn normalize_servers(store: &mut ServersStore) {
                 if !channel_ids.contains(id) {
                     return false;
                 }
-                let start = list.len().saturating_sub(300);
-                *list = list[start..].to_vec();
+                if list.len() > 300 {
+                    let start = list.len().saturating_sub(300);
+                    let mut next = list[start..].to_vec();
+                    for message in list.iter().filter(|message| message.pinned_at.is_some()) {
+                        if !next.iter().any(|item| item.id == message.id) {
+                            next.push(message.clone());
+                        }
+                    }
+                    next.sort_by_key(|message| message.at);
+                    *list = next;
+                }
                 true
             });
             for channel in &server.channels {

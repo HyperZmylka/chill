@@ -201,6 +201,125 @@ fn message_index(list: &[Message], message_id: &str, client_id: &str) -> Option<
         })
 }
 
+fn trim_messages(list: &mut Vec<Message>, limit: usize) -> Option<Message> {
+    if list.len() <= limit {
+        return None;
+    }
+    // Pinned messages are small in number (the pin limit is 100) and are the
+    // most valuable part of the history, so drop the oldest unpinned entry.
+    let index = list
+        .iter()
+        .position(|message| message.pinned_at.is_none())
+        .unwrap_or(0);
+    Some(list.remove(index))
+}
+
+fn recent_messages_with_pins(list: &[Message], limit: usize) -> Vec<Message> {
+    let start = list.len().saturating_sub(limit);
+    let mut recent = list[start..].to_vec();
+    // Pinned messages are kept when history is trimmed. Send the ones that
+    // fall outside the recent window too, so opening a pin always works.
+    for message in list.iter().filter(|message| message.pinned_at.is_some()) {
+        if !recent.iter().any(|item| item.id == message.id) {
+            recent.push(message.clone());
+        }
+    }
+    recent.sort_by_key(|message| message.at);
+    recent
+}
+
+fn poll_is_closed(poll: &Poll, now: u64) -> bool {
+    poll.closed_at.is_some() || poll.closes_at.map(|at| at <= now).unwrap_or(false)
+}
+
+fn sanitize_poll_options(value: &Value) -> Option<Vec<PollOption>> {
+    let raw = value.as_array()?;
+    let mut options = Vec::new();
+    let mut seen = HashSet::new();
+    for item in raw {
+        let text = take_chars(
+            &item
+                .as_str()
+                .unwrap_or("")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" "),
+            100,
+        );
+        if text.is_empty() {
+            continue;
+        }
+        let key = text.to_lowercase();
+        if !seen.insert(key) {
+            continue;
+        }
+        options.push(PollOption {
+            id: format!("o{}", options.len() + 1),
+            text,
+        });
+        if options.len() >= 10 {
+            break;
+        }
+    }
+    if options.len() < 2 {
+        None
+    } else {
+        Some(options)
+    }
+}
+
+fn toggle_poll_vote(poll: &mut Poll, member_id: &str, option_id: &str) -> bool {
+    if !poll.options.iter().any(|option| option.id == option_id) {
+        return false;
+    }
+    let selected = poll
+        .votes
+        .get(option_id)
+        .map(|voters| voters.iter().any(|id| id == member_id))
+        .unwrap_or(false);
+    if selected {
+        if let Some(voters) = poll.votes.get_mut(option_id) {
+            voters.retain(|id| id != member_id);
+            if voters.is_empty() {
+                poll.votes.remove(option_id);
+            }
+        }
+        return true;
+    }
+    if !poll.multi {
+        for voters in poll.votes.values_mut() {
+            voters.retain(|id| id != member_id);
+        }
+        poll.votes.retain(|_, voters| !voters.is_empty());
+    }
+    poll.votes
+        .entry(option_id.to_string())
+        .or_default()
+        .push(member_id.to_string());
+    true
+}
+
+fn pinned_messages_payload(server: &Server) -> Map<String, Value> {
+    let mut pins = Map::new();
+    for channel in &server.channels {
+        let list = server
+            .messages
+            .get(&channel.id)
+            .map(|messages| {
+                messages
+                    .iter()
+                    .filter(|message| message.pinned_at.is_some())
+                    .cloned()
+                    .collect::<Vec<Message>>()
+            })
+            .unwrap_or_default();
+        if !list.is_empty() {
+            pins.insert(channel.id.clone(), json!(list));
+        }
+    }
+    pins
+}
+
 fn member_identity(value: &str) -> String {
     value
         .chars()
@@ -289,6 +408,10 @@ fn handle_message(state: &AppState, conn_id: u64, local: bool, ip: &str, msg: &V
         "server:reaction" => handle_server_reaction(state, conn_id, msg),
         "server:edit" => handle_server_edit(state, conn_id, msg),
         "server:delete" => handle_server_delete(state, conn_id, msg),
+        "server:pin" => handle_server_pin(state, conn_id, msg),
+        "server:poll" => handle_server_poll(state, conn_id, msg),
+        "server:poll:vote" => handle_server_poll_vote(state, conn_id, msg),
+        "server:poll:close" => handle_server_poll_close(state, conn_id, msg),
         "server:dm" => handle_server_dm(state, conn_id, msg),
         "server:dm:reaction" => handle_server_dm_reaction(state, conn_id, msg),
         "server:dm:edit" => handle_server_dm_edit(state, conn_id, msg),
@@ -311,6 +434,10 @@ fn handle_message(state: &AppState, conn_id: u64, local: bool, ip: &str, msg: &V
         "server:channel:duplicate" => handle_channel_duplicate(state, conn_id, msg),
         "server:channel:move" => handle_channel_move(state, conn_id, msg),
         "server:channel:delete" => handle_channel_delete(state, conn_id, msg),
+        "server:channel:category" => handle_channel_category(state, conn_id, msg),
+        "server:category:create" => handle_category_create(state, conn_id, msg),
+        "server:category:rename" => handle_category_rename(state, conn_id, msg),
+        "server:category:delete" => handle_category_delete(state, conn_id, msg),
         "server:profile" => handle_server_profile(state, conn_id, msg),
         "server:update" => handle_server_update(state, conn_id, msg),
         "server:activity" => handle_server_activity(state, conn_id, msg),
@@ -793,10 +920,13 @@ fn handle_join_server(state: &AppState, conn_id: u64, local: bool, ip: &str, msg
     let mut messages = Map::new();
     for channel in &server.channels {
         let list = server.messages.get(&channel.id).cloned().unwrap_or_default();
-        let start = list.len().saturating_sub(300);
-        messages.insert(channel.id.clone(), json!(list[start..]));
+        messages.insert(
+            channel.id.clone(),
+            json!(recent_messages_with_pins(&list, 300)),
+        );
     }
     let dms = state.server_dms_payload(&server, &member_id);
+    let pins = pinned_messages_payload(&server);
     let voice = state.voice_rooms_payload(&server.id);
     let spotify = state.spotify_rooms_payload(&server.id);
     send(
@@ -808,6 +938,7 @@ fn handle_join_server(state: &AppState, conn_id: u64, local: bool, ip: &str, msg
             "members": state.server_members_payload(&server),
             "messages": messages,
             "dms": dms,
+            "pins": pins,
             "you": { "memberId": member_id, "owner": owner },
             "voice": voice,
             "spotify": spotify,
@@ -868,12 +999,12 @@ pub fn server_info(server: &Server) -> Value {
         "invite": server.invite,
         "ownerId": server.owner_id,
         "createdAt": server.created_at,
-        "channels": server.channels.iter().map(|channel| json!({
-            "id": channel.id,
-            "name": channel.name,
-            "type": channel.channel_type,
-            "createdAt": channel.created_at,
+        "categories": server.categories.iter().map(|category| json!({
+            "id": category.id,
+            "name": category.name,
+            "createdAt": category.created_at,
         })).collect::<Vec<Value>>(),
+        "channels": server.channels.iter().map(channel_payload).collect::<Vec<Value>>(),
     })
 }
 
@@ -948,10 +1079,7 @@ fn handle_server_message(state: &AppState, conn_id: u64, msg: &Value) {
         };
         let list = server.messages.entry(channel.id.clone()).or_default();
         list.push(message.clone());
-        if list.len() > 300 {
-            dropped = list.first().cloned();
-            list.remove(0);
-        }
+        dropped = trim_messages(list, 300);
         server_id = server.id.clone();
         let payload = json!({ "type": "server:message", "message": message });
         drop(store);
@@ -1016,6 +1144,7 @@ fn handle_server_edit(state: &AppState, conn_id: u64, msg: &Value) {
     }
     let mut payload = None;
     let mut server_id = String::new();
+    let mut poll_message = false;
     {
         let mut store = state.servers.write();
         let Some(server) = store
@@ -1035,28 +1164,41 @@ fn handle_server_edit(state: &AppState, conn_id: u64, msg: &Value) {
         if list[index].author_id != session.member_id {
             return;
         }
-        list[index].text = text.clone();
-        list[index].edited_at = Some(now_ms());
-        let message = list[index].clone();
-        for other in server.messages.values_mut() {
-            for item in other.iter_mut() {
-                if item
-                    .reply_to
-                    .as_ref()
-                    .map(|reply| reply.id == message.id)
-                    .unwrap_or(false)
-                {
-                    if let Some(reply) = item.reply_to.as_mut() {
-                        reply.text = take_chars(text.trim(), 120);
+        if list[index].poll.is_some() {
+            poll_message = true;
+        } else {
+            list[index].text = text.clone();
+            list[index].edited_at = Some(now_ms());
+            let message = list[index].clone();
+            for other in server.messages.values_mut() {
+                for item in other.iter_mut() {
+                    if item
+                        .reply_to
+                        .as_ref()
+                        .map(|reply| reply.id == message.id)
+                        .unwrap_or(false)
+                    {
+                        if let Some(reply) = item.reply_to.as_mut() {
+                            reply.text = take_chars(text.trim(), 120);
+                        }
                     }
                 }
             }
+            payload = Some(json!({
+                "type": "server:edit",
+                "channelId": channel_id,
+                "message": message,
+            }));
         }
-        payload = Some(json!({
-            "type": "server:edit",
-            "channelId": channel_id,
-            "message": message,
-        }));
+    }
+    if poll_message {
+        send_server_error(
+            state,
+            conn_id,
+            "poll-message",
+            "Nie można edytować treści ankiety.",
+        );
+        return;
     }
     state.save_servers();
     if let Some(payload) = payload {
@@ -1106,6 +1248,253 @@ fn handle_server_delete(state: &AppState, conn_id: u64, msg: &Value) {
             }),
             None,
         );
+    }
+}
+
+fn handle_server_pin(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(session) = conn.server.clone() else { return };
+    let channel_id = payload_string(msg, "channelId");
+    let message_id = payload_string(msg, "messageId");
+    let client_id = payload_string(msg, "clientId");
+    let pinned = payload_bool(msg, "pinned");
+    let mut payload = None;
+    let mut server_id = String::new();
+    let mut error: Option<(&str, &str)> = None;
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        server_id = server.id.clone();
+        let Some(list) = server.messages.get_mut(&channel_id) else {
+            return;
+        };
+        let Some(index) = message_index(list, &message_id, &client_id) else {
+            return;
+        };
+        let can_pin = session.owner || list[index].author_id == session.member_id;
+        if !can_pin {
+            error = Some(("forbidden", "Możesz przypinać tylko własne wiadomości."));
+        } else if pinned {
+            let count = list
+                .iter()
+                .filter(|message| message.pinned_at.is_some())
+                .count();
+            if list[index].pinned_at.is_none() && count >= 100 {
+                error = Some(("pin-limit", "Na tym kanale jest już 100 przypiętych wiadomości."));
+            } else if list[index].pinned_at.is_none() {
+                list[index].pinned_at = Some(now_ms());
+            }
+        } else {
+            list[index].pinned_at = None;
+        }
+        if error.is_none() {
+            payload = Some(json!({
+                "type": "server:pin",
+                "channelId": channel_id,
+                "message": list[index],
+                "actorId": session.member_id,
+            }));
+        }
+    }
+    if let Some((code, message)) = error {
+        send_server_error(state, conn_id, code, message);
+        return;
+    }
+    if let Some(payload) = payload {
+        state.save_servers();
+        state.broadcast_server(&server_id, payload, None);
+    }
+}
+
+fn handle_server_poll(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(session) = conn.server.clone() else { return };
+    let channel_id = payload_string(msg, "channelId");
+    let question = take_chars(payload_string(msg, "text").trim(), 300);
+    if question.is_empty() {
+        send_server_error(state, conn_id, "poll-invalid", "Podaj pytanie ankiety.");
+        return;
+    }
+    let Some(options) = sanitize_poll_options(msg.get("options").unwrap_or(&Value::Null)) else {
+        send_server_error(
+            state,
+            conn_id,
+            "poll-invalid",
+            "Ankieta potrzebuje od 2 do 10 unikalnych odpowiedzi.",
+        );
+        return;
+    };
+    let duration_minutes = payload_u64(msg, "durationMinutes").unwrap_or(0);
+    let closes_at = if duration_minutes == 0 {
+        None
+    } else {
+        Some(now_ms() + duration_minutes.clamp(60, 10_080) * 60_000)
+    };
+    let reply_to_id = payload_string(msg, "replyToId");
+    let reply_to_client_id = payload_string(msg, "replyToClientId");
+    let mut dropped = None;
+    let mut server_id = String::new();
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        let Some(channel) = server.channels.iter().find(|channel| channel.id == channel_id) else {
+            return;
+        };
+        if channel.channel_type == "voice" {
+            drop(store);
+            send_server_error(
+                state,
+                conn_id,
+                "voice-channel",
+                "Kanały głosowe nie obsługują ankiet.",
+            );
+            return;
+        }
+        let message = Message {
+            id: new_message_id(),
+            client_id: payload_client_id(msg),
+            channel_id: Some(channel.id.clone()),
+            author_id: session.member_id.clone(),
+            author_name: session.name.clone(),
+            author_color: session.color.clone(),
+            to: None,
+            text: question,
+            at: now_ms(),
+            reply_to: server
+                .messages
+                .get(&channel.id)
+                .and_then(|list| reply_target(list, &reply_to_id, &reply_to_client_id)),
+            poll: Some(Poll {
+                options,
+                votes: Default::default(),
+                multi: payload_bool(msg, "multi"),
+                created_at: now_ms(),
+                closes_at,
+                closed_at: None,
+            }),
+            ..Default::default()
+        };
+        let list = server.messages.entry(channel.id.clone()).or_default();
+        list.push(message.clone());
+        dropped = trim_messages(list, 300);
+        server_id = server.id.clone();
+        let payload = json!({ "type": "server:message", "message": message });
+        drop(store);
+        state.save_servers();
+        state.broadcast_server(&server_id, payload, None);
+    }
+    if let Some(message) = dropped {
+        state.remove_media_from_messages(&[message]);
+    }
+}
+
+fn handle_server_poll_vote(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(session) = conn.server.clone() else { return };
+    let channel_id = payload_string(msg, "channelId");
+    let message_id = payload_string(msg, "messageId");
+    let client_id = payload_string(msg, "clientId");
+    let option_id = payload_string(msg, "optionId");
+    let mut payload = None;
+    let mut server_id = String::new();
+    let mut closed = false;
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        server_id = server.id.clone();
+        let Some(list) = server.messages.get_mut(&channel_id) else {
+            return;
+        };
+        let Some(index) = message_index(list, &message_id, &client_id) else {
+            return;
+        };
+        let now = now_ms();
+        let Some(poll) = list[index].poll.as_mut() else {
+            return;
+        };
+        if poll_is_closed(poll, now) {
+            closed = true;
+        } else if toggle_poll_vote(poll, &session.member_id, &option_id) {
+            payload = Some(json!({
+                "type": "server:poll:update",
+                "channelId": channel_id,
+                "message": list[index],
+            }));
+        }
+    }
+    if closed {
+        send_server_error(state, conn_id, "poll-closed", "Ta ankieta jest już zamknięta.");
+        return;
+    }
+    if let Some(payload) = payload {
+        state.save_servers();
+        state.broadcast_server(&server_id, payload, None);
+    }
+}
+
+fn handle_server_poll_close(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(conn) = state.conn(conn_id) else { return };
+    let Some(session) = conn.server.clone() else { return };
+    let channel_id = payload_string(msg, "channelId");
+    let message_id = payload_string(msg, "messageId");
+    let client_id = payload_string(msg, "clientId");
+    let mut payload = None;
+    let mut server_id = String::new();
+    let mut forbidden = false;
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        server_id = server.id.clone();
+        let Some(list) = server.messages.get_mut(&channel_id) else {
+            return;
+        };
+        let Some(index) = message_index(list, &message_id, &client_id) else {
+            return;
+        };
+        if !session.owner && list[index].author_id != session.member_id {
+            forbidden = true;
+        } else if let Some(poll) = list[index].poll.as_mut() {
+            if poll.closed_at.is_none() {
+                poll.closed_at = Some(now_ms());
+                payload = Some(json!({
+                    "type": "server:poll:update",
+                    "channelId": channel_id,
+                    "message": list[index],
+                }));
+            }
+        }
+    }
+    if forbidden {
+        send_server_error(state, conn_id, "forbidden", "Tylko autor ankiety może ją zamknąć.");
+        return;
+    }
+    if let Some(payload) = payload {
+        state.save_servers();
+        state.broadcast_server(&server_id, payload, None);
     }
 }
 
@@ -1698,6 +2087,24 @@ fn handle_channel_create(state: &AppState, conn_id: u64, msg: &Value) {
         );
         return;
     }
+    let requested_category = payload_string(msg, "categoryId");
+    let category_id = if requested_category.is_empty() {
+        String::new()
+    } else if server
+        .categories
+        .iter()
+        .any(|category| category.id == requested_category)
+    {
+        requested_category
+    } else {
+        send_server_error(
+            state,
+            conn_id,
+            "invalid-category",
+            "Nie znaleziono kategorii kanału.",
+        );
+        return;
+    };
     let channel = Channel {
         id: make_channel_id(),
         name,
@@ -1707,6 +2114,7 @@ fn handle_channel_create(state: &AppState, conn_id: u64, msg: &Value) {
             "text".to_string()
         },
         created_at: now_ms(),
+        category_id,
     };
     let mut updated = None;
     {
@@ -1747,7 +2155,22 @@ fn channel_payload(channel: &Channel) -> Value {
         "name": channel.name,
         "type": channel.channel_type,
         "createdAt": channel.created_at,
+        "categoryId": channel.category_id,
     })
+}
+
+fn categories_payload(server: &Server) -> Vec<Value> {
+    server
+        .categories
+        .iter()
+        .map(|category| {
+            json!({
+                "id": category.id,
+                "name": category.name,
+                "createdAt": category.created_at,
+            })
+        })
+        .collect()
 }
 
 fn copy_channel_name(server: &Server, source_name: &str) -> String {
@@ -1860,16 +2283,25 @@ fn handle_channel_duplicate(state: &AppState, conn_id: u64, msg: &Value) {
             name: copy_channel_name(server, &source.name),
             channel_type: source.channel_type.clone(),
             created_at: now_ms(),
+            category_id: source.category_id.clone(),
         };
         if source.channel_type == "text" {
             let source_messages = server.messages.get(&source.id).cloned().unwrap_or_default();
             let start = source_messages.len().saturating_sub(300);
             duplicated_messages = source_messages[start..]
                 .iter()
-                .map(|message| Message {
-                    id: new_message_id(),
-                    channel_id: Some(channel.id.clone()),
-                    ..message.clone()
+                .map(|message| {
+                    let mut copy = message.clone();
+                    copy.id = new_message_id();
+                    copy.channel_id = Some(channel.id.clone());
+                    copy.pinned_at = None;
+                    if let Some(poll) = copy.poll.as_mut() {
+                        poll.votes.clear();
+                        poll.created_at = now_ms();
+                        poll.closes_at = None;
+                        poll.closed_at = None;
+                    }
+                    copy
                 })
                 .collect();
         }
@@ -2021,6 +2453,265 @@ fn handle_channel_delete(state: &AppState, conn_id: u64, msg: &Value) {
     state.broadcast_server(
         &server.id,
         json!({ "type": "server:channels", "channels": channels_payload(&server) }),
+        None,
+    );
+}
+
+fn sanitize_category_name(value: &str) -> String {
+    take_chars(
+        &value
+            .trim()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" "),
+        32,
+    )
+}
+
+fn make_category_id() -> String {
+    format!("cat-{}", make_channel_id())
+}
+
+fn owner_session(state: &AppState, conn_id: u64) -> Option<ServerSession> {
+    let conn = state.conn(conn_id)?;
+    let session = conn.server.clone()?;
+    let server = state.find_hosted(&session.server_id)?;
+    if !session.owner || server.owner_id != session.member_id {
+        send_server_error(
+            state,
+            conn_id,
+            "forbidden",
+            "Tylko właściciel serwera może zarządzać kategoriami.",
+        );
+        return None;
+    }
+    Some(session)
+}
+
+fn handle_category_create(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(session) = owner_session(state, conn_id) else {
+        return;
+    };
+    let name = sanitize_category_name(&payload_string(msg, "name"));
+    if name.is_empty() {
+        send_server_error(
+            state,
+            conn_id,
+            "invalid-category",
+            "Podaj poprawną nazwę kategorii.",
+        );
+        return;
+    }
+    let mut server_id = String::new();
+    let mut categories = Vec::new();
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        if server
+            .categories
+            .iter()
+            .any(|category| category.name.to_lowercase() == name.to_lowercase())
+        {
+            drop(store);
+            send_server_error(
+                state,
+                conn_id,
+                "category-exists",
+                "Kategoria o tej nazwie już istnieje.",
+            );
+            return;
+        }
+        if server.categories.len() >= 20 {
+            drop(store);
+            send_server_error(
+                state,
+                conn_id,
+                "category-limit",
+                "Możesz utworzyć maksymalnie 20 kategorii.",
+            );
+            return;
+        }
+        server.categories.push(ChannelCategory {
+            id: make_category_id(),
+            name,
+            created_at: now_ms(),
+        });
+        categories = categories_payload(server);
+        server_id = server.id.clone();
+    }
+    state.save_servers();
+    state.broadcast_server(
+        &server_id,
+        json!({ "type": "server:categories", "categories": categories }),
+        None,
+    );
+}
+
+fn handle_category_rename(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(session) = owner_session(state, conn_id) else {
+        return;
+    };
+    let category_id = payload_string(msg, "categoryId");
+    let name = sanitize_category_name(&payload_string(msg, "name"));
+    if name.is_empty() {
+        send_server_error(
+            state,
+            conn_id,
+            "invalid-category",
+            "Podaj poprawną nazwę kategorii.",
+        );
+        return;
+    }
+    let mut server_id = String::new();
+    let mut categories = Vec::new();
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        if !server
+            .categories
+            .iter()
+            .any(|category| category.id == category_id)
+        {
+            drop(store);
+            send_server_error(state, conn_id, "invalid-category", "Nie znaleziono kategorii.");
+            return;
+        }
+        if server.categories.iter().any(|category| {
+            category.id != category_id && category.name.to_lowercase() == name.to_lowercase()
+        }) {
+            drop(store);
+            send_server_error(
+                state,
+                conn_id,
+                "category-exists",
+                "Kategoria o tej nazwie już istnieje.",
+            );
+            return;
+        }
+        if let Some(category) = server
+            .categories
+            .iter_mut()
+            .find(|category| category.id == category_id)
+        {
+            category.name = name;
+        }
+        categories = categories_payload(server);
+        server_id = server.id.clone();
+    }
+    state.save_servers();
+    state.broadcast_server(
+        &server_id,
+        json!({ "type": "server:categories", "categories": categories }),
+        None,
+    );
+}
+
+fn handle_category_delete(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(session) = owner_session(state, conn_id) else {
+        return;
+    };
+    let category_id = payload_string(msg, "categoryId");
+    let mut server_id = String::new();
+    let mut categories = Vec::new();
+    let mut channels = Vec::new();
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        if !server
+            .categories
+            .iter()
+            .any(|category| category.id == category_id)
+        {
+            drop(store);
+            send_server_error(state, conn_id, "invalid-category", "Nie znaleziono kategorii.");
+            return;
+        }
+        server
+            .categories
+            .retain(|category| category.id != category_id);
+        for channel in &mut server.channels {
+            if channel.category_id == category_id {
+                channel.category_id.clear();
+            }
+        }
+        categories = categories_payload(server);
+        channels = channels_payload(server);
+        server_id = server.id.clone();
+    }
+    state.save_servers();
+    state.broadcast_server(
+        &server_id,
+        json!({
+            "type": "server:categories",
+            "categories": categories,
+            "channels": channels,
+        }),
+        None,
+    );
+}
+
+fn handle_channel_category(state: &AppState, conn_id: u64, msg: &Value) {
+    let Some(session) = owner_session(state, conn_id) else {
+        return;
+    };
+    let channel_id = payload_string(msg, "channelId");
+    let category_id = payload_string(msg, "categoryId");
+    let mut server_id = String::new();
+    let mut channels = Vec::new();
+    {
+        let mut store = state.servers.write();
+        let Some(server) = store
+            .hosted
+            .iter_mut()
+            .find(|server| server.id == session.server_id)
+        else {
+            return;
+        };
+        if !category_id.is_empty()
+            && !server
+                .categories
+                .iter()
+                .any(|category| category.id == category_id)
+        {
+            drop(store);
+            send_server_error(state, conn_id, "invalid-category", "Nie znaleziono kategorii.");
+            return;
+        }
+        let Some(channel) = server
+            .channels
+            .iter_mut()
+            .find(|channel| channel.id == channel_id)
+        else {
+            drop(store);
+            send_server_error(state, conn_id, "invalid-channel", "Nie znaleziono kanału.");
+            return;
+        };
+        channel.category_id = category_id;
+        channels = channels_payload(server);
+        server_id = server.id.clone();
+    }
+    state.save_servers();
+    state.broadcast_server(
+        &server_id,
+        json!({ "type": "server:channels", "channels": channels }),
         None,
     );
 }
@@ -2853,6 +3544,103 @@ mod tests {
         assert_eq!(sanitize_reaction_emoji("  "), None);
         assert_eq!(sanitize_reaction_emoji(" 🔥 "), Some("🔥".to_string()));
         assert_eq!(sanitize_reaction_emoji(&"❤".repeat(20)).map(|value| value.chars().count()), Some(16));
+    }
+
+    #[test]
+    fn poll_votes_toggle_and_single_choice_replaces_previous() {
+        let mut poll = Poll {
+            options: vec![
+                PollOption {
+                    id: "o1".to_string(),
+                    text: "Tak".to_string(),
+                },
+                PollOption {
+                    id: "o2".to_string(),
+                    text: "Nie".to_string(),
+                },
+            ],
+            ..Default::default()
+        };
+        assert!(toggle_poll_vote(&mut poll, "u1", "o1"));
+        assert_eq!(poll.votes["o1"], vec!["u1".to_string()]);
+        assert!(toggle_poll_vote(&mut poll, "u2", "o2"));
+        assert_eq!(poll.votes["o2"], vec!["u2".to_string()]);
+        assert!(toggle_poll_vote(&mut poll, "u1", "o2"));
+        assert_eq!(poll.votes["o2"], vec!["u2".to_string(), "u1".to_string()]);
+        assert!(!poll.votes.contains_key("o1"));
+        assert!(toggle_poll_vote(&mut poll, "u1", "o2"));
+        assert_eq!(poll.votes["o2"], vec!["u2".to_string()]);
+        assert!(!toggle_poll_vote(&mut poll, "u1", "missing"));
+
+        poll.multi = true;
+        assert!(toggle_poll_vote(&mut poll, "u2", "o1"));
+        assert_eq!(poll.votes["o1"], vec!["u2".to_string()]);
+        assert_eq!(poll.votes["o2"], vec!["u2".to_string()]);
+        assert!(toggle_poll_vote(&mut poll, "u2", "o1"));
+        assert!(!poll.votes.contains_key("o1"));
+    }
+
+    #[test]
+    fn poll_options_are_deduplicated_and_validated() {
+        let options = sanitize_poll_options(&json!([" Tak ", "tak", "Nie", "", "  "]))
+            .expect("valid poll");
+        assert_eq!(options.len(), 2);
+        assert_eq!(options[0].id, "o1");
+        assert_eq!(options[0].text, "Tak");
+        assert_eq!(options[1].text, "Nie");
+        assert!(sanitize_poll_options(&json!(["tylko jedna"])).is_none());
+        assert!(sanitize_poll_options(&json!([])).is_none());
+        let many = sanitize_poll_options(&json!([
+            "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"
+        ]))
+        .expect("limited poll");
+        assert_eq!(many.len(), 10);
+    }
+
+    #[test]
+    fn pinned_messages_survive_history_trim() {
+        let mut list = (0..300)
+            .map(|index| message(&format!("m{index}"), "u1", index))
+            .collect::<Vec<Message>>();
+        list[2].pinned_at = Some(10);
+        list.push(message("new", "u1", 301));
+        let dropped = trim_messages(&mut list, 300).expect("trimmed message");
+        assert_eq!(dropped.id, "m0");
+        assert_eq!(list.len(), 300);
+        assert!(list.iter().any(|item| item.id == "m2" && item.pinned_at.is_some()));
+    }
+
+    #[test]
+    fn recent_history_keeps_old_pins() {
+        let mut list = (0..305)
+            .map(|index| message(&format!("m{index}"), "u1", index))
+            .collect::<Vec<Message>>();
+        list[2].pinned_at = Some(10);
+        let recent = recent_messages_with_pins(&list, 300);
+        assert_eq!(recent.len(), 301);
+        assert_eq!(recent[0].id, "m2");
+        assert!(!recent.iter().any(|item| item.id == "m0"));
+    }
+
+    #[test]
+    fn pinned_payload_contains_only_pinned_messages() {
+        let mut server = Server::default();
+        server.channels.push(Channel {
+            id: "general".to_string(),
+            name: "general".to_string(),
+            channel_type: "text".to_string(),
+            ..Default::default()
+        });
+        let mut pinned = message("m1", "u1", 1);
+        pinned.pinned_at = Some(2);
+        server.messages.insert(
+            "general".to_string(),
+            vec![pinned, message("m2", "u1", 3)],
+        );
+        let payload = pinned_messages_payload(&server);
+        let list = payload["general"].as_array().expect("pins list");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0]["id"], "m1");
     }
 
     #[test]

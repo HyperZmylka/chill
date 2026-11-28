@@ -197,6 +197,8 @@ let mentionState = { start: 0, end: 0, items: [], index: 0 };
 let inboxTab = 'foryou';
 let channelType = 'text';
 let editingChannelId = null;
+let editingCategoryId = null;
+let pendingCategoryDelete = false;
 let menuChannelId = null;
 let serverSettingsColor = '#3ee0a3';
 let serverSettingsBanner = 'graphite';
@@ -273,6 +275,7 @@ const DEFAULT_PREFS = {
   lang: 'pl',
   showAllChannels: true,
   hideMutedChannels: false,
+  collapsedCategories: {},
   micMuted: false,
   deafened: false,
   audioInput: '',
@@ -1231,6 +1234,85 @@ const I18N_EN = {
   'Anuluj odpowiedź': 'Cancel reply',
   'Odpowiadasz {name}': 'Replying to {name}',
   'Wiadomość': 'Message',
+  // Przypięcia, ankiety i kategorie
+  '1 dzień': '1 day',
+  '1 godzina': '1 hour',
+  '1 tydzień': '1 week',
+  '3 dni': '3 days',
+  '4 godziny': '4 hours',
+  '8 godzin': '8 hours',
+  'Ankieta potrzebuje co najmniej 2 odpowiedzi.': 'A poll needs at least 2 options.',
+  'Ankieta potrzebuje od 2 do 10 unikalnych odpowiedzi.': 'A poll needs 2 to 10 unique options.',
+  'Ankieta zamknięta': 'Poll closed',
+  'Ankiety są dostępne w kanałach tekstowych.': 'Polls are available in text channels.',
+  'Bez kategorii': 'No category',
+  'Bez terminu': 'No deadline',
+  'Brak kategorii. Utwórz pierwszą, aby pogrupować kanały.': 'No categories yet. Create one to group channels.',
+  'Brak połączenia': 'No connection',
+  'Brak przypiętych wiadomości w tym kanale.': 'No pinned messages in this channel.',
+  'Czas trwania': 'Duration',
+  'Dodaj odpowiedź': 'Add option',
+  'Gotowe': 'Done',
+  'Grupuj kanały, aby sidebar pozostał czytelny. Kliknij nazwę kategorii na liście, aby ją zwinąć.': 'Group channels to keep the sidebar tidy. Click a category name to collapse it.',
+  'Kategoria': 'Category',
+  'Kategorie kanałów': 'Channel categories',
+  'Koniec za {n} dni': 'Ends in {n} days',
+  'Koniec za {n} godz.': 'Ends in {n} hr',
+  'Koniec za {n} min': 'Ends in {n} min',
+  'Najważniejsze wiadomości z tego kanału w jednym miejscu.': 'The most important messages from this channel in one place.',
+  'Nazwa kategorii może mieć maksymalnie 32 znaki.': 'Category name can be at most 32 characters.',
+  'Nie udało się oddać głosu.': 'Could not cast the vote.',
+  'Nie udało się usunąć kategorii.': 'Could not delete the category.',
+  'Nie udało się utworzyć ankiety.': 'Could not create the poll.',
+  'Nie udało się zamknąć ankiety.': 'Could not close the poll.',
+  'Nie udało się zapisać kategorii.': 'Could not save the category.',
+  'Nie udało się zmienić przypięcia.': 'Could not change the pin.',
+  'Nowa ankieta': 'New poll',
+  'Nowa kategoria': 'New category',
+  'O co chcesz zapytać?': 'What do you want to ask?',
+  'Oddanych głosów: {n}': 'Votes cast: {n}',
+  'Oddałeś głos — kliknij, aby zmienić': 'You voted — click to change',
+  'Odepnij wiadomość': 'Unpin message',
+  'Odpowiedzi': 'Options',
+  'Odpowiedź': 'Option',
+  'Podaj poprawną nazwę kategorii.': 'Enter a valid category name.',
+  'Podaj pytanie ankiety.': 'Enter the poll question.',
+  'Pozwól wybrać wiele odpowiedzi': 'Allow multiple choices',
+  'Przypięta wiadomość': 'Pinned message',
+  'Przypięte wiadomości': 'Pinned messages',
+  'Przypięte wiadomości w #{name}': 'Pinned messages in #{name}',
+  'Przypnij wiadomość': 'Pin message',
+  'Pytanie': 'Question',
+  'Pytanie może mieć maksymalnie 300 znaków.': 'Question can be at most 300 characters.',
+  'Rozwiń kategorię': 'Expand category',
+  'Usuń kategorię': 'Delete category',
+  'Usuń odpowiedź': 'Remove option',
+  'Utwórz ankietę': 'Create poll',
+  'Wiadomość przypięta.': 'Message pinned.',
+  'Wiadomość odpięta.': 'Message unpinned.',
+  'Wielokrotny wybór': 'Multiple choice',
+  'Zadaj pytanie i dodaj od 2 do 10 odpowiedzi. Wyniki zobaczysz po oddaniu głosu.': 'Ask a question and add 2 to 10 options. Results appear after you vote.',
+  'Zadaj pytanie i dodaj od 2 do 10 odpowiedzi. Wyniki aktualizują się na żywo.': 'Ask a question and add 2 to 10 options. Results update live.',
+  'Zagłosuj, aby zobaczyć wynik': 'Vote to see the result',
+  'Kliknij odpowiedź, aby zagłosować': 'Click an option to vote',
+  'Zagłosuj: {option}': 'Vote: {option}',
+  'Zamknij ankietę': 'Close poll',
+  'Zarządzaj kategoriami': 'Manage categories',
+  'Zmień nazwę': 'Rename',
+  'Zwiń kategorię': 'Collapse category',
+  'np. Projekt': 'e.g. Project',
+  // Błędy serwera
+  'Możesz przypinać tylko własne wiadomości.': 'You can only pin your own messages.',
+  'Na tym kanale jest już 100 przypiętych wiadomości.': 'This channel already has 100 pinned messages.',
+  'Kanały głosowe nie obsługują ankiet.': 'Voice channels do not support polls.',
+  'Ta ankieta jest już zamknięta.': 'This poll is already closed.',
+  'Tylko autor ankiety może ją zamknąć.': 'Only the poll author can close it.',
+  'Nie znaleziono kategorii kanału.': 'Channel category not found.',
+  'Tylko właściciel serwera może zarządzać kategoriami.': 'Only the server owner can manage categories.',
+  'Kategoria o tej nazwie już istnieje.': 'A category with this name already exists.',
+  'Możesz utworzyć maksymalnie 20 kategorii.': 'You can create up to 20 categories.',
+  'Nie znaleziono kategorii.': 'Category not found.',
+  'Nie można edytować treści ankiety.': 'Poll content cannot be edited.',
 };
 
 function t(text, vars = null) {
@@ -1392,6 +1474,9 @@ function loadPrefs() {
   prefs.compact = Boolean(prefs.compact);
   prefs.showAllChannels = prefs.showAllChannels !== false;
   prefs.hideMutedChannels = prefs.hideMutedChannels === true;
+  prefs.collapsedCategories = prefs.collapsedCategories && typeof prefs.collapsedCategories === 'object' && !Array.isArray(prefs.collapsedCategories)
+    ? prefs.collapsedCategories
+    : {};
   prefs.micMuted = Boolean(prefs.micMuted);
   prefs.deafened = Boolean(prefs.deafened);
   prefs.audioInput = typeof prefs.audioInput === 'string' ? prefs.audioInput : '';
@@ -4534,10 +4619,13 @@ function handleServerFrame(serverId, msg) {
         const channelId = String(room?.channelId || '');
         if (channelId && room?.state?.embed) state.spotifyRooms.set(channelId, room.state);
       }
-      state.channels = (Array.isArray(msg.server?.channels) ? msg.server.channels : []).map((channel) => ({
-        ...channel,
-        type: channel.type === 'voice' ? 'voice' : 'text',
-      }));
+      state.channels = (Array.isArray(msg.server?.channels) ? msg.server.channels : []).map(normalizeServerChannel);
+      state.categories = normalizeServerCategories(msg.server?.categories);
+      state.pins = new Map();
+      for (const [channelId, list] of Object.entries(msg.pins || {})) {
+        if (!Array.isArray(list) || !list.length) continue;
+        state.pins.set(String(channelId), list.filter((message) => message && message.id));
+      }
       state.members = Array.isArray(msg.members) ? msg.members : [];
       if (msg.server) {
         state.server = {
@@ -4575,7 +4663,7 @@ function handleServerFrame(serverId, msg) {
         if (key.startsWith(`server:${serverId}:`)) history.delete(key);
       }
       for (const [channelId, list] of Object.entries(msg.messages || {})) {
-        history.set(`server:${serverId}:${channelId}`, Array.isArray(list) ? list.slice(-300) : []);
+        history.set(`server:${serverId}:${channelId}`, trimHistory(Array.isArray(list) ? list.slice() : []));
       }
 
       const dmPrefix = `dm:${serverFriendId(serverId, '')}`;
@@ -4763,10 +4851,7 @@ function handleServerFrame(serverId, msg) {
     }
 
     case 'server:channels': {
-      state.channels = (Array.isArray(msg.channels) ? msg.channels : []).map((channel) => ({
-        ...channel,
-        type: channel.type === 'voice' ? 'voice' : 'text',
-      }));
+      state.channels = (Array.isArray(msg.channels) ? msg.channels : []).map(normalizeServerChannel);
       if (activeServerId === serverId) {
         if (current.kind === 'server' && !state.channels.some((channel) => channel.id === current.id)) {
           current = { kind: 'server', serverId, id: state.channels[0]?.id || '' };
@@ -4785,7 +4870,7 @@ function handleServerFrame(serverId, msg) {
     case 'server:channel:created': {
       const channel = msg.channel;
       if (!channel?.id) break;
-      const normalized = { ...channel, type: channel.type === 'voice' ? 'voice' : 'text' };
+      const normalized = normalizeServerChannel(channel);
       if (!state.channels.some((item) => item.id === normalized.id)) state.channels.push(normalized);
       closeChannelModal();
       if (activeServerId === serverId) {
@@ -4798,7 +4883,7 @@ function handleServerFrame(serverId, msg) {
     case 'server:channel:renamed': {
       const channel = msg.channel;
       if (!channel?.id) break;
-      const normalized = { ...channel, type: channel.type === 'voice' ? 'voice' : 'text' };
+      const normalized = normalizeServerChannel(channel);
       const index = state.channels.findIndex((item) => item.id === normalized.id);
       if (index >= 0) state.channels[index] = { ...state.channels[index], ...normalized };
       else state.channels.push(normalized);
@@ -4812,9 +4897,9 @@ function handleServerFrame(serverId, msg) {
     case 'server:channel:duplicated': {
       const channel = msg.channel;
       if (!channel?.id) break;
-      const normalized = { ...channel, type: channel.type === 'voice' ? 'voice' : 'text' };
+      const normalized = normalizeServerChannel(channel);
       if (!state.channels.some((item) => item.id === normalized.id)) state.channels.push(normalized);
-      history.set(`server:${serverId}:${normalized.id}`, Array.isArray(msg.messages) ? msg.messages.slice(-300) : []);
+      history.set(`server:${serverId}:${normalized.id}`, trimHistory(Array.isArray(msg.messages) ? msg.messages.slice() : []));
       if (msg.actorId === state.you?.memberId) {
         toast(t('Kanał „{name}” został powielony.', { name: normalized.name }));
         if (activeServerId === serverId) selectChannel(normalized.id);
@@ -4834,6 +4919,7 @@ function handleServerFrame(serverId, msg) {
         toast(t('Kanał „{name}” został usunięty.', { name: msg.name || '' }));
       }
       clearUnread(`server:${serverId}:${msg.channelId}`);
+      state.pins.delete(String(msg.channelId || ''));
       if (deleteChannelId === msg.channelId) {
         pendingChannelDelete = false;
         deleteChannelId = null;
@@ -4896,12 +4982,18 @@ function handleServerFrame(serverId, msg) {
       if (!channelId) return;
       const key = `server:${serverId}:${channelId}`;
       replaceHistoryMessage(key, message);
+      const pinned = state.pins.get(channelId);
+      if (pinned) {
+        const index = pinned.findIndex((item) => item.id === message.id);
+        if (index >= 0) pinned[index] = { ...pinned[index], ...message };
+      }
       if (pendingReply?.id === message.id) {
         pendingReply.text = messagePreviewText(message);
         renderPendingReply();
       }
       if (current.kind === 'server' && current.serverId === serverId && current.id === channelId) {
         renderMessages(false);
+        if (!$('pinsOverlay').hidden) renderPinsPanel();
       }
       break;
     }
@@ -4912,11 +5004,71 @@ function handleServerFrame(serverId, msg) {
       const clientId = String(msg.clientId || '');
       if (!channelId || (!messageId && !clientId)) return;
       removeHistoryMessage(`server:${serverId}:${channelId}`, messageId, clientId);
+      const pins = (state.pins.get(channelId) || []).filter((message) => (
+        message.id !== messageId && !(clientId && message.clientId === clientId)
+      ));
+      if (pins.length) state.pins.set(channelId, pins);
+      else state.pins.delete(channelId);
       if (pendingReply && (pendingReply.id === messageId || (clientId && pendingReply.clientId === clientId))) {
         clearPendingReply();
       }
       if (current.kind === 'server' && current.serverId === serverId && current.id === channelId) {
         renderMessages(false);
+        renderHeader();
+        if (!$('pinsOverlay').hidden) renderPinsPanel();
+      }
+      break;
+    }
+
+    case 'server:pin': {
+      const message = msg.message;
+      if (!message?.id) return;
+      const channelId = String(message.channelId || msg.channelId || '');
+      if (!channelId) return;
+      replaceHistoryMessage(`server:${serverId}:${channelId}`, message);
+      const pins = (state.pins.get(channelId) || []).filter((item) => item.id !== message.id);
+      if (message.pinnedAt) {
+        pins.push(message);
+        pins.sort((a, b) => Number(b.pinnedAt || 0) - Number(a.pinnedAt || 0));
+      }
+      if (pins.length) state.pins.set(channelId, pins);
+      else state.pins.delete(channelId);
+      if (msg.actorId === state.you?.memberId) {
+        toast(t(message.pinnedAt ? 'Wiadomość przypięta.' : 'Wiadomość odpięta.'));
+      }
+      if (current.kind === 'server' && current.serverId === serverId && current.id === channelId) {
+        renderMessages(false);
+        renderHeader();
+        if (!$('pinsOverlay').hidden) renderPinsPanel();
+      }
+      break;
+    }
+
+    case 'server:poll:update': {
+      const message = msg.message;
+      if (!message?.id) return;
+      const channelId = String(message.channelId || msg.channelId || '');
+      if (!channelId) return;
+      replaceHistoryMessage(`server:${serverId}:${channelId}`, message);
+      if (current.kind === 'server' && current.serverId === serverId && current.id === channelId) {
+        renderMessages(false);
+      }
+      break;
+    }
+
+    case 'server:categories': {
+      state.categories = normalizeServerCategories(msg.categories);
+      if (Array.isArray(msg.channels)) state.channels = msg.channels.map(normalizeServerChannel);
+      pendingCategoryDelete = false;
+      if ($('createCategoryBtn')) $('createCategoryBtn').disabled = false;
+      if (activeServerId === serverId) {
+        renderSidebar();
+        renderHeader();
+        if (!$('channelOverlay').hidden) {
+          const editing = state.channels.find((channel) => channel.id === editingChannelId);
+          populateChannelCategorySelect(editing ? editing.categoryId : '');
+        }
+        if (!$('categoryOverlay').hidden) renderCategoryManager();
       }
       break;
     }
@@ -5042,9 +5194,18 @@ function handleServerFrame(serverId, msg) {
       if (msg.code === 'voice-channel' && liveVoice?.serverId === serverId) {
         stopLiveVoice({ silent: true });
       }
-      if (!$('channelOverlay').hidden && ['invalid-channel', 'channel-exists', 'forbidden', 'voice-channel'].includes(msg.code)) {
+      if (!$('channelOverlay').hidden && ['invalid-channel', 'channel-exists', 'forbidden', 'voice-channel', 'invalid-category'].includes(msg.code)) {
         $('channelError').textContent = state.error;
         $('createChannelBtn').disabled = false;
+      }
+      if (!$('categoryOverlay').hidden && ['invalid-category', 'category-exists', 'category-limit', 'forbidden'].includes(msg.code)) {
+        $('categoryError').textContent = state.error;
+        $('createCategoryBtn').disabled = false;
+        pendingCategoryDelete = false;
+      }
+      if (!$('pollOverlay').hidden && ['poll-invalid', 'voice-channel', 'forbidden'].includes(msg.code)) {
+        $('pollError').textContent = state.error;
+        $('createPollBtn').disabled = false;
       }
       if (!$('channelDeleteOverlay').hidden && ['invalid-channel', 'forbidden'].includes(msg.code)) {
         pendingChannelDelete = false;
@@ -5511,6 +5672,38 @@ function bindServers() {
     }
   });
 
+  // Kategorie kanałów
+  $('addCategoryBtn').addEventListener('click', () => openCategoryManager());
+  $('closeCategoryModal').addEventListener('click', closeCategoryManager);
+  $('cancelCategoryBtn').addEventListener('click', closeCategoryManager);
+  $('categoryOverlay').addEventListener('click', (e) => {
+    if (e.target === $('categoryOverlay')) closeCategoryManager();
+  });
+  $('createCategoryBtn').addEventListener('click', submitCategoryForm);
+  $('categoryNameInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      submitCategoryForm();
+    }
+  });
+
+  // Przypięte wiadomości
+  $('pinsBtn').addEventListener('click', openPinsPanel);
+  $('closePinsPanel').addEventListener('click', closePinsPanel);
+  $('pinsOverlay').addEventListener('click', (e) => {
+    if (e.target === $('pinsOverlay')) closePinsPanel();
+  });
+
+  // Ankiety
+  $('pollBtn').addEventListener('click', openPollModal);
+  $('closePollModal').addEventListener('click', closePollModal);
+  $('cancelPollBtn').addEventListener('click', closePollModal);
+  $('pollOverlay').addEventListener('click', (e) => {
+    if (e.target === $('pollOverlay')) closePollModal();
+  });
+  $('addPollOption').addEventListener('click', () => addPollOptionRow());
+  $('createPollBtn').addEventListener('click', createPollFromModal);
+
   // Menu kontekstowe kanału
   $('channelMenu').addEventListener('click', (event) => {
     event.stopPropagation();
@@ -5580,6 +5773,7 @@ function openChannelModal() {
   if ($('channelModalLead')) $('channelModalLead').textContent = t('Wybierz typ kanału i nadaj mu nazwę.');
   if ($('channelTypeField')) $('channelTypeField').hidden = false;
   $('newChannelName').value = '';
+  populateChannelCategorySelect('');
   $('channelError').textContent = '';
   $('createChannelBtn').textContent = t('Stwórz');
   $('createChannelBtn').disabled = false;
@@ -5596,6 +5790,7 @@ function openChannelEdit(channel) {
   if ($('channelModalLead')) $('channelModalLead').textContent = t('Zmień nazwę kanału. Historia wiadomości pozostanie bez zmian.');
   if ($('channelTypeField')) $('channelTypeField').hidden = true;
   $('newChannelName').value = channel.name;
+  populateChannelCategorySelect(channel.categoryId);
   $('channelError').textContent = '';
   $('createChannelBtn').textContent = t('Zapisz');
   $('createChannelBtn').disabled = false;
@@ -5639,22 +5834,31 @@ function createChannelFromModal() {
     errorEl.textContent = t('Nazwa kanału może mieć maksymalnie 32 znaki.');
     return;
   }
+  const categoryId = $('newChannelCategory')?.value || '';
   if (editingChannelId) {
     const channel = state.channels.find((item) => item.id === editingChannelId);
     if (!channel) {
       closeChannelModal();
       return;
     }
-    if (channel.name === name) {
+    const renaming = channel.name !== name;
+    const moving = String(channel.categoryId || '') !== categoryId;
+    if (!renaming && !moving) {
       closeChannelModal();
       return;
     }
     $('createChannelBtn').disabled = true;
-    state.ws.send(JSON.stringify({ type: 'server:channel:rename', channelId: channel.id, name }));
+    if (renaming) {
+      state.ws.send(JSON.stringify({ type: 'server:channel:rename', channelId: channel.id, name }));
+    }
+    if (moving) {
+      state.ws.send(JSON.stringify({ type: 'server:channel:category', channelId: channel.id, categoryId }));
+    }
+    if (!renaming) closeChannelModal();
     return;
   }
   $('createChannelBtn').disabled = true;
-  state.ws.send(JSON.stringify({ type: 'server:channel:create', name, channelType }));
+  state.ws.send(JSON.stringify({ type: 'server:channel:create', name, channelType, categoryId }));
 }
 
 function currentMenuChannel() {
@@ -5828,7 +6032,7 @@ function renderServerMenu() {
     rows.push(serverMenuButton('settings', '⚙️', t('Ustawienia serwera')));
     rows.push(serverMenuButton('insights', '📊', t('Wgląd w serwer')));
     rows.push(serverMenuButton('create-channel', '➕', t('Utworzenie kanału')));
-    rows.push(serverMenuButton('category', '📁', t('Stwórz kategorię'), { badge: soon }));
+    rows.push(serverMenuButton('category', '📁', t('Zarządzaj kategoriami')));
     rows.push(serverMenuButton('event', '🗓', t('Stwórz wydarzenie'), { badge: soon }));
     rows.push(serverMenuButton('apps', '🧩', t('Katalog aplikacji'), { badge: soon }));
   } else {
@@ -5924,7 +6128,11 @@ function handleServerAction(action) {
     return;
   }
   closeServerMenu();
-  if (action === 'boost' || action === 'category' || action === 'event' || action === 'apps' || action === 'security' || action === 'report') {
+  if (action === 'category') {
+    openCategoryManager();
+    return;
+  }
+  if (action === 'boost' || action === 'event' || action === 'apps' || action === 'security' || action === 'report') {
     toast(t('Ta funkcja pojawi się wkrótce.'));
     return;
   }
@@ -6612,6 +6820,369 @@ function confirmDeleteChannel() {
   pendingChannelDelete = true;
   $('confirmDeleteChannel').disabled = true;
   state.ws.send(JSON.stringify({ type: 'server:channel:delete', channelId: channel.id }));
+}
+
+function populateChannelCategorySelect(selectedId = '') {
+  const select = $('newChannelCategory');
+  if (!select) return;
+  const state = serverState(activeServerId);
+  const categories = state?.categories || [];
+  select.innerHTML = '';
+  const none = document.createElement('option');
+  none.value = '';
+  none.textContent = t('Bez kategorii');
+  select.appendChild(none);
+  for (const category of categories) {
+    const option = document.createElement('option');
+    option.value = category.id;
+    option.textContent = category.name;
+    select.appendChild(option);
+  }
+  select.value = categories.some((category) => category.id === selectedId) ? selectedId : '';
+}
+
+function openCategoryManager(categoryId = '') {
+  if (!canManageChannels()) return;
+  closeServerMenu();
+  editingCategoryId = null;
+  pendingCategoryDelete = false;
+  $('categoryNameInput').value = '';
+  $('categoryError').textContent = '';
+  $('createCategoryBtn').textContent = t('Dodaj');
+  $('createCategoryBtn').disabled = false;
+  renderCategoryManager();
+  $('categoryOverlay').hidden = false;
+  if (categoryId) {
+    const category = serverState(activeServerId)?.categories.find((item) => item.id === categoryId);
+    if (category) startCategoryEdit(category);
+  }
+  setTimeout(() => $('categoryNameInput').focus(), 40);
+}
+
+function closeCategoryManager() {
+  editingCategoryId = null;
+  pendingCategoryDelete = false;
+  $('categoryOverlay').hidden = true;
+  $('categoryNameInput').value = '';
+  $('categoryError').textContent = '';
+  $('createCategoryBtn').textContent = t('Dodaj');
+  $('createCategoryBtn').disabled = false;
+}
+
+function startCategoryEdit(category) {
+  if (!category) return;
+  editingCategoryId = category.id;
+  pendingCategoryDelete = false;
+  $('categoryNameInput').value = category.name;
+  $('categoryError').textContent = '';
+  $('createCategoryBtn').textContent = t('Zapisz');
+  $('categoryNameInput').focus();
+  $('categoryNameInput').select();
+}
+
+function renderCategoryManager() {
+  const list = $('categoryManagerList');
+  if (!list) return;
+  const state = serverState(activeServerId);
+  const categories = state?.categories || [];
+  list.innerHTML = '';
+  if (!categories.length) {
+    const empty = document.createElement('div');
+    empty.className = 'category-manager-empty';
+    empty.textContent = t('Brak kategorii. Utwórz pierwszą, aby pogrupować kanały.');
+    list.appendChild(empty);
+    return;
+  }
+  for (const category of categories) {
+    const count = (state.channels || []).filter((channel) => channel.categoryId === category.id).length;
+    const row = document.createElement('div');
+    row.className = `category-manager-row${category.id === editingCategoryId ? ' editing' : ''}`;
+    row.innerHTML = `
+      <span class="category-manager-icon" aria-hidden="true">📁</span>
+      <span class="category-manager-name"></span>
+      <span class="category-manager-count">${count}</span>
+      <button type="button" class="icon-btn category-manager-btn" data-category-rename title="${esc(t('Zmień nazwę'))}" aria-label="${esc(t('Zmień nazwę'))}">✎</button>
+      <button type="button" class="icon-btn category-manager-btn danger" data-category-delete title="${esc(t('Usuń kategorię'))}" aria-label="${esc(t('Usuń kategorię'))}">🗑</button>
+    `;
+    row.querySelector('.category-manager-name').textContent = category.name;
+    row.querySelector('[data-category-rename]').addEventListener('click', () => startCategoryEdit(category));
+    const remove = row.querySelector('[data-category-delete]');
+    remove.addEventListener('click', () => {
+      if (remove.dataset.confirm !== '1') {
+        remove.dataset.confirm = '1';
+        remove.textContent = '⚠';
+        remove.classList.add('confirming');
+        clearTimeout(remove._timer);
+        remove._timer = setTimeout(() => {
+          if (!remove.isConnected) return;
+          remove.dataset.confirm = '';
+          remove.textContent = '🗑';
+          remove.classList.remove('confirming');
+        }, 3200);
+        return;
+      }
+      deleteCategory(category.id);
+    });
+    list.appendChild(row);
+  }
+}
+
+function submitCategoryForm() {
+  const state = serverState(activeServerId);
+  if (!state || !canManageChannels()) return;
+  const name = $('categoryNameInput').value.trim().replace(/\s+/g, ' ');
+  const error = $('categoryError');
+  error.textContent = '';
+  if (!name) {
+    error.textContent = t('Podaj poprawną nazwę kategorii.');
+    $('categoryNameInput').focus();
+    return;
+  }
+  if (name.length > 32) {
+    error.textContent = t('Nazwa kategorii może mieć maksymalnie 32 znaki.');
+    return;
+  }
+  const payload = editingCategoryId
+    ? { type: 'server:category:rename', categoryId: editingCategoryId, name }
+    : { type: 'server:category:create', name };
+  $('createCategoryBtn').disabled = true;
+  try {
+    state.ws.send(JSON.stringify(payload));
+  } catch {
+    $('createCategoryBtn').disabled = false;
+    error.textContent = t('Nie udało się zapisać kategorii.');
+    return;
+  }
+  editingCategoryId = null;
+  pendingCategoryDelete = false;
+  $('categoryNameInput').value = '';
+  $('createCategoryBtn').textContent = t('Dodaj');
+  renderCategoryManager();
+}
+
+function deleteCategory(categoryId) {
+  const state = serverState(activeServerId);
+  if (!state || !categoryId || !canManageChannels()) return;
+  if (pendingCategoryDelete) return;
+  pendingCategoryDelete = true;
+  try {
+    state.ws.send(JSON.stringify({ type: 'server:category:delete', categoryId }));
+  } catch {
+    pendingCategoryDelete = false;
+    toast(t('Nie udało się usunąć kategorii.'));
+    return;
+  }
+  if (editingCategoryId === categoryId) {
+    editingCategoryId = null;
+    $('categoryNameInput').value = '';
+    $('createCategoryBtn').textContent = t('Dodaj');
+  }
+  setTimeout(() => { pendingCategoryDelete = false; }, 1200);
+}
+
+function currentPinnedMessages() {
+  const state = current.kind === 'server' ? serverState(current.serverId) : null;
+  if (!state || current.kind !== 'server') return [];
+  return state.pins.get(current.id) || [];
+}
+
+function openPinsPanel() {
+  if (current.kind !== 'server') return;
+  $('pinsOverlay').hidden = false;
+  renderPinsPanel();
+}
+
+function closePinsPanel() {
+  $('pinsOverlay').hidden = true;
+}
+
+function renderPinsPanel() {
+  const list = $('pinsList');
+  if (!list) return;
+  const state = current.kind === 'server' ? serverState(current.serverId) : null;
+  const channel = state?.channels.find((item) => item.id === current.id);
+  const pins = currentPinnedMessages()
+    .slice()
+    .sort((a, b) => Number(b.pinnedAt || 0) - Number(a.pinnedAt || 0));
+  $('pinsTitle').textContent = channel
+    ? t('Przypięte wiadomości w #{name}', { name: channel.name })
+    : t('Przypięte wiadomości');
+  list.innerHTML = '';
+  if (!pins.length) {
+    const empty = document.createElement('div');
+    empty.className = 'pins-empty';
+    empty.textContent = t('Brak przypiętych wiadomości w tym kanale.');
+    list.appendChild(empty);
+    return;
+  }
+  for (const pin of pins) {
+    const row = document.createElement('div');
+    row.className = 'pin-row';
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'pin-open';
+    open.innerHTML = `
+      <span class="pin-head"><strong></strong><span class="pin-time"></span></span>
+      <span class="pin-text"></span>
+    `;
+    open.querySelector('strong').textContent = pin.authorName || t('Użytkownik');
+    open.querySelector('.pin-time').textContent = formatTime(pin.pinnedAt || pin.at);
+    open.querySelector('.pin-text').textContent = takeText(messagePreviewText(pin), 180);
+    open.addEventListener('click', () => {
+      closePinsPanel();
+      scrollToMessage(pin.id);
+    });
+    row.appendChild(open);
+    if (state?.you?.owner || pin.authorId === state?.you?.memberId) {
+      const unpin = document.createElement('button');
+      unpin.type = 'button';
+      unpin.className = 'icon-btn pin-unpin';
+      unpin.title = t('Odepnij wiadomość');
+      unpin.setAttribute('aria-label', t('Odepnij wiadomość'));
+      unpin.textContent = '📌';
+      unpin.addEventListener('click', () => toggleMessagePin(pin));
+      row.appendChild(unpin);
+    }
+    list.appendChild(row);
+  }
+}
+
+function takeText(value, limit) {
+  const text = String(value ?? '');
+  if (text.length <= limit) return text;
+  return `${text.slice(0, Math.max(0, limit - 1))}…`;
+}
+
+function pollOptionRow(value = '') {
+  const row = document.createElement('div');
+  row.className = 'poll-option-row';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.maxLength = 100;
+  input.placeholder = t('Odpowiedź');
+  input.value = value;
+  const remove = document.createElement('button');
+  remove.type = 'button';
+  remove.className = 'icon-btn poll-option-remove';
+  remove.title = t('Usuń odpowiedź');
+  remove.setAttribute('aria-label', t('Usuń odpowiedź'));
+  remove.textContent = '✕';
+  remove.addEventListener('click', () => {
+    if ($('pollOptions').children.length <= 2) {
+      toast(t('Ankieta potrzebuje co najmniej 2 odpowiedzi.'));
+      return;
+    }
+    row.remove();
+    updatePollOptionControls();
+  });
+  row.appendChild(input);
+  row.appendChild(remove);
+  return row;
+}
+
+function updatePollOptionControls() {
+  const container = $('pollOptions');
+  if (!container) return;
+  const count = container.children.length;
+  $('addPollOption').disabled = count >= 10;
+  $('pollOptionsCount').textContent = `${count} / 10`;
+}
+
+function addPollOptionRow(value = '') {
+  const container = $('pollOptions');
+  if (!container || container.children.length >= 10) return;
+  container.appendChild(pollOptionRow(value));
+  updatePollOptionControls();
+}
+
+function openPollModal() {
+  if (current.kind !== 'server') {
+    toast(t('Ankiety są dostępne w kanałach tekstowych.'));
+    return;
+  }
+  const state = serverState(current.serverId);
+  const channel = state?.channels.find((item) => item.id === current.id);
+  if (!state || !channel || channel.type === 'voice' || state.status !== 'online') {
+    toast(t('Ankiety są dostępne w kanałach tekstowych.'));
+    return;
+  }
+  $('pollQuestion').value = '';
+  $('pollOptions').innerHTML = '';
+  addPollOptionRow();
+  addPollOptionRow();
+  $('pollDuration').value = '0';
+  $('pollMulti').checked = false;
+  $('pollError').textContent = '';
+  $('createPollBtn').disabled = false;
+  $('pollOverlay').hidden = false;
+  setTimeout(() => $('pollQuestion').focus(), 40);
+}
+
+function closePollModal() {
+  $('pollOverlay').hidden = true;
+  $('pollQuestion').value = '';
+  $('pollOptions').innerHTML = '';
+  $('pollError').textContent = '';
+  $('createPollBtn').disabled = false;
+}
+
+function createPollFromModal() {
+  const state = serverState(activeServerId);
+  const channel = state?.channels.find((item) => item.id === current.id);
+  if (!state || !channel || channel.type === 'voice') {
+    closePollModal();
+    return;
+  }
+  const error = $('pollError');
+  error.textContent = '';
+  const question = $('pollQuestion').value.trim();
+  if (!question) {
+    error.textContent = t('Podaj pytanie ankiety.');
+    $('pollQuestion').focus();
+    return;
+  }
+  if (question.length > 300) {
+    error.textContent = t('Pytanie może mieć maksymalnie 300 znaków.');
+    return;
+  }
+  const options = [];
+  const seen = new Set();
+  for (const input of $('pollOptions').querySelectorAll('input')) {
+    const value = input.value.trim().replace(/\s+/g, ' ');
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    options.push(value);
+    if (options.length >= 10) break;
+  }
+  if (options.length < 2) {
+    error.textContent = t('Ankieta potrzebuje od 2 do 10 unikalnych odpowiedzi.');
+    return;
+  }
+  const reply = pendingReply && pendingReply.key === conversationKey() ? pendingReply : null;
+  const payload = {
+    type: 'server:poll',
+    channelId: channel.id,
+    text: question,
+    options,
+    multi: $('pollMulti').checked,
+    durationMinutes: Number($('pollDuration').value) || 0,
+  };
+  if (reply) {
+    payload.replyToId = reply.id;
+    if (reply.clientId) payload.replyToClientId = reply.clientId;
+  }
+  $('createPollBtn').disabled = true;
+  try {
+    state.ws.send(JSON.stringify(payload));
+  } catch {
+    $('createPollBtn').disabled = false;
+    error.textContent = t('Nie udało się utworzyć ankiety.');
+    return;
+  }
+  if (reply) clearPendingReply({ focus: false });
+  closePollModal();
 }
 
 function openServerModal(tab = 'create') {
@@ -7395,10 +7966,19 @@ function clearUnread(key) {
   mentionUnread.delete(key);
 }
 
+function trimHistory(list, limit = 300) {
+  if (!Array.isArray(list)) return [];
+  while (list.length > limit) {
+    const index = list.findIndex((item) => !item?.pinnedAt);
+    list.splice(index >= 0 ? index : 0, 1);
+  }
+  return list;
+}
+
 function pushHistory(key, message) {
   const list = history.get(key) || [];
   list.push(message);
-  if (list.length > 300) list.shift();
+  trimHistory(list);
   history.set(key, list);
 }
 
@@ -7434,6 +8014,50 @@ function serverState(id) {
   return serverStates.get(id) || null;
 }
 
+function normalizeServerChannel(channel) {
+  return {
+    ...channel,
+    type: channel?.type === 'voice' ? 'voice' : 'text',
+    categoryId: String(channel?.categoryId || ''),
+  };
+}
+
+function normalizeServerCategories(value) {
+  if (!Array.isArray(value)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of value) {
+    const id = String(item?.id || '').slice(0, 64);
+    const name = String(item?.name || '').replace(/\s+/g, ' ').trim().slice(0, 32);
+    if (!id || !name || seen.has(id)) continue;
+    seen.add(id);
+    out.push({ id, name, createdAt: Number(item?.createdAt) || 0 });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
+function categoryCollapsed(serverId, categoryId) {
+  const list = prefs.collapsedCategories?.[serverId];
+  return Array.isArray(list) && list.includes(categoryId);
+}
+
+function toggleCategoryCollapsed(serverId, categoryId) {
+  if (!serverId || !categoryId) return;
+  const map = prefs.collapsedCategories && typeof prefs.collapsedCategories === 'object'
+    ? { ...prefs.collapsedCategories }
+    : {};
+  const list = Array.isArray(map[serverId]) ? map[serverId].slice() : [];
+  const index = list.indexOf(categoryId);
+  if (index >= 0) list.splice(index, 1);
+  else list.push(categoryId);
+  if (list.length) map[serverId] = list;
+  else delete map[serverId];
+  prefs.collapsedCategories = map;
+  savePrefs();
+  renderChannels();
+}
+
 function ensureServerState(server) {
   let state = serverStates.get(server.id);
   if (!state) {
@@ -7442,6 +8066,8 @@ function ensureServerState(server) {
       ws: null,
       status: 'offline',
       channels: [],
+      categories: [],
+      pins: new Map(),
       members: [],
       you: null,
       voiceRooms: new Map(),
@@ -7658,6 +8284,7 @@ function renderSidebar() {
     $('serverBannerAvatar').style.background = safeColor(state.server.color, 'var(--panel-2)');
     $('serverOwnerPill').hidden = !state.you?.owner;
     $('addChannelBtn').hidden = !(state.you?.owner && state.status === 'online');
+    $('addCategoryBtn').hidden = $('addChannelBtn').hidden;
     renderChannels();
   } else {
     renderDmList();
@@ -7702,6 +8329,120 @@ function renderServers() {
   }
 }
 
+function buildCategoryHeader(state, category, count) {
+  const collapsed = categoryCollapsed(state.server.id, category.id);
+  const row = document.createElement('div');
+  row.className = `channel-category${collapsed ? ' collapsed' : ''}`;
+  row.dataset.categoryId = category.id;
+  const toggle = document.createElement('button');
+  toggle.type = 'button';
+  toggle.className = 'category-toggle';
+  toggle.setAttribute('aria-expanded', String(!collapsed));
+  toggle.title = collapsed ? t('Rozwiń kategorię') : t('Zwiń kategorię');
+  toggle.innerHTML = `
+    <span class="category-chevron" aria-hidden="true">⌄</span>
+    <span class="category-name"></span>
+    <span class="category-count">${count}</span>
+  `;
+  toggle.querySelector('.category-name').textContent = category.name;
+  toggle.addEventListener('click', () => toggleCategoryCollapsed(state.server.id, category.id));
+  row.appendChild(toggle);
+  if (state.you?.owner) {
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'category-edit';
+    edit.title = t('Zarządzaj kategoriami');
+    edit.setAttribute('aria-label', t('Zarządzaj kategoriami'));
+    edit.textContent = '✎';
+    edit.addEventListener('click', (event) => {
+      event.stopPropagation();
+      openCategoryManager(category.id);
+    });
+    row.appendChild(edit);
+  }
+  return row;
+}
+
+function appendChannelNavItem(container, state, channel, settings, isActive, count) {
+  const voice = channel.type === 'voice';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = `nav-item${voice ? ' voice-channel' : ''}${isActive ? ' active' : ''}${count ? ' unread' : ''}${settings.pinned ? ' pinned' : ''}${settings.muted ? ' muted' : ''}`;
+  button.title = voice ? t('Kanał głosowy') : `#${channel.name}`;
+  if (state.you?.owner) button.setAttribute('aria-haspopup', 'menu');
+  button.innerHTML = `
+    <span class="nav-icon${voice ? ' voice-icon' : ''}">${voice ? '🔊' : '#'}</span>
+    <span class="nav-label">${esc(channel.name)}</span>
+    ${settings.pinned ? `<span class="nav-pin" title="${esc(t('Przypięty'))}" aria-hidden="true">📌</span>` : ''}
+    ${settings.muted ? `<span class="nav-muted" title="${esc(t('Wyciszony'))}" aria-hidden="true">🔇</span>` : ''}
+    ${count ? `<span class="nav-badge">${count > 99 ? '99+' : count}</span>` : ''}
+  `;
+  button.addEventListener('click', (event) => {
+    if (voice) {
+      selectChannel(channel.id);
+      joinLiveVoice(state.server.id, channel.id);
+      return;
+    }
+    if (!state.you?.owner) {
+      selectChannel(channel.id);
+      return;
+    }
+    openChannelMenu(event, channel);
+    selectChannel(channel.id);
+  });
+  button.addEventListener('contextmenu', (e) => {
+    if (!state.you?.owner) return;
+    openChannelMenu(e, channel);
+  });
+  button.addEventListener('keydown', (event) => {
+    if (!state.you?.owner) return;
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      openChannelMenu(event, channel);
+    }
+  });
+  container.appendChild(button);
+
+  if (!voice) return;
+  const participants = voiceParticipants(state, channel.id);
+  const connectedHere = liveVoiceConnectedHere(state.server.id, channel.id);
+  if (!participants.length && !connectedHere) return;
+  const group = document.createElement('div');
+  group.className = 'voice-members';
+  for (const participant of participants) {
+    const speaking = liveVoiceSpeaking.get(participant.memberId)?.active;
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.className = `voice-member${speaking ? ' speaking' : ''}`;
+    row.dataset.voiceMember = participant.memberId;
+    row.title = participant.name;
+    const flags = [
+      participant.sharing ? `<span class="voice-member-flag sharing" title="${esc(t('Udostępnia ekran'))}">${VOICE_SVGS.screen}</span>` : '',
+      participant.muted ? `<span class="voice-member-flag" title="${esc(t('Mikrofon wyłączony'))}">${VOICE_SVGS.micOff}</span>` : '',
+      participant.deafened ? `<span class="voice-member-flag" title="${esc(t('Słuchawki wyłączone'))}">${VOICE_SVGS.headphonesOff}</span>` : '',
+    ].join('');
+    row.innerHTML = `
+      <span class="voice-member-avatar" style="background:${esc(participant.color)}">${esc(initial(participant.name))}</span>
+      <span class="voice-member-name">${esc(participant.name)}</span>
+      ${flags ? `<span class="voice-member-flags">${flags}</span>` : ''}
+    `;
+    row.addEventListener('click', () => {
+      openServerProfile(state.server.id, participant.memberId, participant);
+    });
+    group.appendChild(row);
+  }
+  const invite = document.createElement('button');
+  invite.type = 'button';
+  invite.className = 'voice-invite-row';
+  invite.innerHTML = `
+    <span class="voice-invite-ico" aria-hidden="true">+</span>
+    <span>${esc(t('Zaproś na kanał głosowy'))}</span>
+    <span class="voice-invite-arrow" aria-hidden="true">›</span>
+  `;
+  invite.addEventListener('click', () => { void openInviteModal(channel); });
+  group.appendChild(invite);
+  container.appendChild(group);
+}
+
 function renderChannels() {
   const container = $('channelList');
   if (!container) return;
@@ -7712,7 +8453,7 @@ function renderChannels() {
   }
   const query = $('conversationSearch').value.trim().toLowerCase();
   const activeChannelId = current.kind === 'server' && current.serverId === state.server.id ? current.id : '';
-  const list = state.channels
+  const entries = state.channels
     .map((channel, index) => ({
       channel,
       index,
@@ -7728,11 +8469,21 @@ function renderChannels() {
         if (!(unread.get(`server:${state.server.id}:${channel.id}`) || 0)) return false;
       }
       return true;
-    })
+    });
+  const sortEntries = (list) => list
+    .slice()
     .sort((a, b) => Number(b.settings.pinned) - Number(a.settings.pinned) || a.index - b.index);
-  container.innerHTML = '';
+  const appendEntry = (entry) => {
+    const { channel, settings } = entry;
+    const key = `server:${state.server.id}:${channel.id}`;
+    const isActive = current.kind === 'server' && current.serverId === state.server.id && current.id === channel.id;
+    const count = isActive ? 0 : unread.get(key) || 0;
+    appendChannelNavItem(container, state, channel, settings, isActive, count);
+  };
 
-  if (!list.length) {
+  container.innerHTML = '';
+  const categories = Array.isArray(state.categories) ? state.categories : [];
+  if (!entries.length && !categories.length) {
     let label = t('Łączę z serwerem…');
     if (state.status === 'online') {
       label = state.channels.length ? t('Wszystkie kanały są ukryte.') : t('Brak kanałów');
@@ -7741,90 +8492,25 @@ function renderChannels() {
     return;
   }
 
-  for (const entry of list) {
-    const { channel, settings } = entry;
-    const key = `server:${state.server.id}:${channel.id}`;
-    const isActive = current.kind === 'server' && current.serverId === state.server.id && current.id === channel.id;
-    const count = isActive ? 0 : unread.get(key) || 0;
-    const voice = channel.type === 'voice';
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = `nav-item${voice ? ' voice-channel' : ''}${isActive ? ' active' : ''}${count ? ' unread' : ''}${settings.pinned ? ' pinned' : ''}${settings.muted ? ' muted' : ''}`;
-    button.title = voice ? t('Kanał głosowy') : `#${channel.name}`;
-    if (state.you?.owner) button.setAttribute('aria-haspopup', 'menu');
-    button.innerHTML = `
-      <span class="nav-icon${voice ? ' voice-icon' : ''}">${voice ? '🔊' : '#'}</span>
-      <span class="nav-label">${esc(channel.name)}</span>
-      ${settings.pinned ? `<span class="nav-pin" title="${esc(t('Przypięty'))}" aria-hidden="true">📌</span>` : ''}
-      ${settings.muted ? `<span class="nav-muted" title="${esc(t('Wyciszony'))}" aria-hidden="true">🔇</span>` : ''}
-      ${count ? `<span class="nav-badge">${count > 99 ? '99+' : count}</span>` : ''}
-    `;
-    button.addEventListener('click', (event) => {
-      if (voice) {
-        selectChannel(channel.id);
-        joinLiveVoice(state.server.id, channel.id);
-        return;
-      }
-      if (!state.you?.owner) {
-        selectChannel(channel.id);
-        return;
-      }
-      openChannelMenu(event, channel);
-      selectChannel(channel.id);
-    });
-    button.addEventListener('contextmenu', (e) => {
-      if (!state.you?.owner) return;
-      openChannelMenu(e, channel);
-    });
-    button.addEventListener('keydown', (event) => {
-      if (!state.you?.owner) return;
-      if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
-        openChannelMenu(event, channel);
-      }
-    });
-    container.appendChild(button);
+  if (query) {
+    for (const entry of sortEntries(entries)) appendEntry(entry);
+    return;
+  }
 
-    if (voice) {
-      const participants = voiceParticipants(state, channel.id);
-      const connectedHere = liveVoiceConnectedHere(state.server.id, channel.id);
-      if (participants.length || connectedHere) {
-        const group = document.createElement('div');
-        group.className = 'voice-members';
-        for (const participant of participants) {
-          const speaking = liveVoiceSpeaking.get(participant.memberId)?.active;
-          const row = document.createElement('button');
-          row.type = 'button';
-          row.className = `voice-member${speaking ? ' speaking' : ''}`;
-          row.dataset.voiceMember = participant.memberId;
-          row.title = participant.name;
-          const flags = [
-            participant.sharing ? `<span class="voice-member-flag sharing" title="${esc(t('Udostępnia ekran'))}">${VOICE_SVGS.screen}</span>` : '',
-            participant.muted ? `<span class="voice-member-flag" title="${esc(t('Mikrofon wyłączony'))}">${VOICE_SVGS.micOff}</span>` : '',
-            participant.deafened ? `<span class="voice-member-flag" title="${esc(t('Słuchawki wyłączone'))}">${VOICE_SVGS.headphonesOff}</span>` : '',
-          ].join('');
-          row.innerHTML = `
-            <span class="voice-member-avatar" style="background:${esc(participant.color)}">${esc(initial(participant.name))}</span>
-            <span class="voice-member-name">${esc(participant.name)}</span>
-            ${flags ? `<span class="voice-member-flags">${flags}</span>` : ''}
-          `;
-          row.addEventListener('click', () => {
-            openServerProfile(state.server.id, participant.memberId, participant);
-          });
-          group.appendChild(row);
-        }
-        const invite = document.createElement('button');
-        invite.type = 'button';
-        invite.className = 'voice-invite-row';
-        invite.innerHTML = `
-          <span class="voice-invite-ico" aria-hidden="true">+</span>
-          <span>${esc(t('Zaproś na kanał głosowy'))}</span>
-          <span class="voice-invite-arrow" aria-hidden="true">›</span>
-        `;
-        invite.addEventListener('click', () => { void openInviteModal(channel); });
-        group.appendChild(invite);
-        container.appendChild(group);
-      }
-    }
+  const categoryIds = new Set(categories.map((category) => category.id));
+  const uncategorized = entries.filter(({ channel }) => !channel.categoryId || !categoryIds.has(channel.categoryId));
+  for (const entry of sortEntries(uncategorized)) appendEntry(entry);
+  for (const category of categories) {
+    const list = entries.filter(({ channel }) => channel.categoryId === category.id);
+    container.appendChild(buildCategoryHeader(state, category, list.length));
+    if (categoryCollapsed(state.server.id, category.id)) continue;
+    for (const entry of sortEntries(list)) appendEntry(entry);
+  }
+  if (!entries.length) {
+    const empty = document.createElement('div');
+    empty.className = 'nav-empty';
+    empty.textContent = t('Wszystkie kanały są ukryte.');
+    container.appendChild(empty);
   }
 }
 
@@ -9238,6 +9924,7 @@ function renderHeader() {
   $('backBtn').style.display = embedded ? 'inline-grid' : 'none';
   $('backBtn').title = t(embedded ? 'Wróć do Mini' : 'Wstecz');
   $('backBtn').setAttribute('aria-label', t(embedded ? 'Wróć do Mini' : 'Wstecz'));
+  $('pinsBtn').hidden = true;
   if (embedded) {
     $('searchBtn').hidden = true;
     $('chatEmoji').classList.add('mini-app-emoji');
@@ -9283,6 +9970,10 @@ function renderHeader() {
     $('chatSub').textContent = state
       ? `${state.server.name} • ${isVoice ? t('Kanał głosowy') : state.status === 'online' ? `${online} ${t('Online').toLowerCase()}` : state.status === 'connecting' ? t('łączenie…') : state.status === 'reconnecting' ? t('łączę ponownie…') : t('Offline').toLowerCase()}`
       : '';
+    const pins = state?.pins.get(current.id) || [];
+    $('pinsBtn').hidden = !state || isVoice || !pins.length;
+    $('pinsCount').hidden = !pins.length;
+    $('pinsCount').textContent = pins.length > 99 ? '99+' : String(pins.length);
   } else if (current.kind === 'minigames') {
     $('chatEmoji').textContent = '🧩';
     $('chatEmoji').style.background = 'linear-gradient(140deg, var(--accent), var(--accent-2))';
@@ -9314,6 +10005,7 @@ function updateComposer() {
   $('composer').hidden = !enabled;
   input.disabled = !enabled || recording;
   $('voiceBtn').hidden = !enabled || recording;
+  $('pollBtn').hidden = current.kind !== 'server' || !channel || isVoice;
   if (current.kind === 'dm') {
     if (entry?.kind === 'server') {
       input.placeholder = enabled
@@ -9421,6 +10113,7 @@ function messagePreviewText(message) {
 }
 
 function messageIsEditable(message) {
+  if (message?.poll) return false;
   const text = String(message?.text ?? '').trim();
   if (!text) return false;
   try {
@@ -9538,7 +10231,7 @@ function replaceHistoryMessage(key, message) {
   } else {
     list.push(message);
   }
-  if (list.length > 300) list.splice(0, list.length - 300);
+  trimHistory(list);
   history.set(key, list);
   return index >= 0 ? list[index] : message;
 }
@@ -9774,6 +10467,168 @@ function toggleMessageReaction(message, emoji) {
   }
 }
 
+function pollIsClosed(poll) {
+  if (!poll) return true;
+  return Boolean(poll.closedAt) || (Number(poll.closesAt) > 0 && Number(poll.closesAt) <= Date.now());
+}
+
+function pollOptionVotes(poll, optionId) {
+  return Array.isArray(poll?.votes?.[optionId]) ? poll.votes[optionId].length : 0;
+}
+
+function pollTotalVotes(poll) {
+  const seen = new Set();
+  for (const voters of Object.values(poll?.votes || {})) {
+    if (!Array.isArray(voters)) continue;
+    for (const id of voters) seen.add(id);
+  }
+  return seen.size;
+}
+
+function pollVotedByMe(poll) {
+  const state = current.kind === 'server' ? serverState(current.serverId) : null;
+  const memberId = state?.you?.memberId || '';
+  if (!memberId) return false;
+  return Object.values(poll?.votes || {}).some((voters) => Array.isArray(voters) && voters.includes(memberId));
+}
+
+function pollDeadlineLabel(poll) {
+  if (pollIsClosed(poll)) return t('Ankieta zamknięta');
+  const closesAt = Number(poll?.closesAt) || 0;
+  if (!closesAt) return t('Bez terminu');
+  const minutes = Math.max(1, Math.ceil((closesAt - Date.now()) / 60000));
+  if (minutes < 60) return t('Koniec za {n} min', { n: minutes });
+  const hours = Math.ceil(minutes / 60);
+  if (hours < 24) return t('Koniec za {n} godz.', { n: hours });
+  return t('Koniec za {n} dni', { n: Math.ceil(hours / 24) });
+}
+
+function buildPollBlock(message) {
+  const poll = message.poll;
+  const wrap = document.createElement('div');
+  wrap.className = 'poll';
+  const closed = pollIsClosed(poll);
+  const total = pollTotalVotes(poll);
+  const voted = pollVotedByMe(poll);
+  const state = current.kind === 'server' ? serverState(current.serverId) : null;
+  const own = message.authorId === state?.you?.memberId;
+  const owner = Boolean(state?.you?.owner);
+  const canVote = !closed && Boolean(state?.ws && state.ws.readyState === WebSocket.OPEN);
+  wrap.classList.toggle('closed', closed);
+  wrap.classList.toggle('voted', voted);
+
+  const question = document.createElement('div');
+  question.className = 'poll-question';
+  question.textContent = String(message.text || '');
+  wrap.appendChild(question);
+
+  const meta = document.createElement('div');
+  meta.className = 'poll-meta';
+  meta.innerHTML = `<span>${esc(t('Oddanych głosów: {n}', { n: total }))}</span><span class="poll-dot" aria-hidden="true">•</span><span>${esc(pollDeadlineLabel(poll))}</span>${poll.multi ? `<span class="poll-dot" aria-hidden="true">•</span><span>${esc(t('Wielokrotny wybór'))}</span>` : ''}`;
+  wrap.appendChild(meta);
+
+  const options = document.createElement('div');
+  options.className = 'poll-options';
+  for (const option of Array.isArray(poll.options) ? poll.options : []) {
+    const count = pollOptionVotes(poll, option.id);
+    const percent = total ? Math.round((count / total) * 100) : 0;
+    const selected = Array.isArray(poll.votes?.[option.id])
+      && poll.votes[option.id].includes(state?.you?.memberId || '');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `poll-option${selected ? ' selected' : ''}`;
+    button.disabled = !canVote;
+    button.title = closed
+      ? t('Ankieta zamknięta')
+      : canVote ? t('Zagłosuj: {option}', { option: option.text }) : t('Brak połączenia');
+    button.innerHTML = `
+      <span class="poll-option-fill" style="width:${percent}%" aria-hidden="true"></span>
+      <span class="poll-option-main">
+        <span class="poll-option-text">${esc(option.text)}</span>
+        <span class="poll-option-count">${count} · ${percent}%</span>
+      </span>
+    `;
+    button.addEventListener('click', () => voteInPoll(message, option.id));
+    options.appendChild(button);
+  }
+  wrap.appendChild(options);
+
+  const footer = document.createElement('div');
+  footer.className = 'poll-footer';
+  const status = document.createElement('span');
+  status.className = 'poll-status';
+  status.textContent = closed
+    ? t('Ankieta zamknięta')
+    : voted ? t('Oddałeś głos — kliknij, aby zmienić') : t('Kliknij odpowiedź, aby zagłosować');
+  footer.appendChild(status);
+  if (!closed && state && (own || owner)) {
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'poll-close';
+    close.textContent = t('Zamknij ankietę');
+    close.addEventListener('click', () => closePoll(message));
+    footer.appendChild(close);
+  }
+  wrap.appendChild(footer);
+  return wrap;
+}
+
+function voteInPoll(message, optionId) {
+  const transport = messageTransport();
+  if (!transport || transport.kind !== 'server') {
+    toast(t('Brak połączenia — spróbuj ponownie.'));
+    return;
+  }
+  try {
+    transport.socket.send(JSON.stringify({
+      type: 'server:poll:vote',
+      channelId: transport.channelId,
+      messageId: message.id,
+      clientId: message.clientId,
+      optionId,
+    }));
+  } catch {
+    toast(t('Nie udało się oddać głosu.'));
+  }
+}
+
+function closePoll(message) {
+  const transport = messageTransport();
+  if (!transport || transport.kind !== 'server') {
+    toast(t('Brak połączenia — spróbuj ponownie.'));
+    return;
+  }
+  try {
+    transport.socket.send(JSON.stringify({
+      type: 'server:poll:close',
+      channelId: transport.channelId,
+      messageId: message.id,
+      clientId: message.clientId,
+    }));
+  } catch {
+    toast(t('Nie udało się zamknąć ankiety.'));
+  }
+}
+
+function toggleMessagePin(message) {
+  const transport = messageTransport();
+  if (!transport || transport.kind !== 'server') {
+    toast(t('Brak połączenia — spróbuj ponownie.'));
+    return;
+  }
+  try {
+    transport.socket.send(JSON.stringify({
+      type: 'server:pin',
+      channelId: transport.channelId,
+      messageId: message.id,
+      clientId: message.clientId,
+      pinned: !message.pinnedAt,
+    }));
+  } catch {
+    toast(t('Nie udało się zmienić przypięcia.'));
+  }
+}
+
 function beginMessageEdit(message) {
   const el = messageElement(message);
   const bubble = el?.querySelector('.bubble');
@@ -9862,6 +10717,11 @@ function startReply(message) {
 function openMessageMenu(anchor, message) {
   closeMessageMenu();
   closeReactionPicker();
+  const state = current.kind === 'server' ? serverState(current.serverId) : null;
+  const own = current.kind === 'server'
+    ? message.authorId === state?.you?.memberId
+    : message.authorId === myId;
+  const owner = Boolean(state?.you?.owner);
   const pop = document.createElement('div');
   pop.className = 'msg-menu';
   pop.setAttribute('role', 'menu');
@@ -9885,7 +10745,7 @@ function openMessageMenu(anchor, message) {
     closeMessageMenu();
     void copyMessageText(String(message.text ?? ''));
   });
-  if (messageIsEditable(message)) {
+  if (own && messageIsEditable(message)) {
     addItem(t('Edytuj wiadomość'), '✎', () => {
       closeMessageMenu();
       beginMessageEdit(message);
@@ -9895,7 +10755,17 @@ function openMessageMenu(anchor, message) {
     closeMessageMenu();
     startReply(message);
   });
-  const remove = addItem(t('Usuń wiadomość'), '🗑', (button) => {
+  if (state && (own || owner)) {
+    addItem(
+      message.pinnedAt ? t('Odepnij wiadomość') : t('Przypnij wiadomość'),
+      '📌',
+      () => {
+        closeMessageMenu();
+        toggleMessagePin(message);
+      },
+    );
+  }
+  const remove = own ? addItem(t('Usuń wiadomość'), '🗑', (button) => {
     if (button.dataset.confirm !== '1') {
       button.dataset.confirm = '1';
       button.classList.add('danger');
@@ -9911,7 +10781,7 @@ function openMessageMenu(anchor, message) {
     }
     closeMessageMenu();
     deleteMessage(message);
-  }, 'danger-soft');
+  }, 'danger-soft') : null;
 
   pop.addEventListener('click', (event) => event.stopPropagation());
   messageMenuPopover = pop;
@@ -9954,6 +10824,11 @@ const MSG_ICON_REPLY = '<svg viewBox="0 0 24 24" width="15" height="15" aria-hid
 const MSG_ICON_MORE = '<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="currentColor"><circle cx="5" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="19" cy="12" r="1.7"/></svg>';
 
 function buildMessageActions(message) {
+  const state = current.kind === 'server' ? serverState(current.serverId) : null;
+  const own = current.kind === 'server'
+    ? message.authorId === state?.you?.memberId
+    : message.authorId === myId;
+  const owner = Boolean(state?.you?.owner);
   const actions = document.createElement('div');
   actions.className = 'msg-actions';
   for (const emoji of QUICK_REACTIONS) {
@@ -9964,8 +10839,16 @@ function buildMessageActions(message) {
   actions.appendChild(messageActionButton(t('Zareaguj'), '<span class="msg-quick-emoji">☺</span>', (event, button) => {
     openReactionPicker(button, (emoji) => toggleMessageReaction(message, emoji));
   }, 'msg-react-more'));
-  if (messageIsEditable(message)) {
+  if (own && messageIsEditable(message)) {
     actions.appendChild(messageActionButton(t('Edytuj wiadomość'), MSG_ICON_EDIT, () => beginMessageEdit(message)));
+  }
+  if (state && (own || owner)) {
+    actions.appendChild(messageActionButton(
+      message.pinnedAt ? t('Odepnij wiadomość') : t('Przypnij wiadomość'),
+      '<span class="msg-quick-emoji">📌</span>',
+      () => toggleMessagePin(message),
+      `msg-pin${message.pinnedAt ? ' active' : ''}`,
+    ));
   }
   actions.appendChild(messageActionButton(t('Odpowiedz'), MSG_ICON_REPLY, () => startReply(message)));
   actions.appendChild(messageActionButton(t('Więcej akcji'), MSG_ICON_MORE, (event, button) => {
@@ -10195,7 +11078,8 @@ function buildMessage(message, grouped) {
   const meta = document.createElement('div');
   meta.className = 'msg-meta';
   const edited = message.editedAt ? ` <span class="msg-edited">(${esc(t('edytowano'))})</span>` : '';
-  meta.innerHTML = `<span class="msg-author clickable">${esc(message.authorName)}</span><span class="msg-time">${formatTime(message.at)}${edited}</span>`;
+  const pinned = message.pinnedAt ? ` <span class="msg-pin" title="${esc(t('Przypięta wiadomość'))}" aria-label="${esc(t('Przypięta wiadomość'))}">📌</span>` : '';
+  meta.innerHTML = `<span class="msg-author clickable">${esc(message.authorName)}</span><span class="msg-time">${formatTime(message.at)}${edited}${pinned}</span>`;
   meta.querySelector('.msg-author')?.addEventListener('click', openAuthor);
 
   const bubble = document.createElement('div');
@@ -10203,7 +11087,10 @@ function buildMessage(message, grouped) {
   const sticker = stickerMessageDescriptor(message.text);
   const voice = VOICE ? VOICE.parse(message.text) : null;
   const attachment = ATTACHMENTS ? ATTACHMENTS.parse(message.text) : null;
-  if (sticker) {
+  if (message.poll) {
+    bubble.classList.add('bubble-poll');
+    bubble.appendChild(buildPollBlock(message));
+  } else if (sticker) {
     bubble.classList.add('bubble-sticker');
     const img = document.createElement('img');
     img.className = 'chat-sticker';
@@ -10280,7 +11167,8 @@ function buildMessage(message, grouped) {
   main.appendChild(bubble);
   const reactions = buildReactionRow(message);
   if (reactions) main.appendChild(reactions);
-  if (own) main.appendChild(buildMessageActions(message));
+  const canManageMessage = current.kind === 'server' && Boolean(serverStateEntry?.you?.owner);
+  if (own || canManageMessage) main.appendChild(buildMessageActions(message));
   el.appendChild(avatar);
   el.appendChild(main);
   return el;
@@ -14186,6 +15074,9 @@ function bindShortcuts() {
         return;
       }
       if ($('screenShareOverlay') && !$('screenShareOverlay').hidden) { closeScreenSharePicker(); return; }
+      if ($('pinsOverlay') && !$('pinsOverlay').hidden) { closePinsPanel(); return; }
+      if ($('pollOverlay') && !$('pollOverlay').hidden) { closePollModal(); return; }
+      if ($('categoryOverlay') && !$('categoryOverlay').hidden) { closeCategoryManager(); return; }
       if ($('serverSettingsOverlay') && !$('serverSettingsOverlay').hidden) {
         if (!$('serverSettingsIconPicker').hidden) { $('serverSettingsIconPicker').hidden = true; return; }
         if (!$('serverSettingsGameMenu').hidden) { $('serverSettingsGameMenu').hidden = true; return; }

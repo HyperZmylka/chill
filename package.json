@@ -1,7 +1,7 @@
 {
   "name": "chill",
   "productName": "Chill",
-  "version": "4.19.0",
+  "version": "4.20.0",
   "description": "Chill Ă˘â‚¬â€ť spokojny komunikator desktopowy: serwery, kanaÄąâ€šy tekstowe i gÄąâ€šosowe, rozmowy na ÄąÄ˝ywo, udostĂ„â„˘pnianie ekranu, wiadomoÄąâ€şci prywatne, wiadomoÄąâ€şci gÄąâ€šosowe, emoji, naklejki, GIF-y i aktualizacje.",
   "main": "main.js",
   "private": true,

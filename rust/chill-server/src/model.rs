@@ -472,12 +472,39 @@ pub struct ServerMember {
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
 #[serde(default, rename_all = "camelCase")]
+pub struct ChannelCategory {
+    pub id: String,
+    pub name: String,
+    pub created_at: u64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
 pub struct Channel {
     pub id: String,
     pub name: String,
     #[serde(rename = "type")]
     pub channel_type: String,
     pub created_at: u64,
+    pub category_id: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PollOption {
+    pub id: String,
+    pub text: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Poll {
+    pub options: Vec<PollOption>,
+    pub votes: BTreeMap<String, Vec<String>>,
+    pub multi: bool,
+    pub created_at: u64,
+    pub closes_at: Option<u64>,
+    pub closed_at: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -511,6 +538,10 @@ pub struct Message {
     pub edited_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<ReplyPreview>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub poll: Option<Poll>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, Default)]
@@ -530,6 +561,7 @@ pub struct Server {
     pub traits: Vec<String>,
     pub games: Vec<String>,
     pub channels: Vec<Channel>,
+    pub categories: Vec<ChannelCategory>,
     pub members: Vec<ServerMember>,
     pub messages: HashMap<String, Vec<Message>>,
     pub dms: HashMap<String, Vec<Message>>,

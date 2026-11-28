@@ -18,7 +18,7 @@ const workflow = read(path.join('.github', 'workflows', 'release-build.yml'));
 test('własna wiadomość ma pasek akcji z szybkimi reakcjami', () => {
   assert.match(renderer, /const QUICK_REACTIONS = \['❤️', '✅', '🔥'\];/);
   assert.match(renderer, /function buildMessageActions\(message\)/);
-  assert.match(renderer, /if \(own\) main\.appendChild\(buildMessageActions\(message\)\);/);
+  assert.match(renderer, /if \(own \|\| canManageMessage\) main\.appendChild\(buildMessageActions\(message\)\);/);
   assert.match(renderer, /actions\.className = 'msg-actions';/);
   assert.match(renderer, /function openReactionPicker\(anchor, onPick\)/);
   assert.match(renderer, /function openMessageMenu\(anchor, message\)/);
